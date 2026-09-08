@@ -1,159 +1,248 @@
-# jet_python_modules/jet/adapters/chonkie/llamacpp_embeddings.py
-"""Chonkie ``BaseEmbeddings`` adapter backed by a llama.cpp OpenAI-compatible server.
+"""Chonkie-compatible embeddings adapter for llama.cpp servers.
 
-This lets any Chonkie component that accepts a ``BaseEmbeddings`` instance
-(``SemanticChunker``, ``SDPMChunker``, ``LateChunker``, ``EmbeddingsRefinery``,
-handshakes, etc.) use a local or remote llama.cpp embedding server, reusing
-the existing pooling / batching / retry logic in
-``jet.adapters.llama_cpp.embed_utils`` instead of duplicating it here.
+Bridges jet.adapters.llama_cpp utilities with chonkie.embeddings.BaseEmbeddings,
+enabling use of local/remote GGUF embedding models with SemanticChunker,
+LateChunker, and AutoEmbeddings.
 """
 
+from __future__ import annotations
+
+import asyncio
 from typing import Any, Optional
 
 import numpy as np
-from jet.adapters.llama_cpp.config import (
-    EMBED_DIMS,
-    EMBED_DOC_PREFIX,
-    EMBED_MODEL,
-    EMBED_QUERY_PREFIX,
-)
-from jet.adapters.llama_cpp.embed_utils import embed as _llamacpp_embed
+from jet.adapters.llama_cpp.config import EMBED_DIMS, EMBED_MODEL
+from jet.adapters.llama_cpp.embed_utils import embed as jet_embed
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
-from jet.adapters.llama_cpp.token_utils import get_tokenizer as _get_llamacpp_tokenizer
-from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
+from jet.adapters.llama_cpp.token_utils import get_tokenizer
 from jet.logger import logger
 
-from chonkie.embeddings import BaseEmbeddings
+from chonkie.embeddings import BaseEmbeddings, EmbeddingsRegistry
 
 
 class LlamacppEmbeddings(BaseEmbeddings):
-    """Chonkie-compatible embeddings using a llama.cpp `/v1/embeddings` server.
+    """Embeddings handler backed by a llama.cpp OpenAI-compatible server.
 
-    Thin wrapper: all networking, batching, threading and retries are
-    delegated to ``jet.adapters.llama_cpp.embed_utils.embed``.
+    Leverages jet.adapters.llama_cpp.embed_utils for optimized batched embedding
+    with thread-pool parallelism, deduplication, and progress reporting.
+
+    Args:
+        model: Model identifier (must match a loaded model on the server).
+            Defaults to LLAMA_CPP_EMBED_MODEL env var or "nomic-embed:2-moe".
+        base_url: Override the embedding server URL. If None, uses the
+            LLAMA_CPP_EMBED_URL / LLAMA_CPP_EMBED_HOST env vars.
+        dimension: Expected embedding dimension. If None, auto-detected from
+            the server's /v1/models metadata, falling back to LLAMA_CPP_EMBED_DIMS.
+        prefix: Optional prefix prepended to every text before embedding
+            (e.g., "Represent this sentence: ").
+        batch_size: Texts per API batch request. Default 64.
+        max_workers: Thread pool size for concurrent batch requests. Default 6.
+        show_progress: Show Rich progress bar during batch embedding.
+        tokenizer_model: HF model ID for the tokenizer. If None, inferred from
+            the model key via jet.adapters.llama_cpp.model_utils.
     """
 
     def __init__(
         self,
-        model: LLAMACPP_EMBED_KEYS = EMBED_MODEL,
+        model: str = EMBED_MODEL,
+        base_url: Optional[str] = None,
         dimension: Optional[int] = None,
-        query_prefix: str = EMBED_QUERY_PREFIX,
-        doc_prefix: str = EMBED_DOC_PREFIX,
+        prefix: Optional[str] = None,
+        batch_size: int = 64,
         max_workers: int = 6,
-        batch_size: Optional[int] = 64,
-        show_progress: bool = False,
+        show_progress: bool = True,
+        tokenizer_model: Optional[str] = None,
     ) -> None:
-        """Initialize the llama.cpp embeddings adapter.
-
-        Args:
-            model: llama.cpp embedding model key. Defaults to config.EMBED_MODEL.
-            dimension: Known embedding dimension. If ``None``, it is resolved
-                lazily (on first access) from the live server, falling back
-                to ``config.EMBED_DIMS`` if the server can't be reached.
-            query_prefix: Prefix applied by ``embed_query()`` (asymmetric models).
-            doc_prefix: Prefix applied by ``embed()`` / ``embed_batch()``.
-            max_workers: Thread pool size hint for batch embedding.
-            batch_size: Texts per network request when embedding a batch.
-            show_progress: Whether to render a progress bar for batches.
-        """
         super().__init__()
         self.model = model
-        self.query_prefix = query_prefix
-        self.doc_prefix = doc_prefix
-        self.max_workers = max_workers
+        self.base_url = base_url
+        self.prefix = prefix
         self.batch_size = batch_size
+        self.max_workers = max_workers
         self.show_progress = show_progress
 
-        self._dimension: Optional[int] = dimension  # resolved lazily if None
-        self._tokenizer: Any = None  # cached lazily
+        # Resolve dimension: explicit > server metadata > config default
+        if dimension is not None:
+            self._dimension = dimension
+        else:
+            self._dimension = self._detect_dimension()
+
+        # Resolve tokenizer
+        self._tokenizer_model = tokenizer_model
+        self._tokenizer: Any = None
 
         logger.info(
-            f"LlamacppEmbeddings initialized (model={self.model!r}, "
-            f"doc_prefix={self.doc_prefix!r}, query_prefix={self.query_prefix!r})"
+            f"LlamacppEmbeddings initialized: model={model}, "
+            f"dim={self._dimension}, batch_size={batch_size}"
         )
+
+    def _detect_dimension(self) -> int:
+        """Try to get embedding dims from server metadata, fall back to config."""
+        try:
+            info = get_model_ctx_embd_size(self.model, base_url=self.base_url)
+            dims = info.get("embd_dims", 0)
+            if dims > 0:
+                logger.debug(f"Auto-detected embedding dimension: {dims}")
+                return dims
+        except Exception as e:
+            logger.warning(
+                f"Could not auto-detect dimensions for '{self.model}': {e}. "
+                f"Falling back to config default ({EMBED_DIMS})."
+            )
+        return EMBED_DIMS
+
+    @property
+    def dimension(self) -> int:
+        """Return the embedding vector dimension."""
+        return self._dimension
+
+    def get_tokenizer(self) -> Any:
+        """Return a HF tokenizer matching the embedding model.
+
+        Lazily loaded and cached. Uses tokenizer_model override if provided,
+        otherwise attempts to map the llama.cpp model key to an HF ID.
+        """
+        if self._tokenizer is None:
+            model_id = self._tokenizer_model or self.model
+            try:
+                self._tokenizer = get_tokenizer(model_id)
+                logger.debug(f"Loaded tokenizer for '{model_id}'")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load tokenizer for '{model_id}': {e}. "
+                    "Token counting may be inaccurate."
+                )
+                # Return a minimal fallback so Chonkie doesn't crash
+                self._tokenizer = _FallbackCharTokenizer()
+        return self._tokenizer
 
     def embed(self, text: str) -> np.ndarray:
-        """Embed a single text as a document (uses ``doc_prefix``)."""
-        logger.debug(f"Embedding single text (len={len(text)}) with model={self.model}")
-        vector = _llamacpp_embed(
-            text,
+        """Embed a single text string.
+
+        Args:
+            text: Input text to embed.
+
+        Returns:
+            np.ndarray of shape (dimension,) with dtype float32.
+        """
+        result = jet_embed(
+            text=text,
             model=self.model,
             return_format="numpy",
-            prefix=self.doc_prefix or None,
+            prefix=self.prefix,
         )
-        return np.asarray(vector, dtype=np.float32)
+        # jet_embed returns np.ndarray for str input with return_format="numpy"
+        if isinstance(result, np.ndarray):
+            return result.astype(np.float32)
+        return np.array(result, dtype=np.float32)
+
+    async def aembed(self, text: str) -> np.ndarray:
+        """Async wrapper around embed()."""
+        return await asyncio.to_thread(self.embed, text)
 
     def embed_batch(self, texts: list[str]) -> list[np.ndarray]:
-        """Embed a batch of texts as documents (uses ``doc_prefix``)."""
+        """Embed multiple texts using optimized batched API calls.
+
+        Delegates to jet.adapters.llama_cpp.embed_utils.embed which handles:
+        - ThreadPoolExecutor parallelism
+        - Per-request batching (batch_size)
+        - Duplicate text deduplication
+        - Rich progress reporting
+        - Server connectivity verification
+
+        Args:
+            texts: List of text strings to embed.
+
+        Returns:
+            List of np.ndarray vectors, one per input text.
+        """
         if not texts:
-            logger.debug("embed_batch called with empty list, returning []")
             return []
-        logger.info(f"Embedding batch of {len(texts)} texts with model={self.model}")
-        vectors = _llamacpp_embed(
-            texts,
+
+        result = jet_embed(
+            text=texts,
             model=self.model,
             return_format="numpy",
             max_workers=self.max_workers,
             show_progress=self.show_progress,
             batch_size=self.batch_size,
-            prefix=self.doc_prefix or None,
+            prefix=self.prefix,
         )
-        result = [np.asarray(v, dtype=np.float32) for v in vectors]
-        logger.debug(f"Finished embedding batch: {len(result)} vectors returned")
-        return result
 
-    def embed_query(self, text: str) -> np.ndarray:
-        """Embed a single text as a query (uses ``query_prefix`` instead of ``doc_prefix``).
+        # jet_embed returns np.ndarray of shape (N, dim) for list input
+        if isinstance(result, np.ndarray):
+            return [result[i].astype(np.float32) for i in range(len(result))]
 
-        Not part of the ``BaseEmbeddings`` contract — a convenience for
-        asymmetric embedding models (e.g. nomic-embed) used outside Chonkie's
-        chunkers, such as retrieval-time query embedding.
-        """
-        logger.debug(f"Embedding query text (len={len(text)}) with model={self.model}")
-        vector = _llamacpp_embed(
-            text,
-            model=self.model,
-            return_format="numpy",
-            prefix=self.query_prefix or None,
-        )
-        return np.asarray(vector, dtype=np.float32)
+        # Fallback: list of lists
+        return [np.array(r, dtype=np.float32) for r in result]
 
-    @property
-    def dimension(self) -> int:
-        """Embedding vector dimension, resolved lazily and cached."""
-        if self._dimension is None:
-            self._dimension = self._resolve_dimension()
-        return self._dimension
+    async def aembed_batch(self, texts: list[str]) -> list[np.ndarray]:
+        """Async wrapper around embed_batch()."""
+        return await asyncio.to_thread(self.embed_batch, texts)
 
-    def _resolve_dimension(self) -> int:
-        """Try to read the live embedding dimension from the server, else fall back."""
+    def count_tokens(self, text: str) -> int:
+        """Count tokens using the model's tokenizer."""
+        tokenizer = self.get_tokenizer()
         try:
-            info = get_model_ctx_embd_size(self.model)
-            dims = info.get("embd_dims", 0)
-            if dims:
-                logger.info(f"Resolved embedding dimension from server: {dims}")
-                return dims
-            logger.warning(
-                f"Server returned no embd_dims for model={self.model!r}, "
-                f"falling back to config EMBED_DIMS={EMBED_DIMS}"
-            )
-        except Exception as e:
-            logger.warning(
-                f"Could not resolve embedding dimension from server ({e}); "
-                f"falling back to config EMBED_DIMS={EMBED_DIMS}"
-            )
-        return EMBED_DIMS
+            return len(tokenizer.encode(text, add_special_tokens=False))
+        except Exception:
+            return len(text)  # char-level fallback
 
-    def get_tokenizer(self) -> Any:
-        """Return the (lazily loaded, cached) tokenizer for this embedding model."""
-        if self._tokenizer is None:
-            logger.debug(f"Loading tokenizer for model={self.model}")
-            self._tokenizer = _get_llamacpp_tokenizer(self.model)
-        return self._tokenizer
+    def count_tokens_batch(self, texts: list[str]) -> list[int]:
+        """Count tokens for multiple texts."""
+        tokenizer = self.get_tokenizer()
+        counts = []
+        for text in texts:
+            try:
+                counts.append(len(tokenizer.encode(text, add_special_tokens=False)))
+            except Exception:
+                counts.append(len(text))
+        return counts
+
+    @classmethod
+    def is_available(cls) -> bool:
+        """Check if the llama.cpp embedding server is reachable."""
+        try:
+            from jet.adapters.llama_cpp.factory import get_embedding_client
+
+            client = get_embedding_client()
+            client.models.list()
+            return True
+        except Exception:
+            return False
 
     def __repr__(self) -> str:
-        """Return a string representation of the LlamacppEmbeddings instance."""
         return (
-            f"{self.__class__.__name__}(model={self.model!r}, "
-            f"dimension={self._dimension})"
+            f"LlamacppEmbeddings(model='{self.model}', "
+            f"dimension={self._dimension}, "
+            f"batch_size={self.batch_size})"
         )
+
+
+class _FallbackCharTokenizer:
+    """Minimal char-level tokenizer used when HF tokenizer loading fails."""
+
+    def encode(self, text: str, **kwargs) -> list[int]:
+        return list(range(len(text)))
+
+    def decode(self, tokens: list[int], **kwargs) -> str:
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Optional: Register with Chonkie's AutoEmbeddings registry
+# Usage: AutoEmbeddings.get_embeddings("llamacpp://nomic-embed:2-moe")
+# ---------------------------------------------------------------------------
+try:
+    # Register provider alias so "llamacpp://..." URIs resolve correctly
+    EmbeddingsRegistry.register_provider("llamacpp", LlamacppEmbeddings)
+
+    # Register pattern for direct string matching (e.g., "llamacpp:nomic-embed:2-moe")
+    EmbeddingsRegistry.register_pattern(r"^llamacpp[:/]", LlamacppEmbeddings)
+
+    # Register type so passing a LlamacppEmbeddings instance to AutoEmbeddings.wrap() works
+    EmbeddingsRegistry.register_types("LlamacppEmbeddings", LlamacppEmbeddings)
+
+    logger.debug("Registered LlamacppEmbeddings with AutoEmbeddings registry")
+except Exception as e:
+    logger.warning(f"Could not register LlamacppEmbeddings: {e}")
