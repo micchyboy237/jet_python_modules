@@ -320,6 +320,13 @@ async def scroll_to_bottom(
 
     s = settings or DEFAULT_SETTINGS
     logger.debug(f"scroll_to_bottom: strategy={strategy}, mode={mode}")
+
+    # Wait for initial dynamic content to render before measuring scroll height.
+    # Without this, SPAs that load content via XHR after domcontentloaded will
+    # report scrollHeight == innerHeight on the first check, causing a false
+    # "bottom reached" before any scrolling occurs.
+    await page.wait_for_timeout(delay_ms)
+
     start_time = asyncio.get_event_loop().time()
     last_height = await page.evaluate("document.documentElement.scrollHeight")
     no_change_count = 0
@@ -350,16 +357,22 @@ async def scroll_to_bottom(
 
         if mode == "increment":
             if bottom_reached and not height_changed:
-                logger.debug(f"Bottom reached and stable after {attempt} attempts")
-                break
+                # Require minimum scroll activity before accepting stability.
+                # Prevents false positives on pages where initial scrollHeight
+                # equals viewport height before dynamic content loads.
+                if attempt >= 2 or height_changed:
+                    logger.debug(f"Bottom reached and stable after {attempt} attempts")
+                    break
+                logger.debug("Apparent bottom on first attempt, continuing to verify")
             if no_change_count >= s.scroll_max_no_change:
                 logger.warning(
                     f"No height change for {s.scroll_max_no_change} attempts, stopping"
                 )
                 break
         elif not height_changed:
-            logger.debug(f"Scroll stabilized after {attempt} attempts")
-            break
+            if attempt >= 2:
+                logger.debug(f"Scroll stabilized after {attempt} attempts")
+                break
 
         last_height = new_height
 
