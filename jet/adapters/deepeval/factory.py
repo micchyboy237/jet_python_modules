@@ -1,9 +1,9 @@
 # jet.adapters.deepeval.factory
 
 from deepeval.models import DeepEvalBaseLLM
-from jet.adapters.deepeval.client import CustomOpenAIClient
+from jet.adapters.deepeval.llamacpp_model import LlamacppModel
 
 
-def get_chat_openai(**kwargs) -> DeepEvalBaseLLM:
-    llm = CustomOpenAIClient(**kwargs)
+def get_llm_client(**kwargs) -> DeepEvalBaseLLM:
+    llm = LlamacppModel(**kwargs)
     return llm
