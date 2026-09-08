@@ -1,11 +1,8 @@
-"""Pure LLM Utilities Adapter for llama.cpp
+"""LLM Utilities Adapter for llama.cpp with Built-in Observability
 
-Lightweight sync/async interface to llama.cpp-compatible servers (OpenAI API
-protocol). Provides agentic tool-use loops, vision input, streaming, and
-structured output validation WITHOUT OpenTelemetry or Phoenix overhead.
-
-For traced execution with rich console output and Phoenix integration,
-use `jet.adapters.llama_cpp.llm_utils_observed` instead.
+High-level sync/async interface to llama.cpp-compatible servers (OpenAI API
+protocol). Provides automatic tracing, agentic tool-use loops, vision input,
+streaming, and structured output validation via OpenTelemetry and Phoenix.
 
 ## Function Selection
 | Need                               | Sync       | Async      |
@@ -18,9 +15,9 @@ no chat template. generate()/agenerate() do NOT support tools, vision, or
 structured output.
 
 ## Quick Start
-    from jet.adapters.llama_cpp.llm_utils import chat
+    from jet.adapters.llama_cpp.llm_utils_observed import chat
 
-    # Simple chat (no tracing overhead)
+    # Simple chat (traced by default)
     result = chat("Explain OpenTelemetry in one sentence.")
     print(result.content)
 
@@ -63,7 +60,7 @@ After streaming completes, result.structured is a StructuredResult containing:
 - .parsed (BaseModel | dict | list | None): Typed instance or raw dict/list.
 - .error (str | None): Human-readable failure description.
 - .validation_errors (list[str]): Individual field-level validation failures.
-- .validator_backend (str | None): Which validator was used.
+- .validator_backend (str | None): Which validator was used (for observability).
 
 Always check .success before reading .parsed.
 
@@ -103,6 +100,15 @@ Always check .success before reading .parsed.
 ### Structured Output (chat()/achat() only)
 - response_format (Any): See Structured Output section above.
 
+### Observability
+- project_name (str): Phoenix project for trace grouping. Empty string disables
+  observability setup but still uses the observed engine.
+  Default: "<func>-llm-utils-obs".
+- capture_content (bool, default True): Record prompt/response text in traces.
+  Set False for PII-sensitive workloads.
+- phoenix_url (str): Phoenix server base URL. Default: PHOENIX_URL constant.
+- session_id (str | None): Groups related traces as one conversation thread.
+
 ### Client / Misc
 - client (OpenAI | AsyncOpenAI | None): Pre-configured client. If None, one is
   created via get_llm_client()/get_async_llm_client().
@@ -119,7 +125,8 @@ All four functions return StreamCompletionResult with:
 - .structured (StructuredResult | None): Only populated when response_format is used.
 
 ## Key Behaviors
-- Zero OTel/Phoenix overhead. No spans, no trace URLs, no rich console output.
+- Observability auto-configures whenever project_name is non-empty.
+  Setup is idempotent (safe to call multiple times across functions).
 - Structured output parsing happens AFTER the stream completes. The validator
   backend is selected once at module import and logged automatically.
 - Grammar mode moves the GBNF string from response_format into extra_body
@@ -131,20 +138,21 @@ All four functions return StreamCompletionResult with:
 import argparse
 from typing import Any, Callable
 
-from jet.libs.llama_cpp.usage.chat_stream import (
-    MODEL,
+from jet.libs.llama_cpp.usage.chat_stream import MODEL
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    PHOENIX_URL,
 )
-from jet.libs.llama_cpp.usage.chat_stream import (
-    run_chat_stream as _pure_chat,
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    run_chat_stream as _obs_chat,
 )
-from jet.libs.llama_cpp.usage.chat_stream import (
-    run_chat_stream_async as _pure_achat,
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    run_chat_stream_async as _obs_achat,
 )
-from jet.libs.llama_cpp.usage.chat_stream import (
-    run_generate_stream as _pure_generate,
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    run_generate_stream as _obs_generate,
 )
-from jet.libs.llama_cpp.usage.chat_stream import (
-    run_generate_stream_async as _pure_agenerate,
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    run_generate_stream_async as _obs_agenerate,
 )
 from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from openai import AsyncOpenAI, OpenAI
@@ -155,6 +163,9 @@ def chat(
     | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
+    project_name: str = "chat-llm-utils-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -175,14 +186,21 @@ def chat(
     response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> StreamCompletionResult:
     """Synchronous multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
 
-    logger.debug(f"💬 chat() called with type={type(prompt_or_messages).__name__}")
-    return _pure_chat(
+    logger.debug(
+        f"💬 chat() called with type={type(prompt_or_messages).__name__}, "
+        f"project={project_name}"
+    )
+    return _obs_chat(
         prompt_or_messages=prompt_or_messages,
         model=model,
+        project_name=project_name,
+        capture_content=capture_content,
+        phoenix_url=phoenix_url,
         image_source=image_source,
         client=client,
         enable_thinking=enable_thinking,
@@ -203,6 +221,7 @@ def chat(
         response_format=response_format,
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
+        session_id=session_id,
     )
 
 
@@ -211,6 +230,9 @@ async def achat(
     | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
+    project_name: str = "achat-llm-utils-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
     enable_thinking: bool = False,
@@ -231,14 +253,21 @@ async def achat(
     response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> StreamCompletionResult:
     """Async multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
 
-    logger.debug(f"💬 achat() called with type={type(prompt_or_messages).__name__}")
-    return await _pure_achat(
+    logger.debug(
+        f"💬 achat() called with type={type(prompt_or_messages).__name__}, "
+        f"project={project_name}"
+    )
+    return await _obs_achat(
         prompt_or_messages=prompt_or_messages,
         model=model,
+        project_name=project_name,
+        capture_content=capture_content,
+        phoenix_url=phoenix_url,
         image_source=image_source,
         client=client,
         enable_thinking=enable_thinking,
@@ -259,6 +288,7 @@ async def achat(
         response_format=response_format,
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
+        session_id=session_id,
     )
 
 
@@ -266,6 +296,9 @@ def generate(
     prompt: str,
     model: str = MODEL,
     *,
+    project_name: str = "generate-llm-utils-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
     client: OpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -279,14 +312,20 @@ def generate(
     seed: int | None = None,
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> StreamCompletionResult:
     """Synchronous raw text generation alternative to chat()."""
     from jet.logger import logger
 
-    logger.debug(f"✏️ generate() called with prompt length={len(prompt)}")
-    return _pure_generate(
+    logger.debug(
+        f"✏️ generate() called with prompt length={len(prompt)}, project={project_name}"
+    )
+    return _obs_generate(
         prompt=prompt,
         model=model,
+        project_name=project_name,
+        capture_content=capture_content,
+        phoenix_url=phoenix_url,
         client=client,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -300,6 +339,7 @@ def generate(
         seed=seed,
         stop=stop,
         extra_body_params=extra_body_params,
+        session_id=session_id,
     )
 
 
@@ -307,6 +347,9 @@ async def agenerate(
     prompt: str,
     model: str = MODEL,
     *,
+    project_name: str = "agenerate-llm-utils-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
     client: AsyncOpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -320,14 +363,20 @@ async def agenerate(
     seed: int | None = None,
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> StreamCompletionResult:
     """Asynchronous raw text generation alternative to achat()."""
     from jet.logger import logger
 
-    logger.debug(f"✏️ agenerate() called with prompt length={len(prompt)}")
-    return await _pure_agenerate(
+    logger.debug(
+        f"✏️ agenerate() called with prompt length={len(prompt)}, project={project_name}"
+    )
+    return await _obs_agenerate(
         prompt=prompt,
         model=model,
+        project_name=project_name,
+        capture_content=capture_content,
+        phoenix_url=phoenix_url,
         client=client,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -341,12 +390,13 @@ async def agenerate(
         seed=seed,
         stop=stop,
         extra_body_params=extra_body_params,
+        session_id=session_id,
     )
 
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Stream vision-model chat completions (pure, no observability)."
+        description="Stream vision-model chat completions with Phoenix observability."
     )
     parser.add_argument(
         "prompt",
@@ -369,6 +419,12 @@ def get_args() -> argparse.Namespace:
         help="Model name to request (env: LLAMA_CPP_VISION_MODEL).",
     )
     parser.add_argument(
+        "--project",
+        type=str,
+        default="achat-llm-utils-obs",
+        help="Phoenix project name to log traces under.",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -388,6 +444,7 @@ if __name__ == "__main__":
             args.prompt,
             model=args.model,
             image_source=args.image_source,
+            project_name=args.project,
             seed=args.seed,
         )
     )

@@ -112,7 +112,6 @@ class LlamacppEmbeddings(BaseEmbeddings):
                     f"Failed to load tokenizer for '{model_id}': {e}. "
                     "Token counting may be inaccurate."
                 )
-                # Return a minimal fallback so Chonkie doesn't crash
                 self._tokenizer = _FallbackCharTokenizer()
         return self._tokenizer
 
@@ -131,7 +130,6 @@ class LlamacppEmbeddings(BaseEmbeddings):
             return_format="numpy",
             prefix=self.prefix,
         )
-        # jet_embed returns np.ndarray for str input with return_format="numpy"
         if isinstance(result, np.ndarray):
             return result.astype(np.float32)
         return np.array(result, dtype=np.float32)
@@ -180,13 +178,22 @@ class LlamacppEmbeddings(BaseEmbeddings):
         """Async wrapper around embed_batch()."""
         return await asyncio.to_thread(self.embed_batch, texts)
 
+    def similarity(self, u: np.ndarray, v: np.ndarray) -> np.float32:
+        """Compute cosine similarity between two embedding vectors."""
+        dot = np.dot(u, v)
+        norm_u = np.linalg.norm(u)
+        norm_v = np.linalg.norm(v)
+        if norm_u == 0 or norm_v == 0:
+            return np.float32(0.0)
+        return np.float32(dot / (norm_u * norm_v))
+
     def count_tokens(self, text: str) -> int:
         """Count tokens using the model's tokenizer."""
         tokenizer = self.get_tokenizer()
         try:
             return len(tokenizer.encode(text, add_special_tokens=False))
         except Exception:
-            return len(text)  # char-level fallback
+            return len(text)
 
     def count_tokens_batch(self, texts: list[str]) -> list[int]:
         """Count tokens for multiple texts."""
@@ -230,17 +237,17 @@ class _FallbackCharTokenizer:
 
 
 # ---------------------------------------------------------------------------
-# Optional: Register with Chonkie's AutoEmbeddings registry
+# Register with Chonkie's AutoEmbeddings registry
 # Usage: AutoEmbeddings.get_embeddings("llamacpp://nomic-embed:2-moe")
 # ---------------------------------------------------------------------------
 try:
-    # Register provider alias so "llamacpp://..." URIs resolve correctly
+    # Provider alias: matches "llamacpp://..." URIs
     EmbeddingsRegistry.register_provider("llamacpp", LlamacppEmbeddings)
 
-    # Register pattern for direct string matching (e.g., "llamacpp:nomic-embed:2-moe")
+    # Pattern fallback: matches "llamacpp:..." or "llamacpp/..." strings
     EmbeddingsRegistry.register_pattern(r"^llamacpp[:/]", LlamacppEmbeddings)
 
-    # Register type so passing a LlamacppEmbeddings instance to AutoEmbeddings.wrap() works
+    # Type registration: allows AutoEmbeddings.wrap(llamacpp_instance)
     EmbeddingsRegistry.register_types("LlamacppEmbeddings", LlamacppEmbeddings)
 
     logger.debug("Registered LlamacppEmbeddings with AutoEmbeddings registry")
