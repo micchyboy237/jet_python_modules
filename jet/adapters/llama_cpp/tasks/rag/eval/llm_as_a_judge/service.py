@@ -193,11 +193,9 @@ class RAGService:
         result = await achat(
             prompt_or_messages=messages,
             model=self.model,
-            project_name="rag-generation",
             temperature=0.3,
             max_tokens=reserved_tokens,
             enable_thinking=False,
-            capture_content=True,
         )
         logger.info(
             "✅ Generation complete: %d chars, finish=%s, tokens=%s",

@@ -63,12 +63,10 @@ async def main():
     result = await achat(
         prompt_or_messages=messages,
         model="qwen3.5-uncensored:2b",
-        project_name="demo-judge-primitives",
         temperature=0.0,
         max_tokens=256,
         response_format=RelevanceJudgment,
         enable_thinking=False,
-        capture_content=True,
     )
 
     # Inspect all StreamCompletionResult fields
@@ -117,12 +115,10 @@ async def main():
     result2 = await achat(
         prompt_or_messages=extract_messages,
         model="qwen3.5-uncensored:2b",
-        project_name="demo-judge-primitives",
         temperature=0.0,
         max_tokens=512,
         response_format={"type": "array", "items": {"type": "string"}},
         enable_thinking=False,
-        capture_content=True,
     )
 
     print(f"\n🔢 Tokens used:   {result2.usage}")
@@ -155,12 +151,10 @@ async def main():
     result3 = await achat(
         prompt_or_messages=trunc_messages,
         model="qwen3.5-uncensored:2b",
-        project_name="demo-judge-primitives",
         temperature=0.0,
         max_tokens=64,  # Intentionally too low to trigger truncation
         response_format={"type": "array", "items": {"type": "string"}},
         enable_thinking=False,
-        capture_content=True,
     )
 
     print(f"\n🏁 Finish reason: {result3.finish_reason}")
@@ -184,14 +178,10 @@ async def main():
         ("Pydantic structured parse", result.structured and result.structured.success),
         ("Array JSON Schema parse", result2.structured and result2.structured.success),
         (
-            "Token usage tracking",
+            "Token usage",
             result.usage is not None and result.usage.get("total_tokens", 0) > 0,
         ),
         ("Truncation detection", result3.finish_reason == "length"),
-        (
-            "Phoenix tracing active",
-            True,
-        ),  # Verified by project_name appearing in Phoenix UI
     ]
     all_pass = True
     for label, passed in checks:

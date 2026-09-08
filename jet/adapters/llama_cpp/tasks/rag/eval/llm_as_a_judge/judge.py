@@ -39,27 +39,22 @@ class JetLLMJudge:
         response_format: Any,
         metric_name: str,
         max_tokens: int | None = None,
-        session_id: str | None = None,
     ) -> StreamCompletionResult:
         logger.debug(
-            "🔍 Judge [%s] calling achat: model=%s, msgs=%d, format=%s, session=%s",
+            "🔍 Judge [%s] calling achat: model=%s, msgs=%d, format=%s",
             metric_name,
             self.model,
             len(messages),
             type(response_format).__name__,
-            session_id,
         )
         result: StreamCompletionResult = await achat(
             prompt_or_messages=messages,
             model=self.model,
-            project_name=f"{self.project_prefix}-{metric_name}",
             temperature=self.EVAL_TEMPERATURE,
             max_tokens=max_tokens or self.EVAL_MAX_TOKENS,
             response_format=response_format,
             enable_thinking=False,
-            capture_content=True,
             seed=self.EVAL_SEED,
-            session_id=session_id,
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         logger.debug(
@@ -77,9 +72,7 @@ class JetLLMJudge:
             )
         return result
 
-    async def extract_claims(
-        self, text: str, *, session_id: str | None = None
-    ) -> tuple[list[str], int]:
+    async def extract_claims(self, text: str) -> tuple[list[str], int]:
         messages = [
             {
                 "role": "user",
@@ -96,7 +89,6 @@ class JetLLMJudge:
             {"type": "array", "items": {"type": "string"}},
             "claim-extraction",
             max_tokens=self.CLAIM_MAX_TOKENS,
-            session_id=session_id,
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
@@ -115,8 +107,6 @@ class JetLLMJudge:
         self,
         query: str,
         chunk: str,
-        *,
-        session_id: str | None = None,
     ) -> tuple[RelevanceJudgment, int]:
         schema_desc = json.dumps(RelevanceJudgment.model_json_schema(), indent=2)
         messages = [
@@ -130,9 +120,7 @@ class JetLLMJudge:
                 ),
             },
         ]
-        result = await self._call_judge(
-            messages, RelevanceJudgment, "relevance", session_id=session_id
-        )
+        result = await self._call_judge(messages, RelevanceJudgment, "relevance")
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
             error = (
@@ -154,8 +142,6 @@ class JetLLMJudge:
         self,
         claims: list[str],
         context: str,
-        *,
-        session_id: str | None = None,
     ) -> tuple[list[ClaimVerification], int]:
         if not claims:
             return [], 0
@@ -177,7 +163,6 @@ class JetLLMJudge:
             {"type": "array", "items": ClaimVerification.model_json_schema()},
             "faithfulness",
             max_tokens=self.CLAIM_MAX_TOKENS,
-            session_id=session_id,
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
@@ -196,8 +181,6 @@ class JetLLMJudge:
         self,
         answer: str,
         n: int = 3,
-        *,
-        session_id: str | None = None,
     ) -> tuple[list[str], int]:
         messages = [
             {
@@ -214,7 +197,6 @@ class JetLLMJudge:
             messages,
             {"type": "array", "items": {"type": "string"}},
             "answer-relevancy",
-            session_id=session_id,
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:

@@ -29,16 +29,11 @@ class RAGMetrics:
         self,
         query: str,
         contexts: list[str],
-        *,
-        session_id: str | None = None,
     ) -> tuple[float, int]:
         if not contexts:
             return 0.0, 0
         judgments = await asyncio.gather(
-            *[
-                self.judge.judge_chunk_relevance(query, chunk, session_id=session_id)
-                for chunk in contexts
-            ]
+            *[self.judge.judge_chunk_relevance(query, chunk) for chunk in contexts]
         )
         total_tokens = sum(t for _, t in judgments)
         weighted_score = 0.0
@@ -53,17 +48,13 @@ class RAGMetrics:
         self,
         response: str,
         contexts: list[str],
-        *,
-        session_id: str | None = None,
     ) -> tuple[float, float, int]:
         context_text = "\n---\n".join(contexts)
-        claims, extract_tokens = await self.judge.extract_claims(
-            response, session_id=session_id
-        )
+        claims, extract_tokens = await self.judge.extract_claims(response)
         if not claims:
             return 1.0, 0.0, extract_tokens
         verifications, verify_tokens = await self.judge.verify_claims(
-            claims, context_text, session_id=session_id
+            claims, context_text
         )
         total_tokens = extract_tokens + verify_tokens
         if not verifications:
@@ -79,13 +70,9 @@ class RAGMetrics:
         self,
         query: str,
         response: str,
-        *,
-        session_id: str | None = None,
     ) -> tuple[float, int]:
         """Semantic similarity via embeddings instead of lexical overlap."""
-        questions, tokens = await self.judge.generate_reverse_questions(
-            response, session_id=session_id
-        )
+        questions, tokens = await self.judge.generate_reverse_questions(response)
         if not questions:
             return 0.0, tokens
 

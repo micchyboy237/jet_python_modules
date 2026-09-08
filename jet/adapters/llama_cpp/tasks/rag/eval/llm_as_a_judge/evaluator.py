@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 
 from jet.adapters.llama_cpp.chunking_utils import truncate_texts
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
@@ -100,32 +99,20 @@ class RAGEvaluator:
         query: str,
         contexts: list[str],
         response: str,
-        session_id: str | None = None,  # ✅ NEW PARAMETER
     ) -> RAGEvaluationResult:
         """
         Reference-free safety evaluation.
         Runs AFTER response is sent to user via background worker.
         Computes faithfulness, hallucination rate, and answer relevancy.
         Context is truncated to fit judge model window before verification.
-
-        Args:
-            session_id: Optional session ID to correlate traces with the parent workflow.
-                        If provided, uses this ID; otherwise generates a new one.
         """
-        # ✅ UPDATED: Use provided session_id or generate new one
-        eval_session_id = session_id or f"eval-{uuid.uuid4().hex[:12]}"
-
         safe_contexts = self._truncate_contexts_for_judge(contexts)
         (
             (faithfulness, halluc_rate, faith_tokens),
             (relevancy, rel_tokens),
         ) = await asyncio.gather(
-            self.metrics.compute_faithfulness(
-                response, safe_contexts, session_id=eval_session_id
-            ),
-            self.metrics.compute_answer_relevancy(
-                query, response, session_id=eval_session_id
-            ),
+            self.metrics.compute_faithfulness(response, safe_contexts),
+            self.metrics.compute_answer_relevancy(query, response),
         )
         result = RAGEvaluationResult(
             stage=EvalStage.PRODUCTION_ASYNC,
@@ -150,27 +137,18 @@ class RAGEvaluator:
         contexts: list[str],
         response: str,
         reference: str,
-        session_id: str | None = None,  # ✅ NEW PARAMETER
     ) -> RAGEvaluationResult:
         """
         Full benchmark suite with ground-truth reference.
         Used in CI/CD regression testing and model comparison.
         Computes ALL metrics including Contextual Recall (requires reference).
         Context is truncated for both faithfulness and recall verification.
-
-        Args:
-            session_id: Optional session ID to correlate traces.
         """
-        # ✅ UPDATED: Use provided session_id or generate new one
-        eval_session_id = session_id or f"eval-offline-{uuid.uuid4().hex[:12]}"
-
         safe_contexts = self._truncate_contexts_for_judge(contexts)
         context_text = "\n---\n".join(safe_contexts)
-        ref_claims, ref_extract_tokens = await self.judge.extract_claims(
-            reference, session_id=eval_session_id
-        )
+        ref_claims, ref_extract_tokens = await self.judge.extract_claims(reference)
         ref_verifications, ref_verify_tokens = await self.judge.verify_claims(
-            ref_claims, context_text, session_id=eval_session_id
+            ref_claims, context_text
         )
         recall_tokens = ref_extract_tokens + ref_verify_tokens
         attributable = sum(1 for v in ref_verifications if v["status"] == "supported")
@@ -180,18 +158,13 @@ class RAGEvaluator:
         precision, prec_tokens = await self.metrics.compute_contextual_precision(
             query,
             contexts,
-            session_id=eval_session_id,
         )
         (
             (faithfulness, halluc_rate, faith_tokens),
             (relevancy, rel_tokens),
         ) = await asyncio.gather(
-            self.metrics.compute_faithfulness(
-                response, safe_contexts, session_id=eval_session_id
-            ),
-            self.metrics.compute_answer_relevancy(
-                query, response, session_id=eval_session_id
-            ),
+            self.metrics.compute_faithfulness(response, safe_contexts),
+            self.metrics.compute_answer_relevancy(query, response),
         )
         total_tokens = prec_tokens + recall_tokens + faith_tokens + rel_tokens
         return RAGEvaluationResult(

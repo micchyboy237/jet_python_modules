@@ -8,7 +8,6 @@ from typing import Any
 from jet.adapters.llama_cpp.chunking_utils import chunk_markdown_hierarchy_with_data
 from jet.adapters.llama_cpp.config import EMBED_MODEL, LLM_MODEL, RERANK_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
-from jet.adapters.llama_cpp.llm_utils import achat
 from jet.adapters.llama_cpp.model_utils import (
     get_loaded_models,
     get_model_ctx_embd_size,
@@ -20,6 +19,7 @@ from jet.scrapers.playwright_utils import scrape_url
 from jet.search.searxng import async_search_searxng
 from playwright.async_api import async_playwright
 
+from .llm_client import safe_achat
 from .models import (
     ExtractedLinks,
     GroundingResult,
@@ -336,12 +336,22 @@ class AgenticRAG:
         }
 
     async def _plan_query(self, query: str) -> QueryPlan:
-        result = await achat(
-            PLANNING_PROMPT.format(query=query),
+        """Plan query decomposition with standardized error handling."""
+        messages = [
+            {
+                "role": "user",
+                "content": PLANNING_PROMPT.format(query=query),
+            }
+        ]
+
+        result = await safe_achat(
+            messages=messages,
             model=self.llm_model,
             response_format=QueryPlan,
             temperature=0.1,
+            metric_name="planning",
         )
+
         if result.structured and result.structured.success:
             return result.structured.parsed
         logger.warning("[AgenticRAG] Planning failed, using raw query")
@@ -350,14 +360,26 @@ class AgenticRAG:
     async def _check_grounding(
         self, content: str, sq_id: str, sq_map: dict[str, SubQuery]
     ) -> GroundingResult:
+        """Verify page content answers a sub-query with safe context handling."""
         sq_text = sq_map[sq_id].text if sq_id in sq_map else "the original query"
-        truncated = content[:4000]
-        result = await achat(
-            GROUNDING_PROMPT.format(sub_query=sq_text, content=truncated),
+
+        # Build messages with full content; safe_achat handles truncation
+        messages = [
+            {
+                "role": "user",
+                "content": GROUNDING_PROMPT.format(sub_query=sq_text, content=content),
+            }
+        ]
+
+        result = await safe_achat(
+            messages=messages,
             model=self.llm_model,
             response_format=GroundingResult,
             temperature=0.0,
+            context_text=content,
+            metric_name="grounding",
         )
+
         if result.structured and result.structured.success:
             return result.structured.parsed
         return GroundingResult(is_grounded=False, evidence_summary="LLM parsing failed")
@@ -365,15 +387,26 @@ class AgenticRAG:
     async def _extract_links(
         self, content: str, unanswered_ids: set[str]
     ) -> ExtractedLinks:
-        result = await achat(
-            LINK_EXTRACTION_PROMPT.format(
-                unanswered_ids=", ".join(unanswered_ids),
-                content=content[:4000],
-            ),
+        """Extract relevant links from page content with safe context handling."""
+        messages = [
+            {
+                "role": "user",
+                "content": LINK_EXTRACTION_PROMPT.format(
+                    unanswered_ids=", ".join(unanswered_ids),
+                    content=content,
+                ),
+            }
+        ]
+
+        result = await safe_achat(
+            messages=messages,
             model=self.llm_model,
             response_format=ExtractedLinks,
             temperature=0.1,
+            context_text=content,
+            metric_name="link-extraction",
         )
+
         if result.structured and result.structured.success:
             return result.structured.parsed
         return ExtractedLinks(links=[])
@@ -462,13 +495,17 @@ class AgenticRAG:
         )
         messages = [system_msg, {"role": "user", "content": user_content}]
 
-        result = await achat(
-            messages,
+        # Use safe_achat for synthesis with context awareness
+        result = await safe_achat(
+            messages=messages,
             model=self.llm_model,
             response_format=SynthesizedAnswer,
             temperature=0.2,
             max_tokens=int(self.synthesis_token_budget * GENERATION_RESERVE_RATIO),
+            context_text=user_content,
+            metric_name="synthesis",
         )
+
         if result.structured and result.structured.success:
             return result.structured.parsed
 
