@@ -103,13 +103,54 @@ def build_hierarchy(
 
     def _get_heading_level(el) -> int:
         cat = getattr(el, "category", "")
+
+        # Explicitly exclude non-heading categories that Unstructured
+        # sometimes misclassifies as Title (e.g., list items, form fields)
+        if cat in (
+            "ListItem",
+            "BulletedText",
+            "FormField",
+            "Value",
+            "FormKeysValues",
+            "CheckBox",
+            "RadioButton",
+        ):
+            return 0
+
+        meta = getattr(el, "metadata", None)
+
+        # 1. Check category_depth metadata (most reliable for HTML headings)
+        if meta is not None:
+            depth = getattr(meta, "category_depth", None)
+            if depth is not None and isinstance(depth, int) and 1 <= depth <= 6:
+                return depth
+
+        # 2. Check text_as_html for explicit heading tag
+        if cat == "Title":
+            text_html = getattr(meta, "text_as_html", None) if meta else None
+            if text_html is not None:
+                import re as _re
+
+                tag_match = _re.match(r"<(h[1-6])", text_html.strip())
+                if tag_match:
+                    return int(tag_match.group(1)[1])
+            # Only treat as H1 if it actually looks like a heading
+            # (short text, no bullet/list markers)
+            text = str(el).strip()
+            if len(text) > 120 or text.startswith(("•", "-", "*", "–")):
+                return 0  # Likely a list item or long prose, not a heading
+            return 1
+
+        # 3. Fall back to category mapping
         if cat in _CATEGORY_TO_LEVEL:
             return _CATEGORY_TO_LEVEL[cat]
-        # Fallback: check markdown heading markers in text
+
+        # 4. Markdown-style heading regex fallback
         text = str(el).strip()
         match = re.match(r"^(#{1,6})\s", text)
         if match:
             return len(match.group(1))
+
         return 0
 
     def _build_breadcrumb(level: int) -> list[str]:

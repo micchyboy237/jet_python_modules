@@ -27,7 +27,16 @@ class RerankResult(TypedDict):
 def _check_rerank_server(timeout: float = 2.0) -> bool:
     """Quick health check for the rerank server."""
     try:
-        resp = requests.get(RERANK_BASE_URL, timeout=timeout)
+        # Use /health endpoint which is standard for llama.cpp servers
+        # Falls back to base URL if /health doesn't exist
+        health_url = f"{RERANK_BASE_URL}/health"
+        resp = requests.get(health_url, timeout=timeout)
+        if resp.status_code == 200:
+            return True
+
+        # Fallback: some servers respond to /v1/models instead
+        models_url = f"{RERANK_BASE_URL}/models"
+        resp = requests.get(models_url, timeout=timeout)
         return resp.status_code == 200
     except Exception:
         return False
@@ -184,9 +193,10 @@ def rerank(
         )
 
     # method == "auto"
+    resolved_model = model or MODEL
     if _check_rerank_server():
         try:
-            logger.info(f"Rerank server available, using model '{model}'")
+            logger.info(f"Rerank server available, using model '{resolved_model}'")
             return _rerank_via_model(
                 query,
                 documents,
@@ -201,7 +211,10 @@ def rerank(
                 query, documents, top_n, normalize_scores, sigmoid_temperature
             )
     else:
-        logger.warning("Rerank server unavailable, falling back to BM25")
+        logger.warning(
+            f"Rerank server unavailable at '{RERANK_BASE_URL}' "
+            f"(model='{resolved_model}'), falling back to BM25"
+        )
         return _rerank_via_bm25(
             query, documents, top_n, normalize_scores, sigmoid_temperature
         )
