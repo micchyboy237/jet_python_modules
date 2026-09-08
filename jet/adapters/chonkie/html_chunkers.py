@@ -103,54 +103,14 @@ def build_hierarchy(
 
     def _get_heading_level(el) -> int:
         cat = getattr(el, "category", "")
-
-        # Explicitly exclude non-heading categories that Unstructured
-        # sometimes misclassifies as Title (e.g., list items, form fields)
-        if cat in (
-            "ListItem",
-            "BulletedText",
-            "FormField",
-            "Value",
-            "FormKeysValues",
-            "CheckBox",
-            "RadioButton",
-        ):
+        if cat not in ("Title", "Subtitle", "Headline", "Section-header"):
             return 0
-
         meta = getattr(el, "metadata", None)
-
-        # 1. Check category_depth metadata (most reliable for HTML headings)
-        if meta is not None:
-            depth = getattr(meta, "category_depth", None)
-            if depth is not None and isinstance(depth, int) and 1 <= depth <= 6:
-                return depth
-
-        # 2. Check text_as_html for explicit heading tag
-        if cat == "Title":
-            text_html = getattr(meta, "text_as_html", None) if meta else None
-            if text_html is not None:
-                import re as _re
-
-                tag_match = _re.match(r"<(h[1-6])", text_html.strip())
-                if tag_match:
-                    return int(tag_match.group(1)[1])
-            # Only treat as H1 if it actually looks like a heading
-            # (short text, no bullet/list markers)
-            text = str(el).strip()
-            if len(text) > 120 or text.startswith(("•", "-", "*", "–")):
-                return 0  # Likely a list item or long prose, not a heading
-            return 1
-
-        # 3. Fall back to category mapping
-        if cat in _CATEGORY_TO_LEVEL:
-            return _CATEGORY_TO_LEVEL[cat]
-
-        # 4. Markdown-style heading regex fallback
-        text = str(el).strip()
-        match = re.match(r"^(#{1,6})\s", text)
-        if match:
-            return len(match.group(1))
-
+        depth = getattr(meta, "category_depth", None) if meta else None
+        if depth is not None and isinstance(depth, int):
+            return (
+                depth + 1
+            )  # category_depth is 0-indexed (h1=0), we need 1-indexed (h1=1)
         return 0
 
     def _build_breadcrumb(level: int) -> list[str]:
@@ -500,8 +460,16 @@ class ScrapedHTMLPipeline:
         from unstructured.partition.html import partition_html
 
         console.log(f"[cyan]Parsing HTML ({len(html):,} chars)…[/]")
+
+        # v2 requires <body class="Document"> or <div class="Page"> wrapper.
+        # Wrap standard HTML so the ontology parser can find its entry point.
+        parser_version = "v2"
+        if 'class="Document"' not in html and 'class="Page"' not in html:
+            html = f'<body class="Document">{html}</body>'
+
         elements = partition_html(
             text=html,
+            html_parser_version=parser_version,
             skip_headers_and_footers=self.skip_headers_footers,
             skip_nav=True,
         )
