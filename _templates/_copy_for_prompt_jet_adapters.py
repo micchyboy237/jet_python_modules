@@ -104,7 +104,7 @@ Analyze which config and features can be reused from jet/adapters and jet/search
 DEFAULT_INSTRUCTIONS_MESSAGE = """
 General:
 
-- Always browse the internet first when beneficial, especially when requested.
+- Always search the web first when requested or if it's beneficial.
 - Use easy to understand terms.
 
 My device:
