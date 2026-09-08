@@ -16,7 +16,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Custom rules: prioritize H2/H3 splits, then paragraphs, then sentences
 web_rules = RecursiveRules(
-    rules=[
+    levels=[
         RecursiveLevel(delimiters=["\n## ", "\n### "], include_delim="next"),
         RecursiveLevel(delimiters=["\n\n"], include_delim="next"),
         RecursiveLevel(delimiters=[". ", "! ", "? "], include_delim="prev"),

@@ -1,4 +1,4 @@
-"""CLI entry point for the Agentic RAG pipeline."""
+"""CLI entry point for the Deep Research Agent pipeline."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from .orchestrator import AgenticRAG
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Agentic RAG: Adaptive retrieval with verification",
+        description="Deep Research Agent: Adaptive retrieval with verification",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-  python -m jet_agent.main "Compare M1 vs Ryzen 3600 for local LLM inference"
-  python -m jet_agent.main "What is RAG?" --max-depth 0 --json
-  python -m jet_agent.main "Latest llama.cpp benchmarks" --snippet-threshold 0.8
+  python -m deep_research_agent.main "Compare M1 vs Ryzen 3600 for local LLM inference"
+  python -m deep_research_agent.main "What is RAG?" --max-depth 0 --json
+  python -m deep_research_agent.main "Latest llama.cpp benchmarks" --snippet-threshold 0.8
         """,
     )
     parser.add_argument("query", help="Search query to answer")

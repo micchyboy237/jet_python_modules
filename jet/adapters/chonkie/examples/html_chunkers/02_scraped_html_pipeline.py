@@ -1,4 +1,4 @@
-"""End-to-end pipeline: raw HTML → Unstructured parsing → smart chunking."""
+"""End-to-end pipeline: raw HTML → Unstructured → hierarchy → smart chunking."""
 
 import json
 import shutil
@@ -22,11 +22,14 @@ raw_html = """
 <nav><a href="/">Home</a></nav>
 <h1>Climate Change Report 2025</h1>
 <p>Global temperatures rose by 1.2°C above pre-industrial levels.</p>
+<h2>Regional Impact</h2>
+<p>The Arctic region is warming at nearly four times the global average rate.</p>
 <table>
 <tr><th>Region</th><th>Avg Temp Rise</th></tr>
 <tr><td>Arctic</td><td>3.1°C</td></tr>
 <tr><td>Tropics</td><td>0.8°C</td></tr>
 </table>
+<h2>Data Analysis</h2>
 <pre><code class="python">
 import pandas as pd
 df = pd.read_csv("climate_data.csv")
@@ -45,6 +48,7 @@ output_file = OUTPUT_DIR / "pipeline_results.json"
 serializable = [
     {
         "element_category": r.element_category,
+        "breadcrumb": r.breadcrumb,
         "source_url": r.source_url,
         "page_number": r.page_number,
         "text": r.chunk.text,

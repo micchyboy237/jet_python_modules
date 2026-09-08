@@ -1,4 +1,4 @@
-"""Core agentic RAG orchestrator using existing jet_python_modules primitives."""
+"""Core deep research orchestrator using existing jet_python_modules primitives."""
 
 from __future__ import annotations
 
@@ -6,13 +6,19 @@ import logging
 from typing import Any
 
 from jet.adapters.llama_cpp.chunking_utils import chunk_markdown_hierarchy_with_data
+from jet.adapters.llama_cpp.config import EMBED_MODEL, LLM_MODEL, RERANK_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.llm_utils import achat
+from jet.adapters.llama_cpp.model_utils import (
+    get_loaded_models,
+    get_model_ctx_embd_size,
+)
 from jet.adapters.llama_cpp.rerank_utils import rerank
 from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
-from jet.adapters.llama_cpp.token_utils import count_tokens
+from jet.adapters.llama_cpp.token_utils import count_chat_tokens, count_tokens
 from jet.scrapers.playwright_utils import scrape_url
 from jet.search.searxng import async_search_searxng
+from playwright.async_api import async_playwright
 
 from .models import (
     ExtractedLinks,
@@ -30,7 +36,7 @@ SNIPPET_SUFFICIENCY_THRESHOLD = 0.7
 LINK_SCORE_THRESHOLD = 0.3
 MAX_SERP_RESULTS = 10
 MAX_QUEUE_SIZE = 30
-SYNTHESIS_TOKEN_BUDGET = 6000
+GENERATION_RESERVE_RATIO = 0.25
 
 PLANNING_PROMPT = """\
 You are a search query planner. Given the user query, determine if it needs \
@@ -67,12 +73,8 @@ Only include links whose anchor text is semantically related to an unanswered su
 Return absolute URLs. If no relevant links exist, return an empty list.
 """
 
-SYNTHESIS_PROMPT = """\
+SYNTHESIS_SYSTEM_PROMPT = """\
 Synthesize a complete answer to the original query using ONLY the verified evidence below.
-
-Original query: {query}
-Verified evidence chunks:
-{evidence}
 
 Rules:
 - Every factual claim MUST have a citation with exact quote and source URL.
@@ -93,16 +95,86 @@ class AgenticRAG:
         max_depth: int = 2,
         snippet_threshold: float = SNIPPET_SUFFICIENCY_THRESHOLD,
     ):
-        self.llm_model = llm_model
-        self.embed_model = embed_model
-        self.rerank_model = rerank_model
+        self.llm_model = llm_model or LLM_MODEL
+        self.embed_model = embed_model or EMBED_MODEL
+        self.rerank_model = rerank_model or RERANK_MODEL
         self.max_depth = max_depth
         self.snippet_threshold = snippet_threshold
+        self.synthesis_token_budget: int = 6000
+
+    async def initialize(self) -> None:
+        """Validate models are loaded and compute dynamic token budget."""
+        self._validate_models_loaded()
+        self._init_token_budget()
+
+    def _validate_models_loaded(self) -> None:
+        """Fail fast if required models are not loaded on the server."""
+        try:
+            loaded = get_loaded_models()
+            loaded_ids = {
+                alias
+                for m in loaded.get("data", [])
+                for alias in m.get("aliases", [m["id"]])
+            }
+            missing = []
+            for label, model_key in [
+                ("LLM", self.llm_model),
+                ("Embed", self.embed_model),
+            ]:
+                if model_key and model_key not in loaded_ids:
+                    missing.append(f"{label}={model_key}")
+            if missing:
+                logger.warning(
+                    f"[AgenticRAG] Models not found in loaded set: {missing}. "
+                    f"Loaded: {sorted(loaded_ids)[:10]}... "
+                    "Proceeding anyway (server may lazy-load)."
+                )
+        except Exception as e:
+            logger.warning(f"[AgenticRAG] Could not validate loaded models: {e}")
+
+    def _init_token_budget(self) -> None:
+        """Derive synthesis token budget from actual model n_ctx."""
+        try:
+            ctx_info = get_model_ctx_embd_size(self.llm_model)
+            n_ctx = ctx_info.get("ctx", 0)
+            if n_ctx > 0:
+                self.synthesis_token_budget = int(
+                    n_ctx * (1 - GENERATION_RESERVE_RATIO)
+                )
+                logger.info(
+                    f"[AgenticRAG] Token budget: {self.synthesis_token_budget} "
+                    f"(n_ctx={n_ctx}, reserve={GENERATION_RESERVE_RATIO:.0%})"
+                )
+            else:
+                logger.warning(
+                    f"[AgenticRAG] n_ctx=0 for {self.llm_model}, "
+                    f"using fallback budget={self.synthesis_token_budget}"
+                )
+        except ValueError as e:
+            logger.warning(f"[AgenticRAG] Cannot get n_ctx: {e}. Using fallback.")
+        except Exception as e:
+            logger.warning(
+                f"[AgenticRAG] Token budget init failed: {e}. Using fallback."
+            )
 
     async def run(self, query: str) -> dict[str, Any]:
-        """Execute the full agentic RAG pipeline. Returns structured result."""
+        """Execute the full deep research pipeline with managed browser context."""
+        await self.initialize()
         logger.info(f"[AgenticRAG] Starting pipeline for: {query[:80]}...")
 
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context()
+            try:
+                result = await self._run_pipeline(query, context)
+            finally:
+                await context.close()
+                await browser.close()
+
+        return result
+
+    async def _run_pipeline(self, query: str, context) -> dict[str, Any]:
+        """Internal pipeline logic that receives an active browser context."""
         # Phase A: Planning
         plan = await self._plan_query(query)
         logger.info(
@@ -136,7 +208,6 @@ class AgenticRAG:
                 logger.warning(f"[AgenticRAG] No SERP results for: {q[:60]}")
                 continue
 
-            # Snippet sufficiency check via reranker
             snippets = [r["content"] for r in serp_results if r.get("content")]
             if snippets:
                 reranked = rerank(
@@ -164,20 +235,18 @@ class AgenticRAG:
                     answered_sq_ids.add(sq_id)
                     continue
 
-            # Insufficient → queue top results for deep navigation
             logger.info(
                 f"[AgenticRAG] Queuing {min(3, len(serp_results))} URLs for: {q[:60]}"
             )
-            items = []
-            for i, result in enumerate(serp_results[:3]):
-                items.append(
-                    QueueItem(
-                        sort_key=-result.get("score", 0.0),
-                        url=result["url"],
-                        depth=0,
-                        sub_query_id=sq_id,
-                    )
+            items = [
+                QueueItem(
+                    sort_key=-result.get("score", 0.0),
+                    url=result["url"],
+                    depth=0,
+                    sub_query_id=sq_id,
                 )
+                for result in serp_results[:3]
+            ]
             await queue.push_many(items)
 
         # Deep navigation loop
@@ -194,7 +263,6 @@ class AgenticRAG:
                 logger.warning(
                     f"[AgenticRAG] Queue exceeded {MAX_QUEUE_SIZE}, trimming"
                 )
-                # Drain excess
                 while queue.size > MAX_QUEUE_SIZE:
                     await queue.pop()
 
@@ -206,7 +274,7 @@ class AgenticRAG:
                 f"[AgenticRAG] Navigating (depth={item.depth}): {item.url[:80]}"
             )
             scrape_result = await scrape_url(
-                context=None,  # Caller should manage browser context lifecycle
+                context=context,
                 url=item.url,
                 scroll_strategy="until_stable",
                 use_cache=True,
@@ -216,12 +284,10 @@ class AgenticRAG:
                 logger.warning(f"[AgenticRAG] Scrape failed: {item.url[:80]}")
                 continue
 
-            # Clean HTML → markdown (lightweight, no extra dependency)
             markdown_content = self._html_to_markdown(scrape_result["html"])
             if not markdown_content.strip():
                 continue
 
-            # Grounding check
             grounding = await self._check_grounding(
                 markdown_content, item.sub_query_id, sub_query_map
             )
@@ -240,7 +306,6 @@ class AgenticRAG:
             )
             answered_sq_ids.add(item.sub_query_id)
 
-            # Extract links for unanswered sub-queries
             unanswered = set(sub_query_map.keys()) - answered_sq_ids
             if unanswered and item.depth < self.max_depth:
                 links = await self._extract_links(markdown_content, unanswered)
@@ -269,8 +334,6 @@ class AgenticRAG:
             "confidence": result.confidence,
             "evidence_count": len(evidence_store),
         }
-
-    # ── Private helpers ──────────────────────────────────────────────
 
     async def _plan_query(self, query: str) -> QueryPlan:
         result = await achat(
@@ -358,7 +421,6 @@ class AgenticRAG:
                 confidence=0.0,
             )
 
-        # Chunk evidence with hierarchy awareness for citation binding
         evidence_texts = [e["text"] for e in evidence]
         chunks = chunk_markdown_hierarchy_with_data(
             markdown_text=evidence_texts,
@@ -368,42 +430,52 @@ class AgenticRAG:
             show_progress=False,
         )
 
-        # Token budget enforcement
         selected_chunks = []
-        total_tokens = 0
+        system_msg = {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT}
+
         for chunk in chunks:
-            chunk_tokens = count_tokens(chunk["content"], model=self.llm_model)
-            if total_tokens + chunk_tokens > SYNTHESIS_TOKEN_BUDGET:
+            prospective_user_content = self._build_synthesis_user_content(
+                query, selected_chunks + [chunk], evidence, sq_map, answered_ids
+            )
+            prospective_messages = [
+                system_msg,
+                {"role": "user", "content": prospective_user_content},
+            ]
+            try:
+                msg_tokens = count_chat_tokens(
+                    prospective_messages, model=self.llm_model
+                )["input_tokens"]
+            except Exception:
+                msg_tokens = count_tokens(
+                    prospective_user_content, model=self.llm_model
+                )
+
+            if msg_tokens > self.synthesis_token_budget:
+                logger.info(
+                    f"[AgenticRAG] Token budget reached at {msg_tokens}/{self.synthesis_token_budget}"
+                )
                 break
             selected_chunks.append(chunk)
-            total_tokens += chunk_tokens
 
-        evidence_formatted = "\n\n---\n\n".join(
-            f"[Source: {evidence[i]['source_url']}]\n{c['content']}"
-            for i, c in enumerate(selected_chunks)
-            if i < len(evidence)
+        user_content = self._build_synthesis_user_content(
+            query, selected_chunks, evidence, sq_map, answered_ids
         )
-
-        unresolved = [sq_map[sid].text for sid in set(sq_map.keys()) - answered_ids]
-
-        prompt = SYNTHESIS_PROMPT.format(query=query, evidence=evidence_formatted)
-        if unresolved:
-            prompt += f"\n\nUnresolved sub-queries: {', '.join(unresolved)}"
+        messages = [system_msg, {"role": "user", "content": user_content}]
 
         result = await achat(
-            prompt,
+            messages,
             model=self.llm_model,
             response_format=SynthesizedAnswer,
             temperature=0.2,
-            max_tokens=4096,
+            max_tokens=int(self.synthesis_token_budget * GENERATION_RESERVE_RATIO),
         )
         if result.structured and result.structured.success:
             return result.structured.parsed
 
-        # Fallback: return raw content without structured validation
         logger.warning(
             "[AgenticRAG] Synthesis structured output failed, using fallback"
         )
+        unresolved = [sq_map[sid].text for sid in set(sq_map.keys()) - answered_ids]
         return SynthesizedAnswer(
             answer=result.content or "Synthesis failed.",
             unresolved_sub_queries=unresolved,
@@ -411,8 +483,30 @@ class AgenticRAG:
         )
 
     @staticmethod
+    def _build_synthesis_user_content(
+        query: str,
+        chunks: list[dict],
+        evidence: list[dict[str, Any]],
+        sq_map: dict[str, SubQuery],
+        answered_ids: set[str],
+    ) -> str:
+        evidence_formatted = "\n\n---\n\n".join(
+            f"[Source: {evidence[i]['source_url']}]\n{c['content']}"
+            for i, c in enumerate(chunks)
+            if i < len(evidence)
+        )
+        parts = [
+            f"Original query: {query}",
+            f"\nVerified evidence chunks:\n{evidence_formatted}",
+        ]
+        unresolved = [sq_map[sid].text for sid in set(sq_map.keys()) - answered_ids]
+        if unresolved:
+            parts.append(f"\nUnresolved sub-queries: {', '.join(unresolved)}")
+        return "\n".join(parts)
+
+    @staticmethod
     def _html_to_markdown(html: str) -> str:
-        """Lightweight HTML→Markdown conversion. Prefer trafilatura if installed."""
+        """Lightweight HTML→Markdown conversion. Prefers trafilatura if installed."""
         try:
             import trafilatura
 
@@ -426,7 +520,6 @@ class AgenticRAG:
             return markdownify(html, strip=["img", "script", "style", "nav", "footer"])
         except ImportError:
             pass
-        # Last resort: strip tags naively
         import re
 
         text = re.sub(r"<[^>]+>", " ", html)

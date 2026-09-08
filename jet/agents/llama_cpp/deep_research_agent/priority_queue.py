@@ -10,7 +10,7 @@ from typing import Any
 
 @dataclass(order=True)
 class QueueItem:
-    """Priority queue item. Lower score = higher priority (min-heap)."""
+    """Priority queue item. Lower sort_key = higher priority (min-heap)."""
 
     sort_key: float
     url: str = field(compare=False)

@@ -1,12 +1,14 @@
 """
 Reusable HTML-aware chunkers for scraped web content.
 Bridges Unstructured element classification with Chonkie chunking strategies.
+Includes hierarchy reconstruction for complex nested header structures.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Union
 
+from jet.adapters.chonkie.llamacpp_tokenizer import LlamaCppTokenizer
 from rich.console import Console
 
 from chonkie.chunker.base import BaseChunker
@@ -17,33 +19,166 @@ from chonkie.chunker.table import TableChunker
 from chonkie.tokenizer import TokenizerProtocol
 from chonkie.types import Chunk, RecursiveLevel, RecursiveRules
 
-# Rich console + logger setup
+# Rich console for styled logging
 console = Console()
-logger = console.log
 
+
+# ---------------------------------------------------------------------------
 # Pre-compiled patterns (avoid recompilation on every call)
+# ---------------------------------------------------------------------------
 _FENCED_CODE_RE = re.compile(r"```(\w+)?\n(.*?)```", re.DOTALL)
 _TABLE_SEPARATOR_RE = re.compile(r"^\|[\s\-:|]+\|$", re.MULTILINE)
 _HEADING_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
 
 
 # ---------------------------------------------------------------------------
-# 1. HTML-Aware Chunker (Custom Chonkie Chunker)
+# Hierarchy Reconstruction
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class HierarchicalSection:
+    """A section with full breadcrumb path preserved."""
+
+    level: int  # 1-6 for h1-h6, 0 for non-heading content
+    heading_text: str  # The heading text itself
+    breadcrumb: list[str]  # Full path: ["Introduction", "Methods"]
+    content_parts: list[str] = field(default_factory=list)
+    page_number: Optional[int] = None
+    source_url: Optional[str] = None
+
+    @property
+    def full_content(self) -> str:
+        """Reconstruct as Markdown with breadcrumb context prepended."""
+        lines = []
+        if self.breadcrumb:
+            lines.append(f"[{' > '.join(self.breadcrumb)}]")
+            lines.append("")
+        if self.heading_text:
+            prefix = "#" * max(1, self.level)
+            lines.append(f"{prefix} {self.heading_text}")
+            lines.append("")
+        lines.extend(self.content_parts)
+        return "\n".join(lines).strip()
+
+
+# Mapping from Unstructured element categories to heading levels
+# Based on unstructured/documents/mappings.py and ontology.py
+_CATEGORY_TO_LEVEL = {
+    "Title": 1,
+    "Headline": 1,
+    "Subtitle": 2,
+    "Subheadline": 2,
+    "Section-header": 3,
+}
+
+_HEADING_CATEGORIES = frozenset(_CATEGORY_TO_LEVEL.keys())
+_SKIP_CATEGORIES = frozenset(
+    {
+        "Header",
+        "Footer",
+        "PageBreak",
+        "PageNumber",
+        "Image",
+        "FigureCaption",
+        "Page-header",
+        "Page-footer",
+    }
+)
+
+
+def build_hierarchy(
+    elements: list,
+    source_url: Optional[str] = None,
+) -> list[HierarchicalSection]:
+    """
+    Reconstruct heading hierarchy from Unstructured's flat element list.
+
+    Uses Unstructured's actual element categories (Title, Subtitle, Section-header)
+    to determine nesting depth, then builds breadcrumbs for each section.
+    """
+    sections: list[HierarchicalSection] = []
+    stack: dict[int, str] = {}  # level -> heading_text
+    current_section: Optional[HierarchicalSection] = None
+
+    def _get_heading_level(el) -> int:
+        cat = getattr(el, "category", "")
+        if cat in _CATEGORY_TO_LEVEL:
+            return _CATEGORY_TO_LEVEL[cat]
+        # Fallback: check markdown heading markers in text
+        text = str(el).strip()
+        match = re.match(r"^(#{1,6})\s", text)
+        if match:
+            return len(match.group(1))
+        return 0
+
+    def _build_breadcrumb(level: int) -> list[str]:
+        return [
+            stack[lvl] for lvl in sorted(stack.keys()) if lvl <= level and stack[lvl]
+        ]
+
+    for el in elements:
+        cat = getattr(el, "category", "UncategorizedText")
+        text = str(el).strip()
+        page_num = getattr(getattr(el, "metadata", None), "page_number", None)
+
+        if not text or len(text) < 3:
+            continue
+        if cat in _SKIP_CATEGORIES:
+            continue
+
+        level = _get_heading_level(el)
+
+        if level > 0:
+            # Clear stack entries at same or deeper level
+            for lvl in list(stack.keys()):
+                if lvl >= level:
+                    del stack[lvl]
+
+            stack[level] = text
+            breadcrumb = _build_breadcrumb(level)
+
+            current_section = HierarchicalSection(
+                level=level,
+                heading_text=text,
+                breadcrumb=breadcrumb,
+                page_number=page_num,
+                source_url=source_url,
+            )
+            sections.append(current_section)
+            console.log(f"  [cyan]H{level}:[/] {' > '.join(breadcrumb)}")
+        else:
+            # Non-heading content → append to current section
+            if current_section is None:
+                current_section = HierarchicalSection(
+                    level=0,
+                    heading_text="",
+                    breadcrumb=[],
+                    page_number=page_num,
+                    source_url=source_url,
+                )
+                sections.append(current_section)
+            current_section.content_parts.append(text)
+
+    console.log(f"[bold green]✔ Built {len(sections)} hierarchical sections[/]")
+    return sections
+
+
+# ---------------------------------------------------------------------------
+# HTML-Aware Chunker (Custom Chonkie Chunker)
 # ---------------------------------------------------------------------------
 
 
 class HTMLAwareChunker(BaseChunker):
     """
-    A composite chunker that auto-routes content to the best strategy
+    Composite chunker that auto-routes content to the best strategy
     based on lightweight structural detection.
-
-    Expects CLEANED Markdown/text (not raw HTML). Use ScrapedHTMLPipeline
-    for end-to-end raw HTML processing.
+    Expects CLEANED Markdown/text (not raw HTML).
     """
 
     def __init__(
         self,
-        tokenizer: Union[str, TokenizerProtocol] = "gpt2",
+        tokenizer: Union[str, TokenizerProtocol] = None,
         chunk_size: int = 512,
         min_chars_per_chunk: int = 50,
         semantic_model: str = "minishlab/potion-base-32M",
@@ -51,16 +186,18 @@ class HTMLAwareChunker(BaseChunker):
         table_chunk_size: int = 5,
         code_language: str = "auto",
     ):
+        if tokenizer is None:
+            tokenizer = LlamaCppTokenizer()
         super().__init__(tokenizer=tokenizer)
+
         self.chunk_size = chunk_size
         self.min_chars_per_chunk = min_chars_per_chunk
 
-        # Pre-initialize sub-chunkers for reuse
         self._recursive_chunker = RecursiveChunker(
             tokenizer=tokenizer,
             chunk_size=chunk_size,
             rules=RecursiveRules(
-                rules=[
+                levels=[
                     RecursiveLevel(
                         delimiters=["\n# ", "\n## ", "\n### "], include_delim="next"
                     ),
@@ -71,26 +208,24 @@ class HTMLAwareChunker(BaseChunker):
             ),
             min_characters_per_chunk=min_chars_per_chunk,
         )
-
         self._table_chunker = TableChunker(tokenizer="row", chunk_size=table_chunk_size)
-
         self._code_chunker = CodeChunker(
             tokenizer=tokenizer,
             chunk_size=chunk_size,
             language=code_language,
         )
 
-        # Lazy-loaded semantic chunker (heavy model)
         self._semantic_chunker: Optional[SemanticChunker] = None
         self._semantic_model = semantic_model
         self._semantic_threshold = semantic_threshold
-
         self._use_multiprocessing = False
 
     @property
     def semantic_chunker(self) -> SemanticChunker:
         if self._semantic_chunker is None:
-            logger(f"[yellow]Lazy-loading SemanticChunker ({self._semantic_model})[/]")
+            console.log(
+                f"[yellow]Lazy-loading SemanticChunker ({self._semantic_model})[/]"
+            )
             self._semantic_chunker = SemanticChunker(
                 embedding_model=self._semantic_model,
                 threshold=self._semantic_threshold,
@@ -101,21 +236,18 @@ class HTMLAwareChunker(BaseChunker):
             )
         return self._semantic_chunker
 
-    # --- Detection heuristics (fast, no ML) ---
+    # --- Detection heuristics ---
 
     @staticmethod
     def _has_markdown_table(text: str) -> bool:
-        """Check for Markdown table separator pattern |---|"""
         return bool(_TABLE_SEPARATOR_RE.search(text))
 
     @staticmethod
     def _has_fenced_code(text: str) -> bool:
-        """Check for fenced code blocks ```...```"""
         return "```" in text
 
     @staticmethod
     def _has_headings(text: str) -> bool:
-        """Check for Markdown heading markers"""
         return bool(_HEADING_RE.search(text))
 
     @staticmethod
@@ -123,9 +255,7 @@ class HTMLAwareChunker(BaseChunker):
         """Extract fenced code blocks with language hints and span positions."""
         results = []
         for m in _FENCED_CODE_RE.finditer(text):
-            lang_hint = m.group(1)
-            code_content = m.group(2)
-            results.append((code_content, lang_hint, m.start(), m.end()))
+            results.append((m.group(2), m.group(1), m.start(), m.end()))
         return results
 
     @staticmethod
@@ -134,7 +264,7 @@ class HTMLAwareChunker(BaseChunker):
         lines = text.split("\n")
         tables: list[tuple[str, int, int]] = []
         current_lines: list[str] = []
-        block_start: int = 0
+        block_start = 0
         char_pos = 0
 
         for line in lines:
@@ -148,7 +278,7 @@ class HTMLAwareChunker(BaseChunker):
                 if current_lines:
                     tables.append(("\n".join(current_lines), block_start, char_pos - 1))
                     current_lines = []
-            char_pos += len(line) + 1  # +1 for newline
+            char_pos += len(line) + 1
 
         if current_lines:
             tables.append(("\n".join(current_lines), block_start, char_pos - 1))
@@ -157,9 +287,7 @@ class HTMLAwareChunker(BaseChunker):
     @staticmethod
     def _strip_code_and_tables(text: str) -> str:
         """Remove code blocks AND table lines, leaving only prose."""
-        # Remove fenced code blocks first
         text = _FENCED_CODE_RE.sub("", text)
-        # Remove table lines
         lines = text.split("\n")
         prose_lines = [
             l
@@ -175,11 +303,9 @@ class HTMLAwareChunker(BaseChunker):
             return []
 
         all_chunks: list[Chunk] = []
-        code_count = 0
-        table_count = 0
-        prose_count = 0
+        code_count = table_count = prose_count = 0
 
-        # 1. Extract and chunk code blocks (with accurate positions)
+        # 1. Code blocks
         if self._has_fenced_code(text):
             for code_text, lang_hint, start, end in self._extract_code_blocks(text):
                 if not code_text.strip():
@@ -197,7 +323,7 @@ class HTMLAwareChunker(BaseChunker):
                     all_chunks.extend(code_chunks)
                     code_count += len(code_chunks)
                 except Exception as e:
-                    logger(f"[red]CodeChunker failed: {e}[/]")
+                    console.log(f"[red]CodeChunker failed: {e}[/]")
                     token_count = self.tokenizer.count_tokens(code_text)
                     all_chunks.append(
                         Chunk(
@@ -209,7 +335,7 @@ class HTMLAwareChunker(BaseChunker):
                     )
                     code_count += 1
 
-        # 2. Extract and chunk tables (with accurate positions)
+        # 2. Tables
         if self._has_markdown_table(text):
             for table_text, start, end in self._extract_tables(text):
                 table_chunks = self._table_chunker.chunk(table_text)
@@ -219,21 +345,22 @@ class HTMLAwareChunker(BaseChunker):
                 all_chunks.extend(table_chunks)
                 table_count += len(table_chunks)
 
-        # 3. Chunk remaining prose
+        # 3. Prose
         prose = self._strip_code_and_tables(text)
         if prose and len(prose.strip()) >= self.min_chars_per_chunk:
             if self._has_headings(prose):
-                logger("[green]Routing prose → RecursiveChunker (headings detected)[/]")
+                console.log(
+                    "[green]Routing prose → RecursiveChunker (headings detected)[/]"
+                )
                 prose_chunks = self._recursive_chunker.chunk(prose)
             else:
-                logger("[yellow]No headings → falling back to SemanticChunker[/]")
+                console.log("[yellow]No headings → falling back to SemanticChunker[/]")
                 prose_chunks = self.semantic_chunker.chunk(prose)
             all_chunks.extend(prose_chunks)
             prose_count += len(prose_chunks)
 
-        # Sort by position
         all_chunks.sort(key=lambda c: c.start_index)
-        logger(
+        console.log(
             f"[bold green]✔ HTMLAwareChunker:[/] {len(all_chunks)} chunks "
             f"(code={code_count}, table={table_count}, prose={prose_count})"
         )
@@ -247,7 +374,7 @@ class HTMLAwareChunker(BaseChunker):
 
 
 # ---------------------------------------------------------------------------
-# 2. Scraped HTML Pipeline (Unstructured → Chonkie Bridge)
+# Scraped HTML Pipeline (Unstructured → Hierarchy → Chonkie)
 # ---------------------------------------------------------------------------
 
 
@@ -257,28 +384,29 @@ class ChunkWithMetadata:
 
     chunk: Chunk
     element_category: str = ""
+    breadcrumb: str = ""
     page_number: Optional[int] = None
     source_url: Optional[str] = None
 
 
 class ScrapedHTMLPipeline:
     """
-    End-to-end pipeline: Raw HTML → Unstructured parsing → Smart chunking.
+    End-to-end pipeline: Raw HTML → Unstructured parsing →
+    Hierarchy reconstruction → Smart chunking.
     """
-
-    TABLE_CATEGORIES = {"Table"}
-    CODE_CATEGORIES = {"CodeSnippet"}
-    HEADING_CATEGORIES = {"Title", "Section-header", "Headline", "Subheadline"}
-    SKIP_CATEGORIES = {"Header", "Footer", "PageBreak", "PageNumber", "Image"}
 
     def __init__(
         self,
         chunk_size: int = 512,
+        tokenizer: Union[str, TokenizerProtocol] = None,
         min_chars_per_chunk: int = 50,
         semantic_model: str = "minishlab/potion-base-32M",
         table_rows_per_chunk: int = 5,
         skip_headers_footers: bool = True,
     ):
+        if tokenizer is None:
+            tokenizer = LlamaCppTokenizer()
+
         self.chunk_size = chunk_size
         self.min_chars_per_chunk = min_chars_per_chunk
         self.skip_headers_footers = skip_headers_footers
@@ -287,13 +415,13 @@ class ScrapedHTMLPipeline:
             tokenizer="row", chunk_size=table_rows_per_chunk
         )
         self._code_chunker = CodeChunker(
-            tokenizer="gpt2", chunk_size=chunk_size, language="auto"
+            tokenizer=tokenizer, chunk_size=chunk_size, language="auto"
         )
         self._recursive_chunker = RecursiveChunker(
-            tokenizer="gpt2",
+            tokenizer=tokenizer,
             chunk_size=chunk_size,
             rules=RecursiveRules(
-                rules=[
+                levels=[
                     RecursiveLevel(
                         delimiters=["\n# ", "\n## ", "\n### "], include_delim="next"
                     ),
@@ -310,7 +438,9 @@ class ScrapedHTMLPipeline:
     @property
     def semantic_chunker(self) -> SemanticChunker:
         if self._semantic_chunker is None:
-            logger(f"[yellow]Lazy-loading SemanticChunker ({self._semantic_model})[/]")
+            console.log(
+                f"[yellow]Lazy-loading SemanticChunker ({self._semantic_model})[/]"
+            )
             self._semantic_chunker = SemanticChunker(
                 embedding_model=self._semantic_model,
                 threshold=0.65,
@@ -325,10 +455,10 @@ class ScrapedHTMLPipeline:
         html: str,
         source_url: Optional[str] = None,
     ) -> list[ChunkWithMetadata]:
-        """Parse raw HTML and return intelligently chunked results."""
+        """Parse raw HTML, reconstruct hierarchy, and chunk intelligently."""
         from unstructured.partition.html import partition_html
 
-        logger(f"[cyan]Parsing HTML ({len(html):,} chars)…[/]")
+        console.log(f"[cyan]Parsing HTML ({len(html):,} chars)…[/]")
         elements = partition_html(
             text=html,
             skip_headers_and_footers=self.skip_headers_footers,
@@ -336,102 +466,73 @@ class ScrapedHTMLPipeline:
         )
 
         if not elements:
-            logger("[red]⚠ No elements extracted from HTML[/]")
+            console.log("[red]⚠ No elements extracted from HTML[/]")
             return []
 
-        # Classify elements into buckets
-        table_texts = []
-        code_texts = []
-        structured_texts = []
-        has_headings = False
-
-        for el in elements:
-            cat = getattr(el, "category", "UncategorizedText")
-            text = str(el).strip()
-
-            if not text or len(text) < 10:
-                continue
-            if cat in self.SKIP_CATEGORIES:
-                continue
-            elif cat in self.TABLE_CATEGORIES:
-                table_texts.append((text, el))
-            elif cat in self.CODE_CATEGORIES:
-                code_texts.append((text, el))
-            elif cat in self.HEADING_CATEGORIES:
-                has_headings = True
-                structured_texts.append((text, el))
-            else:
-                structured_texts.append((text, el))
+        # Reconstruct hierarchy from flat element list
+        sections = build_hierarchy(elements, source_url=source_url)
 
         results: list[ChunkWithMetadata] = []
 
-        # Chunk tables
-        for table_text, el in table_texts:
-            chunks = self._table_chunker.chunk(table_text)
-            for c in chunks:
-                results.append(
-                    ChunkWithMetadata(
-                        chunk=c,
-                        element_category="Table",
-                        page_number=getattr(el.metadata, "page_number", None),
-                        source_url=source_url,
-                    )
-                )
+        for section in sections:
+            section_text = section.full_content
+            if not section_text.strip():
+                continue
 
-        # Chunk code
-        for code_text, el in code_texts:
-            try:
-                chunks = self._code_chunker.chunk(code_text)
-            except Exception as e:
-                logger(f"[red]Code chunking failed: {e}[/]")
-                chunks = [
-                    Chunk(
-                        text=code_text,
-                        start_index=0,
-                        end_index=len(code_text),
-                        token_count=len(code_text),
-                    )
-                ]
-            for c in chunks:
-                results.append(
-                    ChunkWithMetadata(
-                        chunk=c,
-                        element_category="CodeSnippet",
-                        page_number=getattr(el.metadata, "page_number", None),
-                        source_url=source_url,
-                    )
-                )
+            breadcrumb_str = (
+                " > ".join(section.breadcrumb) if section.breadcrumb else ""
+            )
 
-        # Chunk prose
-        combined_prose = "\n\n".join(t for t, _ in structured_texts)
-        if combined_prose.strip():
-            if has_headings:
-                logger("[green]Routing prose → RecursiveChunker[/]")
-                chunks = self._recursive_chunker.chunk(combined_prose)
+            # Route based on content type within this section
+            if self._has_markdown_table(section_text):
+                chunks = self._table_chunker.chunk(section_text)
+                cat_label = "Table"
+            elif self._has_fenced_code(section_text):
+                try:
+                    chunks = self._code_chunker.chunk(section_text)
+                except Exception as e:
+                    console.log(f"[red]Code chunking failed: {e}[/]")
+                    chunks = [
+                        Chunk(
+                            text=section_text,
+                            start_index=0,
+                            end_index=len(section_text),
+                            token_count=len(section_text),
+                        )
+                    ]
+                cat_label = "CodeSnippet"
+            elif section.level > 0:
+                console.log(f"[green]Section '{breadcrumb_str}' → RecursiveChunker[/]")
+                chunks = self._recursive_chunker.chunk(section_text)
                 cat_label = "StructuredText"
             else:
-                logger("[yellow]Routing prose → SemanticChunker (no headings)[/]")
-                chunks = self.semantic_chunker.chunk(combined_prose)
+                console.log("[yellow]No-heading section → SemanticChunker[/]")
+                chunks = self.semantic_chunker.chunk(section_text)
                 cat_label = "UnstructuredText"
 
-            page_nums = [
-                getattr(el.metadata, "page_number", None) for _, el in structured_texts
-            ]
             for c in chunks:
                 results.append(
                     ChunkWithMetadata(
                         chunk=c,
                         element_category=cat_label,
-                        page_number=page_nums[0] if page_nums else None,
-                        source_url=source_url,
+                        breadcrumb=breadcrumb_str,
+                        page_number=section.page_number,
+                        source_url=section.source_url,
                     )
                 )
 
-        logger(
-            f"[bold green]✔ Pipeline:[/] {len(results)} chunks "
-            f"(table={len(table_texts)}, code={len(code_texts)}, prose={len(structured_texts)})"
+        console.log(
+            f"[bold green]✔ Pipeline:[/] {len(results)} total chunks from {len(sections)} sections"
         )
         return results
+
+    @staticmethod
+    def _has_markdown_table(text: str) -> bool:
+        return bool(_TABLE_SEPARATOR_RE.search(text))
+
+    @staticmethod
+    def _has_fenced_code(text: str) -> bool:
+        return "```" in text
 
     async def aprocess(
         self,

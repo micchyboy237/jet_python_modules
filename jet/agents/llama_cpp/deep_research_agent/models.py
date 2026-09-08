@@ -1,4 +1,4 @@
-"""Pydantic models for structured LLM outputs in the agentic RAG pipeline."""
+"""Pydantic models for structured LLM outputs in the deep research pipeline."""
 
 from __future__ import annotations
 

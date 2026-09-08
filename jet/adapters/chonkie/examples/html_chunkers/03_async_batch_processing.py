@@ -21,7 +21,9 @@ async def main():
     pages = [
         (
             "<html><body><h1>Renewable Energy</h1>"
+            "<h2>Solar Power</h2>"
             "<p>Solar capacity grew 30% year-over-year globally.</p>"
+            "<h2>Wind Power</h2>"
             "<p>Wind power now accounts for 10% of global electricity.</p></body></html>",
             "https://example.com/energy",
         ),
@@ -52,6 +54,7 @@ async def main():
         serializable = [
             {
                 "element_category": r.element_category,
+                "breadcrumb": r.breadcrumb,
                 "text": r.chunk.text[:200],
                 "token_count": r.chunk.token_count,
             }
