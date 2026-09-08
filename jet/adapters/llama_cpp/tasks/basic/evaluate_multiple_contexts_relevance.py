@@ -167,9 +167,8 @@ def evaluate_multiple_contexts_relevance(
 
     try:
         result = chat(
-            prompt="",
+            messages,
             model=resolved_model,
-            messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
             enable_thinking=False,

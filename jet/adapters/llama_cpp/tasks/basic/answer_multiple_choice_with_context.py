@@ -139,9 +139,8 @@ def answer_multiple_choice_with_context(
 
     try:
         result = chat(
-            prompt="",
+            messages,
             model=resolved_model,
-            messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,

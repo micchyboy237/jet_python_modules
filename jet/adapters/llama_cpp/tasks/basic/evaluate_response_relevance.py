@@ -90,9 +90,8 @@ def evaluate_response_relevance(
 
     try:
         result = chat(
-            prompt="",
+            messages,
             model=resolved_model,
-            messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
             logit_bias=logit_bias,
