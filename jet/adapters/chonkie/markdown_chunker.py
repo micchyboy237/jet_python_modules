@@ -75,3 +75,13 @@ def chunk_markdown(
     finally:
         if not keep_temp_file and tmp_path.exists():
             os.unlink(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    from jet.adapters.chonkie.main._main_markdown_chunkers import main
+
+    main()

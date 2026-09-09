@@ -2,6 +2,7 @@
 Dynamic, self-validating browser configuration for anti-detection.
 All values are derived from the actual runtime environment.
 No hardcoded UAs, versions, or platform strings.
+Chromium is preferred over Chrome for system browser detection.
 """
 
 import os
@@ -66,44 +67,65 @@ def _detect_platform() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Chrome Version Detection
+# Browser Detection (Chromium preferred, then Chrome)
 # ---------------------------------------------------------------------------
 
-_SYSTEM_CHROME_PATHS = [
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/snap/bin/chromium",
-    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+_SYSTEM_BROWSER_PATHS = [
+    # Chromium (preferred - checked first)
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",  # macOS
+    "/usr/bin/chromium",  # Linux
+    "/usr/bin/chromium-browser",  # Linux (Debian/Ubuntu)
+    "/snap/bin/chromium",  # Linux (Snap)
+    r"C:\Program Files\Chromium\Application\chrome.exe",  # Windows
+    r"C:\Program Files (x86)\Chromium\Application\chrome.exe",  # Windows
+    # Google Chrome (fallback)
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",  # macOS
+    "/usr/bin/google-chrome",  # Linux
+    "/usr/bin/google-chrome-stable",  # Linux
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",  # Windows
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",  # Windows
 ]
 
 
 @lru_cache(maxsize=1)
-def _find_system_chrome() -> Optional[str]:
-    """Locate a working system Chrome binary."""
-    for path in _SYSTEM_CHROME_PATHS:
-        if os.path.isfile(path):
-            try:
-                result = subprocess.run(
-                    [path, "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0 and "Chrome" in result.stdout:
-                    return path
-            except Exception:
+def _find_system_browser() -> Optional[tuple[str, str]]:
+    """
+    Locate a working system browser binary.
+    Returns (path, source_label) or None.
+    Checks Chromium first, then Chrome.
+    """
+    for path in _SYSTEM_BROWSER_PATHS:
+        if not os.path.isfile(path):
+            continue
+        try:
+            result = subprocess.run(
+                [path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
                 continue
+
+            stdout = result.stdout.strip()
+            # Determine source label from version output and path
+            is_chromium_path = "chromium" in path.lower()
+            if "Chromium" in stdout and "Chrome" not in stdout.replace("Chromium", ""):
+                return path, "system_chromium"
+            if "Chrome" in stdout or "Chromium" in stdout:
+                label = "system_chromium" if is_chromium_path else "system_chrome"
+                return path, label
+        except Exception:
+            continue
     return None
 
 
 @lru_cache(maxsize=1)
-def _get_chrome_version(chrome_path: str) -> Optional[str]:
-    """Extract full version string from a Chrome binary."""
+def _get_browser_version(browser_path: str) -> Optional[str]:
+    """Extract full version string from a Chromium/Chrome binary."""
     try:
         result = subprocess.run(
-            [chrome_path, "--version"],
+            [browser_path, "--version"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -137,7 +159,7 @@ class BrowserConfig:
     viewport_height: int
     locale: str
     timezone_id: str
-    source: str  # "system_chrome" | "playwright_chromium"
+    source: str  # "system_chromium" | "system_chrome" | "playwright_chromium"
 
     @property
     def extra_http_headers(self) -> dict:
@@ -189,11 +211,9 @@ def _build_client_hints(version: str, plat: dict) -> dict:
     """Build Client Hints internally consistent with version + platform."""
     major = version.split(".")[0]
     return {
-        "sec_ch_ua": f'"Google Chrome";v="{major}", "Chromium";v="{major}", "Not_A Brand";v="24"',
+        "sec_ch_ua": f'"Chromium";v="{major}", "Not_A Brand";v="24"',
         "sec_ch_ua_full_version_list": (
-            f'"Google Chrome";v="{version}", '
-            f'"Chromium";v="{version}", '
-            f'"Not:A-Brand";v="24.0.0.0"'
+            f'"Chromium";v="{version}", "Not:A-Brand";v="24.0.0.0"'
         ),
         "sec_ch_ua_platform": f'"{plat["os_name"]}"',
         "sec_ch_ua_platform_version": f'"{plat["os_version"]}"',
@@ -211,7 +231,7 @@ def _validate_consistency(config: BrowserConfig) -> list[str]:
     ua_version = ua_match.group(1) if ua_match else None
 
     hints_match = re.search(
-        r'"Google Chrome";v="(\d+\.\d+\.\d+\.\d+)"',
+        r'"Chromium";v="(\d+\.\d+\.\d+\.\d+)"',
         config.sec_ch_ua_full_version_list,
     )
     hints_version = hints_match.group(1) if hints_match else None
@@ -239,29 +259,34 @@ def _validate_consistency(config: BrowserConfig) -> list[str]:
 def get_browser_config() -> BrowserConfig:
     """
     Build and validate a browser config. Tries sources in order:
-      1. System Chrome (best TLS fingerprint)
-      2. Playwright bundled Chromium (fallback)
+      1. System Chromium (preferred)
+      2. System Chrome (fallback)
+      3. Playwright bundled Chromium (last resort)
     Raises RuntimeError if no viable browser found.
     """
     plat = _detect_platform()
 
-    # --- Source 1: System Chrome ---
-    chrome_path = _find_system_chrome()
-    if chrome_path:
-        version = _get_chrome_version(chrome_path)
+    # --- Source 1 & 2: System Chromium / Chrome ---
+    browser_result = _find_system_browser()
+    if browser_result:
+        browser_path, source_label = browser_result
+        version = _get_browser_version(browser_path)
         if version:
             hints = _build_client_hints(version, plat)
             ua = _build_user_agent(version, plat)
 
+            # Map source label to Playwright channel
+            channel = "chromium" if source_label == "system_chromium" else "chrome"
+
             config = BrowserConfig(
-                executable_path=None,
-                channel="chrome",
+                executable_path=browser_path,
+                channel=channel,
                 user_agent=ua,
                 viewport_width=1440,
                 viewport_height=900,
                 locale="en-PH",
                 timezone_id="Asia/Manila",
-                source="system_chrome",
+                source=source_label,
                 **hints,
             )
 
@@ -270,16 +295,23 @@ def get_browser_config() -> BrowserConfig:
                 for issue in issues:
                     logger.warning(f"Browser config inconsistency: {issue}")
             else:
+                display_name = (
+                    "Chromium" if source_label == "system_chromium" else "Chrome"
+                )
                 logger.success(
-                    f"Browser config loaded: system Chrome {version} "
+                    f"Browser config loaded: system {display_name} {version} "
                     f"({plat['os_name']} {plat['arch']})"
                 )
             return config
 
-        logger.warning("System Chrome found but version could not be extracted")
+        logger.warning(
+            f"System browser found at {browser_path} but version could not be extracted"
+        )
 
-    # --- Source 2: Playwright Bundled Chromium ---
-    logger.info("System Chrome unavailable, falling back to Playwright Chromium")
+    # --- Source 3: Playwright Bundled Chromium ---
+    logger.info(
+        "No system Chromium/Chrome available, falling back to Playwright Chromium"
+    )
     try:
         from playwright.sync_api import sync_playwright
 
@@ -321,7 +353,7 @@ def get_browser_config() -> BrowserConfig:
         logger.error(f"Playwright Chromium fallback failed: {e}")
 
     raise RuntimeError(
-        "No viable browser found. Install Google Chrome or run "
+        "No viable browser found. Install Chromium, Google Chrome, or run "
         "'playwright install chromium'."
     )
 
@@ -339,19 +371,20 @@ def _resolve_executable_path() -> Optional[str]:
     """
     Resolve the executable path for backward compatibility.
 
-    When using system Chrome via channel="chrome", there is no explicit
-    executable_path (Playwright resolves it internally). In that case we
-    return the discovered system Chrome path so callers that check
-    os.path.exists(PLAYWRIGHT_CHROMIUM_EXECUTABLE) still get a valid result.
+    When using system browser via channel, there may be an explicit
+    executable_path set. For system browsers we return the discovered path
+    so callers that check os.path.exists(PLAYWRIGHT_CHROMIUM_EXECUTABLE)
+    still get a valid result.
     """
     try:
         config = get_browser_config()
         # If config has an explicit executable_path, use it
         if config.executable_path:
             return config.executable_path
-        # If using system Chrome channel, return the discovered path
-        if config.source == "system_chrome":
-            return _find_system_chrome()
+        # If using system browser, return the discovered path
+        if config.source in ("system_chromium", "system_chrome"):
+            result = _find_system_browser()
+            return result[0] if result else None
         # For Playwright bundled Chromium, return None (Playwright resolves internally)
         return None
     except RuntimeError:

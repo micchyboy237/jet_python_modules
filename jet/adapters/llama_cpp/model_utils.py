@@ -1,3 +1,5 @@
+import logging
+import time
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from jet.adapters.llama_cpp.config import (
@@ -16,6 +18,8 @@ from jet.adapters.llama_cpp.models import (
     LLAMACPP_MODELS,
     LLAMACPP_VALUES,
 )
+
+logger = logging.getLogger(__name__)
 
 # Define ModelType as a Literal
 ModelType = Literal["llm", "embed", "rerank"]
@@ -191,57 +195,86 @@ def determine_model_type(model: Dict[str, Any]) -> ModelType:
     return "llm"
 
 
-def _fetch_models_from_host(url: str) -> List[Dict[str, Any]]:
+def _fetch_models_from_host(url: str, max_retries: int = 3) -> List[Dict[str, Any]]:
     """
     Fetch models from a single host and tag each with model_type.
     Handles both old format ({data: [...]}) and new format ({models: [...], data: [...]}).
 
-    New format priority:
-    - The 'data' array contains the loaded model regardless of alias
-    - 'meta' in data items provides runtime info (n_ctx, n_embd, etc.)
-    - 'models' array provides static model configuration
+    Includes retry logic with exponential backoff for transient network failures.
 
     Args:
         url: Base URL of the host (no trailing /v1)
+        max_retries: Maximum number of fetch attempts (default: 3)
+
     Returns:
         List[Dict[str, Any]]: Raw model dicts with model_type added
     """
     from openai import OpenAI
 
     client = OpenAI(base_url=f"{url}/v1", api_key="not-needed")
+    models_dict: Optional[Dict[str, Any]] = None
 
-    try:
-        response = client.models.list()
-    except Exception as e:
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(
+                "Fetching models from %s (attempt %d/%d)", url, attempt, max_retries
+            )
+            response = client.models.list()
+
+            # Handle both object and dict responses
+            try:
+                models_dict = response.model_dump()
+            except AttributeError:
+                models_dict = (
+                    response if isinstance(response, dict) else response.model_dump()
+                )
+
+            logger.info(
+                "Successfully fetched models from %s on attempt %d", url, attempt
+            )
+            break  # Success - exit retry loop
+
+        except Exception as e:
+            logger.warning(
+                "Failed to fetch models from %s (attempt %d/%d): %s",
+                url,
+                attempt,
+                max_retries,
+                str(e),
+            )
+            if attempt < max_retries:
+                backoff = 2 ** (attempt - 1)  # 1s, 2s, 4s...
+                logger.debug("Retrying in %ds...", backoff)
+                time.sleep(backoff)
+            else:
+                logger.error(
+                    "All %d attempts to fetch models from %s failed", max_retries, url
+                )
+                return []
+
+    # This should not happen if retries work correctly, but guard defensively
+    if models_dict is None:
         return []
 
     # Handle both old and new response formats
-    try:
-        models_dict = response.model_dump()
-    except AttributeError:
-        # Fallback for dict responses
-        models_dict = response if isinstance(response, dict) else response.model_dump()
-
-    # New format has 'models' array (static config) and 'data' array (loaded instances)
     if "data" in models_dict and isinstance(models_dict["data"], list):
         models_data = models_dict["data"]
-    # Old format fallback
     elif "models" in models_dict and isinstance(models_dict["models"], list):
         models_data = models_dict["models"]
     else:
+        logger.warning(
+            "Unexpected response format from %s: no 'data' or 'models' key", url
+        )
         return []
 
     result = []
     for model in models_data:
-        # Normalize model dict based on format
         normalized_model = _normalize_model_dict(model, models_dict)
-
-        # Determine model type from status.args if available
         model_type = determine_model_type(normalized_model)
         normalized_model["model_type"] = model_type
-
         result.append(normalized_model)
 
+    logger.debug("Parsed %d models from %s", len(result), url)
     return result
 
 
