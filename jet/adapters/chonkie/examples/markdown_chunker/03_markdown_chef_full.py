@@ -1,6 +1,7 @@
 """Example: Full pipeline with MarkdownChef, assertions, and artifact saving."""
 
 import json
+import shutil
 from pathlib import Path
 
 from jet.adapters.chonkie.markdown_chunker import (
@@ -10,6 +11,10 @@ from jet.adapters.chonkie.markdown_chunker import (
 from rich.console import Console
 
 console = Console()
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 SAMPLE_MD = """
 # Project Overview
@@ -107,7 +112,6 @@ def _save_results(result: MarkdownChunkResult, output_dir: Path) -> None:
     (output_dir / "summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
-    console.print(f"[green]Saved to {output_dir}[/green]")
 
 
 def main() -> None:
@@ -135,8 +139,11 @@ def main() -> None:
 
     console.print("[bold green]All assertions passed![/bold green]")
 
-    output_dir = Path(__file__).parent.parent / "generated" / "03_markdown_chef_full"
-    _save_results(result, output_dir)
+    _save_results(result, OUTPUT_DIR)
+
+    console.print(f"\n[bold cyan]Generated Files:[/bold cyan]")
+    for f in sorted(OUTPUT_DIR.glob("*")):
+        console.print(f"  • [link={f.as_uri()}]{f.name}[/link]")
 
 
 if __name__ == "__main__":

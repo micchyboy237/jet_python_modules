@@ -1,6 +1,7 @@
 """Example: CodeChunker with large chunk size (2048 tokens)."""
 
 import json
+import shutil
 from pathlib import Path
 
 from chonkie import CodeChunker
@@ -11,6 +12,10 @@ from jet.adapters.chonkie.markdown_chunker import (
 from rich.console import Console
 
 console = Console()
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 SAMPLE_MD = """
 # Project Overview
@@ -62,7 +67,6 @@ def _save_results(result: MarkdownChunkResult, output_dir: Path) -> None:
         json.dumps(chunks_data, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     (output_dir / "full_content.md").write_text(result.full_content, encoding="utf-8")
-    console.print(f"[green]Saved to {output_dir}[/green]")
 
 
 def main() -> None:
@@ -77,10 +81,11 @@ def main() -> None:
     chunks = remove_empty_chunks(chunker.chunk(SAMPLE_MD))
     result = MarkdownChunkResult(chunks=chunks, full_content=SAMPLE_MD)
 
-    output_dir = Path(__file__).parent.parent / "generated" / "01_code_chunker_large"
-    _save_results(result, output_dir)
+    _save_results(result, OUTPUT_DIR)
 
-    console.print(f"Generated {len(chunks)} chunks")
+    console.print(f"\n[bold cyan]Generated Files:[/bold cyan]")
+    for f in sorted(OUTPUT_DIR.glob("*")):
+        console.print(f"  • [link={f.as_uri()}]{f.name}[/link]")
 
 
 if __name__ == "__main__":
