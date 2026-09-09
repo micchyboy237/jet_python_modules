@@ -1,4 +1,6 @@
+# jet_python_modules/jet/adapters/chonkie/main/_main_html_chunkers.py
 import argparse
+import json
 import shutil
 from pathlib import Path
 from typing import List
@@ -8,7 +10,6 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console()
-
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -23,15 +24,12 @@ def get_args() -> argparse.Namespace:
 Examples:
   # Single URL
   python -m jet.adapters.chonkie.html_chunkers https://deepeval.com/docs/metrics-introduction
-
   # Multiple mixed sources
   python -m jet.adapters.chonkie.html_chunkers https://deepeval.com/docs/metrics-introduction https://deepeval.com/docs/metrics-faithfulness ./docs/guide.html "<h1>Inline</h1><p>Raw HTML</p>"
-
   # With overrides
   python -m jet.adapters.chonkie.html_chunkers ./docs/*.html --chunk-size 384 --semantic-model minishlab/potion-base-32M
 """,
     )
-
     parser.add_argument(
         "sources",
         nargs="+",
@@ -79,7 +77,6 @@ Examples:
         choices=["until_stable", "bottom", "none"],
         help="Scroll strategy for dynamic pages (default: until_stable).",
     )
-
     return parser.parse_args()
 
 
@@ -94,6 +91,7 @@ def main() -> None:
         f"[cyan]⚙️  Config:[/] chunk_size={args.chunk_size}, "
         f"min_chars={args.min_chars}, model={args.semantic_model}"
     )
+
     results = chunk(
         source=args.sources,
         chunk_size=args.chunk_size,
@@ -105,13 +103,17 @@ def main() -> None:
         scroll_strategy=args.scroll_strategy,
         min_section_tokens=args.min_section_tokens,
     )
+
     if not results:
         console.log(
             "[yellow]⚠ No chunks produced. Check source validity and logs above.[/]"
         )
         return
 
-    console.log(f"[bold green]✏️  Writing {len(results)} chunks to {OUTPUT_DIR}/[/]")
+    # Create chunks subdirectory
+    chunks_dir = OUTPUT_DIR / "chunks"
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    console.log(f"[bold green]✏️  Writing {len(results)} chunks to {chunks_dir}/[/]")
 
     table = Table(
         title="Saved Chunks",
@@ -123,12 +125,15 @@ def main() -> None:
     table.add_column("#", style="dim", width=4, justify="right")
     table.add_column("Category", style="green", min_width=12)
     table.add_column("Tokens", justify="right", width=7)
-    table.add_column("Preview", max_width=40, overflow="ellipsis")
+    table.add_column("Preview", max_width=80, overflow="ellipsis")
     table.add_column("Actions", width=10, justify="center")
 
+    manifest: List[dict] = []
+
     for idx, r in enumerate(results, start=1):
-        filename = f"{idx:04d}_{r.element_category.lower()}.txt"
-        out_path = OUTPUT_DIR / filename
+        filename = f"{idx:03d}_{r.element_category.lower()}.txt"
+        out_path = chunks_dir / filename
+
         lines: List[str] = [
             "---",
             f"index: {idx}",
@@ -145,16 +150,28 @@ def main() -> None:
         ]
         out_path.write_text("\n".join(lines), encoding="utf-8")
 
-        # Build preview (first 40 chars, single-line, escape Rich markup)
+        # Build manifest entry WITH full text
+        manifest.append(
+            {
+                "index": idx,
+                "filename": filename,
+                "element_category": r.element_category,
+                "breadcrumb": r.breadcrumb,
+                "source_url": r.source_url,
+                "page_number": r.page_number,
+                "token_count": r.chunk.token_count,
+                "start_index": r.chunk.start_index,
+                "end_index": r.chunk.end_index,
+                "text": r.chunk.text,
+            }
+        )
+
         raw_preview = (r.chunk.text or "").strip().replace("\n", " ")
-        preview = raw_preview[:40] + ("…" if len(raw_preview) > 40 else "")
+        preview = raw_preview[:80] + ("…" if len(raw_preview) > 80 else "")
         preview = preview.replace("[", "\\[").replace("]", "\\]")
 
-        # File open link (file:// URI)
         file_uri = out_path.resolve().as_uri()
         file_link = f"[link={file_uri}]📄[/link]"
-
-        # Source URL link (only if available)
         if r.source_url:
             safe_url = r.source_url.replace("[", "\\[").replace("]", "\\]")
             source_link = f"[link={safe_url}]🔗[/link]"
@@ -169,10 +186,12 @@ def main() -> None:
             f"{file_link}  {source_link}",
         )
 
+    # Save global chunks.json under OUTPUT_DIR (now includes text)
+    manifest_path = OUTPUT_DIR / "chunks.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    console.log(f"[dim]📋 Saved manifest: {manifest_path}[/]")
+
     console.print(table)
-    console.log(
-        f"\n[bold green]✔ Done:[/] {len(results)} chunks written to [cyan]{OUTPUT_DIR}[/]"
-    )
 
 
 if __name__ == "__main__":
