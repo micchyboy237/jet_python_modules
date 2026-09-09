@@ -133,3 +133,32 @@ class TestSchemaToLlmContext:
         schema = generate_html_schema(SAMPLE_HTML)
         result = schema_to_llm_context(schema)
         assert "[Title]" in result or "[NarrativeText]" in result
+
+    def test_exact_structure_and_order(self):
+        """Asserts each line of the LLM context exists in the correct order."""
+        schema = generate_html_schema(SAMPLE_HTML)
+        result = schema_to_llm_context(schema)
+        actual_lines = [line.strip() for line in result.split("\n") if line.strip()]
+
+        # Expected structure based on SAMPLE_HTML hierarchy
+        # Note: Unstructured often labels short sentences as UncategorizedText
+        expected = [
+            "[Title] Main Title",
+            "[UncategorizedText] Introduction paragraph.",
+            "[Title] Section One",
+            "[UncategorizedText] Section one content.",
+            "[ListItem] Item A",
+            "[ListItem] Item B",
+            "[Title] Section Two",
+            "[UncategorizedText] Section two content.",
+        ]
+
+        # Assert that each expected line is present in the actual output in order
+        ptr = 0
+        for line in actual_lines:
+            if ptr < len(expected) and line == expected[ptr]:
+                ptr += 1
+
+        assert ptr == len(expected), (
+            f"Expected {len(expected)} lines in order, but only matched {ptr}. Actual:\n{result}"
+        )

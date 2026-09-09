@@ -3,6 +3,7 @@ from typing import List, Optional, TypedDict
 from jet.data.utils import generate_unique_id
 from jet.scrapers.text_nodes import extract_text_nodes
 from jet.scrapers.utils import ElementDetails
+from jet.scrapers.utils.scrape_links import scrape_links
 from lxml.etree import tostring
 
 
@@ -19,6 +20,7 @@ class HtmlHeaderDoc(TypedDict):
     content: str
     html: str
     element: Optional[ElementDetails]
+    links: List[str]  # URLs found within this header's section
 
 
 # Block-level tags whose outer HTML should be captured as structural fragments.
@@ -97,26 +99,25 @@ def extract_header_hierarchy(
     Extracts a list of HtmlHeaderDoc objects from HTML content, organizing text by header hierarchy.
     Each section's ``html`` field contains the outer HTML of all block-level ancestors
     for the leaf text nodes within that section.
+    Each section's ``links`` field contains unique URLs found within that section.
     """
     header_tags = {f"h{i}": i for i in range(1, 7)}
-
     nodes = extract_text_nodes(
         source,
         excludes=excludes,
         timeout_ms=timeout_ms,
     )
-
     if includes:
         nodes = [
             node for node in nodes if node.tag in includes + list(header_tags.keys())
         ]
-
     sections: List[HtmlHeaderDoc] = []
     current_section: Optional[HtmlHeaderDoc] = None
     header_stack: List[tuple[str, int, int]] = []
     current_content: List[str] = []
     current_html_content: List[str] = []
     seen_block_html: set = set()
+    seen_links: set = set()  # NEW: Track unique links per section
     section_index = 0
     base_depth: Optional[int] = None
 
@@ -134,6 +135,7 @@ def extract_header_hierarchy(
                 current_content = []
                 current_html_content = []
                 seen_block_html = set()
+                seen_links = set()  # NEW: Reset link tracker
 
             level = header_tags[tag]
             if base_depth is None:
@@ -163,6 +165,7 @@ def extract_header_hierarchy(
                 "content": "",
                 "html": "",
                 "element": node.get_element_details(),
+                "links": [],  # NEW: Initialize links list
             }
             header_stack.append((text, level, section_index))
 
@@ -170,6 +173,14 @@ def extract_header_hierarchy(
             if heading_html:
                 current_html_content.append(heading_html)
                 seen_block_html.add(heading_html)
+
+                # NEW: Extract links from header HTML
+                if not ignore_links:
+                    header_links = scrape_links(heading_html)
+                    for link in header_links:
+                        if link not in seen_links:
+                            seen_links.add(link)
+                            current_section["links"].append(link)
         else:
             if text and current_section is not None:
                 current_content.append(text)
@@ -177,6 +188,14 @@ def extract_header_hierarchy(
                 if block_html and block_html not in seen_block_html:
                     current_html_content.append(block_html)
                     seen_block_html.add(block_html)
+
+                    # NEW: Extract links from content block HTML
+                    if not ignore_links:
+                        block_links = scrape_links(block_html)
+                        for link in block_links:
+                            if link not in seen_links:
+                                seen_links.add(link)
+                                current_section["links"].append(link)
 
     # Finalize last section
     if current_section and current_section["header"].strip():
@@ -189,7 +208,6 @@ def extract_header_hierarchy(
         for section in sections
         if section["header"].strip() or section["content"].strip()
     ]
-
     for idx, section in enumerate(sections):
         section["doc_index"] = idx
 
