@@ -3,6 +3,7 @@ Dynamic, self-validating browser configuration for anti-detection.
 All values are derived from the actual runtime environment.
 No hardcoded UAs, versions, or platform strings.
 Chromium is preferred over Chrome for system browser detection.
+Playwright-managed Chromium is dynamically discovered (version-agnostic).
 """
 
 import os
@@ -12,13 +13,10 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 from jet.logger import logger
-
-# ---------------------------------------------------------------------------
-# Platform Detection (runtime, never hardcoded)
-# ---------------------------------------------------------------------------
 
 
 @lru_cache(maxsize=1)
@@ -67,33 +65,219 @@ def _detect_platform() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Browser Detection (Chromium preferred, then Chrome)
+# Dynamic Playwright Chromium discovery (version-agnostic)
 # ---------------------------------------------------------------------------
+_PLAYWRIGHT_CACHE_DIR = Path("/Users/jethroestrada/Library/Caches/ms-playwright")
 
+
+def _find_playwright_chromium() -> Optional[tuple[str, str]]:
+    """
+    Generically discover the latest Playwright-managed Chromium binary.
+    No hardcoded internal paths — recursively finds the actual executable
+    regardless of Playwright version, naming convention, or platform.
+
+    Strategy:
+      1. Find all chromium-* dirs (exclude headless shell), sort by version desc
+      2. For each version dir, recursively locate the browser executable:
+         - macOS: find *.app/Contents/MacOS/<binary> where binary != framework helper
+         - Windows: find chrome.exe
+         - Linux: find 'chrome' executable
+      3. Return first valid match
+
+    Returns (path, "playwright_chromium") or None.
+    """
+    print(f"[PW-TRACE] Starting generic Playwright Chromium discovery")
+    print(f"[PW-TRACE] Cache dir: {_PLAYWRIGHT_CACHE_DIR}")
+    print(f"[PW-TRACE] Cache dir exists: {_PLAYWRIGHT_CACHE_DIR.is_dir()}")
+
+    if not _PLAYWRIGHT_CACHE_DIR.is_dir():
+        logger.warning(f"Playwright cache dir not found: {_PLAYWRIGHT_CACHE_DIR}")
+        print(f"[PW-TRACE] ❌ ABORT: Cache directory does not exist")
+        return None
+
+    # ── Step 1: Discover and rank chromium version directories ──────────────
+    chromium_dirs: list[tuple[int, Path]] = []
+    for entry in _PLAYWRIGHT_CACHE_DIR.iterdir():
+        if not entry.is_dir():
+            continue
+        if entry.name.startswith("chromium_headless_shell"):
+            print(f"[PW-TRACE]   Skipping headless shell: {entry.name}")
+            continue
+        if not entry.name.startswith("chromium-"):
+            continue
+        match = re.search(r"chromium-(\d+)", entry.name)
+        if match:
+            version_num = int(match.group(1))
+            chromium_dirs.append((version_num, entry))
+            print(f"[PW-TRACE]   ✅ Found chromium-{version_num}")
+        else:
+            print(f"[PW-TRACE]   ⚠️  Skipped (no version): {entry.name}")
+
+    if not chromium_dirs:
+        logger.warning(f"No chromium-* directories in {_PLAYWRIGHT_CACHE_DIR}")
+        print(f"[PW-TRACE] ❌ ABORT: No chromium-* directories found")
+        return None
+
+    chromium_dirs.sort(key=lambda x: x[0], reverse=True)
+    print(f"[PW-TRACE] Versions found (desc): {[v for v, _ in chromium_dirs]}")
+
+    system = platform.system()
+    machine = platform.machine().lower()
+    print(f"[PW-TRACE] Platform: {system} / {machine}")
+
+    # ── Step 2: Generic executable finder per platform ──────────────────────
+    def _find_macos_browser(root: Path) -> Optional[Path]:
+        """Find the primary browser binary inside any .app bundle under root."""
+        print(f"[PW-TRACE]    [macOS] Scanning for .app bundles under: {root}")
+        app_bundles: list[Path] = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dp = Path(dirpath)
+            # Prune deep framework/helper dirs to avoid false matches
+            rel = dp.relative_to(root)
+            if len(rel.parts) > 6:
+                dirnames.clear()
+                continue
+            # Collect .app directories
+            for d in list(dirnames):
+                if d.endswith(".app"):
+                    app_path = dp / d
+                    app_bundles.append(app_path)
+                    print(f"[PW-TRACE]      Found .app: {app_path.relative_to(root)}")
+            # Don't descend into .app bundles via os.walk; we handle them explicitly
+            dirnames[:] = [d for d in dirnames if not d.endswith(".app")]
+
+        if not app_bundles:
+            print(f"[PW-TRACE]      No .app bundles found")
+            return None
+
+        # For each .app, check Contents/MacOS/ for the primary executable
+        for app_bundle in app_bundles:
+            macos_dir = app_bundle / "Contents" / "MacOS"
+            if not macos_dir.is_dir():
+                print(f"[PW-TRACE]      Skipping {app_bundle.name}: no Contents/MacOS/")
+                continue
+
+            binaries = [f for f in macos_dir.iterdir() if f.is_file()]
+            print(
+                f"[PW-TRACE]      {app_bundle.name}/Contents/MacOS/ contains: {[b.name for b in binaries]}"
+            )
+
+            # Filter out known non-browser helpers
+            skip_names = {"crashpad_handler", "gpu-process", "renderer", "broker"}
+            candidates = [
+                b
+                for b in binaries
+                if b.name not in skip_names and os.access(b, os.X_OK)
+            ]
+
+            if candidates:
+                # Prefer the binary whose name matches the .app bundle stem
+                app_stem = app_bundle.stem  # e.g., "Google Chrome for Testing"
+                exact_match = next((c for c in candidates if c.name == app_stem), None)
+                chosen = exact_match or candidates[0]
+                print(
+                    f"[PW-TRACE]      Selected binary: {chosen.name} (from {len(candidates)} candidate(s))"
+                )
+                return chosen
+
+        print(f"[PW-TRACE]      No valid browser binary found in any .app")
+        return None
+
+    def _find_windows_browser(root: Path) -> Optional[Path]:
+        """Find chrome.exe anywhere under root."""
+        print(f"[PW-TRACE]    [Windows] Searching for chrome.exe under: {root}")
+        for dirpath, _, filenames in os.walk(root):
+            if "chrome.exe" in filenames:
+                candidate = Path(dirpath) / "chrome.exe"
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    print(f"[PW-TRACE]      Found: {candidate.relative_to(root)}")
+                    return candidate
+        print(f"[PW-TRACE]      chrome.exe not found")
+        return None
+
+    def _find_linux_browser(root: Path) -> Optional[Path]:
+        """Find 'chrome' executable anywhere under root."""
+        print(f"[PW-TRACE]    [Linux] Searching for 'chrome' under: {root}")
+        for dirpath, _, filenames in os.walk(root):
+            if "chrome" in filenames:
+                candidate = Path(dirpath) / "chrome"
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    print(f"[PW-TRACE]      Found: {candidate.relative_to(root)}")
+                    return candidate
+        print(f"[PW-TRACE]      'chrome' not found")
+        return None
+
+    # Select platform strategy
+    if system == "Darwin":
+        find_browser = _find_macos_browser
+    elif system == "Windows":
+        find_browser = _find_windows_browser
+    else:
+        find_browser = _find_linux_browser
+
+    # ── Step 3: Try each version (newest first) ────────────────────────────
+    for version_num, chromium_dir in chromium_dirs:
+        print(f"[PW-TRACE] ── Trying chromium-{version_num}: {chromium_dir}")
+
+        try:
+            top_level = [e.name for e in chromium_dir.iterdir()]
+            print(f"[PW-TRACE]    Contents: {top_level}")
+        except Exception as e:
+            print(f"[PW-TRACE]    ⚠️  Cannot list contents: {e}")
+            continue
+
+        result = find_browser(chromium_dir)
+        if result:
+            resolved = str(result.resolve())
+            logger.info(
+                f"Dynamically found Playwright Chromium v{version_num} at: {resolved}"
+            )
+            print(f"[PW-TRACE] ✅ SUCCESS: Playwright Chromium v{version_num}")
+            print(f"[PW-TRACE]    Path: {resolved}")
+            return resolved, "playwright_chromium"
+
+        print(f"[PW-TRACE]    ❌ No browser found in chromium-{version_num}")
+
+    logger.warning("No valid Playwright Chromium binary found in any version directory")
+    print(f"[PW-TRACE] ❌ FAILED: Exhausted all versions without finding a browser")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# System browser paths (fallback only)
+# ---------------------------------------------------------------------------
 _SYSTEM_BROWSER_PATHS = [
-    # Chromium (preferred - checked first)
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",  # macOS
-    "/usr/bin/chromium",  # Linux
-    "/usr/bin/chromium-browser",  # Linux (Debian/Ubuntu)
-    "/snap/bin/chromium",  # Linux (Snap)
-    r"C:\Program Files\Chromium\Application\chrome.exe",  # Windows
-    r"C:\Program Files (x86)\Chromium\Application\chrome.exe",  # Windows
-    # Google Chrome (fallback)
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",  # macOS
-    "/usr/bin/google-chrome",  # Linux
-    "/usr/bin/google-chrome-stable",  # Linux
-    r"C:\Program Files\Google\Chrome\Application\chrome.exe",  # Windows
-    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",  # Windows
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+    r"C:\Program Files\Chromium\Application\chrome.exe",
+    r"C:\Program Files (x86)\Chromium\Application\chrome.exe",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
 ]
 
 
 @lru_cache(maxsize=1)
 def _find_system_browser() -> Optional[tuple[str, str]]:
     """
-    Locate a working system browser binary.
+    Locate a working browser binary.
     Returns (path, source_label) or None.
-    Checks Chromium first, then Chrome.
+
+    Priority order:
+      1. Dynamic Playwright Chromium (latest version in cache)
+      2. System Chromium
+      3. System Chrome
     """
+    # --- Priority 1: Dynamic Playwright Chromium ---
+    pw_result = _find_playwright_chromium()
+    if pw_result:
+        return pw_result
+
+    # --- Priority 2 & 3: System browsers ---
     for path in _SYSTEM_BROWSER_PATHS:
         if not os.path.isfile(path):
             continue
@@ -106,9 +290,7 @@ def _find_system_browser() -> Optional[tuple[str, str]]:
             )
             if result.returncode != 0:
                 continue
-
             stdout = result.stdout.strip()
-            # Determine source label from version output and path
             is_chromium_path = "chromium" in path.lower()
             if "Chromium" in stdout and "Chrome" not in stdout.replace("Chromium", ""):
                 return path, "system_chromium"
@@ -136,11 +318,6 @@ def _get_browser_version(browser_path: str) -> Optional[str]:
         return None
 
 
-# ---------------------------------------------------------------------------
-# Browser Config Dataclass
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class BrowserConfig:
     """Immutable, validated browser configuration."""
@@ -159,7 +336,7 @@ class BrowserConfig:
     viewport_height: int
     locale: str
     timezone_id: str
-    source: str  # "system_chromium" | "system_chrome" | "playwright_chromium"
+    source: str
 
     @property
     def extra_http_headers(self) -> dict:
@@ -185,11 +362,6 @@ class BrowserConfig:
             "Upgrade-Insecure-Requests": "1",
             "Connection": "keep-alive",
         }
-
-
-# ---------------------------------------------------------------------------
-# Config Builder with Validation
-# ---------------------------------------------------------------------------
 
 
 def _build_user_agent(version: str, plat: dict) -> str:
@@ -246,7 +418,6 @@ def _validate_consistency(config: BrowserConfig) -> list[str]:
         issues.append(
             f"Hints platform ({config.sec_ch_ua_platform}) != detected ({plat['os_name']})"
         )
-
     if f'"{plat["arch"]}"' not in config.sec_ch_ua_arch:
         issues.append(
             f"Hints arch ({config.sec_ch_ua_arch}) != detected ({plat['arch']})"
@@ -259,24 +430,29 @@ def _validate_consistency(config: BrowserConfig) -> list[str]:
 def get_browser_config() -> BrowserConfig:
     """
     Build and validate a browser config. Tries sources in order:
-      1. System Chromium (preferred)
-      2. System Chrome (fallback)
-      3. Playwright bundled Chromium (last resort)
+      1. Dynamic Playwright Chromium (preferred, version-agnostic)
+      2. System Chromium
+      3. System Chrome
+      4. Playwright bundled Chromium via API (last resort)
     Raises RuntimeError if no viable browser found.
     """
     plat = _detect_platform()
-
-    # --- Source 1 & 2: System Chromium / Chrome ---
     browser_result = _find_system_browser()
+
     if browser_result:
         browser_path, source_label = browser_result
         version = _get_browser_version(browser_path)
+
         if version:
+            logger.info(f"Using browser at: {browser_path}")
             hints = _build_client_hints(version, plat)
             ua = _build_user_agent(version, plat)
 
-            # Map source label to Playwright channel
-            channel = "chromium" if source_label == "system_chromium" else "chrome"
+            # Determine channel based on source
+            if source_label in ("playwright_chromium", "system_chromium"):
+                channel = "chromium"
+            else:
+                channel = "chrome"
 
             config = BrowserConfig(
                 executable_path=browser_path,
@@ -295,20 +471,18 @@ def get_browser_config() -> BrowserConfig:
                 for issue in issues:
                     logger.warning(f"Browser config inconsistency: {issue}")
             else:
-                display_name = (
-                    "Chromium" if source_label == "system_chromium" else "Chrome"
-                )
+                display_name = source_label.replace("_", " ").title()
                 logger.success(
-                    f"Browser config loaded: system {display_name} {version} "
+                    f"Browser config loaded: {display_name} {version} "
                     f"({plat['os_name']} {plat['arch']})"
                 )
             return config
 
         logger.warning(
-            f"System browser found at {browser_path} but version could not be extracted"
+            f"Browser found at {browser_path} but version could not be extracted"
         )
 
-    # --- Source 3: Playwright Bundled Chromium ---
+    # --- Last resort: Playwright API launch to extract version ---
     logger.info(
         "No system Chromium/Chrome available, falling back to Playwright Chromium"
     )
@@ -358,19 +532,9 @@ def get_browser_config() -> BrowserConfig:
     )
 
 
-# ---------------------------------------------------------------------------
-# Backward Compatibility Shims
-# ---------------------------------------------------------------------------
-# These preserve the old module-level names so that any external code doing
-#   from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
-# continues to work without modification. Values are derived dynamically
-# from get_browser_config() rather than being hardcoded.
-
-
 def _resolve_executable_path() -> Optional[str]:
     """
     Resolve the executable path for backward compatibility.
-
     When using system browser via channel, there may be an explicit
     executable_path set. For system browsers we return the discovered path
     so callers that check os.path.exists(PLAYWRIGHT_CHROMIUM_EXECUTABLE)
@@ -378,23 +542,18 @@ def _resolve_executable_path() -> Optional[str]:
     """
     try:
         config = get_browser_config()
-        # If config has an explicit executable_path, use it
         if config.executable_path:
             return config.executable_path
-        # If using system browser, return the discovered path
-        if config.source in ("system_chromium", "system_chrome"):
+        if config.source in ("system_chromium", "system_chrome", "playwright_chromium"):
             result = _find_system_browser()
             return result[0] if result else None
-        # For Playwright bundled Chromium, return None (Playwright resolves internally)
         return None
     except RuntimeError:
         return None
 
 
 PLAYWRIGHT_CHROMIUM_EXECUTABLE: Optional[str] = _resolve_executable_path()
-
-# Preserve other legacy names that external modules may import
-PLAYWRIGHT_CACHE_DIR: str = "/Users/jethroestrada/Library/Caches/ms-playwright"
+PLAYWRIGHT_CACHE_DIR: str = str(_PLAYWRIGHT_CACHE_DIR)
 PLAYWRIGHT_CHROMIUM: Optional[str] = (
     os.path.dirname(PLAYWRIGHT_CHROMIUM_EXECUTABLE)
     if PLAYWRIGHT_CHROMIUM_EXECUTABLE
@@ -403,7 +562,6 @@ PLAYWRIGHT_CHROMIUM: Optional[str] = (
 PLAYWRIGHT_FIREFOX_EXECUTABLE: Optional[str] = None
 PLAYWRIGHT_WEBKIT_EXECUTABLE: Optional[str] = None
 
-# Legacy header dicts — now derived from dynamic config for consistency
 try:
     _config = get_browser_config()
     EXTRA_HTTP_HEADERS: dict = _config.extra_http_headers
