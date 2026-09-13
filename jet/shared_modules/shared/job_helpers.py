@@ -1,5 +1,6 @@
 import math
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
@@ -228,17 +229,27 @@ def load_jobs_list(
     db_client: PgVectorClient | None = None,
     table_name: str = DEFAULT_TABLE_METADATA,
     include_entities: bool = False,
+    where_conditions: dict[str, Any] | None = None,
 ) -> list[JobData]:
     """
-    Load all existing jobs from the metadata table.
+    Load all existing jobs from the metadata table with optional DB-level filtering.
+
+    Args:
+        db_client: Optional PgVectorClient instance.
+        table_name: Metadata table name.
+        include_entities: If True, LEFT JOIN job_entities table.
+        where_conditions: Dict of column filters applied as SQL WHERE.
+            Use {"column": "NOT_NULL"} to filter for non-null/non-empty values.
+            Use {"column": value} for exact match.
+            Example: {"salary": "NOT_NULL", "company": "NOT_NULL"}
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-
     try:
         with db_client:
+            # Build base SELECT with optional entity join
             if include_entities:
-                query = sql.SQL("""
+                base_query = sql.SQL("""
                     SELECT m.*, e.entities AS _joined_entities
                     FROM {} m
                     LEFT JOIN {} e ON m.id = e.id
@@ -246,56 +257,63 @@ def load_jobs_list(
                     sql.Identifier(table_name),
                     sql.Identifier(DEFAULT_TABLE_ENTITIES),
                 )
-                with db_client.conn.cursor() as cur:
-                    cur.execute(query)
-                    raw_rows = cur.fetchall()
-
-                # DEBUG: Inspect raw DB results before any processing
-                logger.debug(f"[DEBUG load_jobs_list] raw_rows count: {len(raw_rows)}")
-                if raw_rows:
-                    first = raw_rows[0]
-                    logger.debug(
-                        f"[DEBUG load_jobs_list] first row type: {type(first)}"
-                    )
-                    if isinstance(first, dict):
-                        logger.debug(
-                            f"[DEBUG load_jobs_list] first row keys: {list(first.keys())}"
-                        )
-                        logger.debug(
-                            f"[DEBUG load_jobs_list] first row id={repr(first.get('id'))}, title={repr(first.get('title'))}, _joined_entities={repr(first.get('_joined_entities'))}"
-                        )
-                    else:
-                        cols = [d[0] for d in cur.description]
-                        logger.debug(f"[DEBUG load_jobs_list] columns: {cols}")
-                        logger.debug(
-                            f"[DEBUG load_jobs_list] first row (tuple): {first[:5]}..."
-                        )
-
-                processed_rows = []
-                for row in raw_rows:
-                    if isinstance(row, dict):
-                        d = dict(row)
-                        d["entities"] = d.pop("_joined_entities", None)
-                    else:
-                        columns = [desc[0] for desc in cur.description]
-                        d = dict(zip(columns, row))
-                        d["entities"] = d.pop("_joined_entities", None)
-                    processed_rows.append(d)
-
-                # DEBUG: Verify processed rows
-                if processed_rows:
-                    first_p = processed_rows[0]
-                    logger.debug(
-                        f"[DEBUG load_jobs_list] after processing: id={repr(first_p.get('id'))}, title={repr(first_p.get('title'))}, entities={repr(first_p.get('entities'))}"
-                    )
             else:
-                processed_rows = db_client.get_rows(table_name=table_name)
-                # DEBUG: Non-join path
-                if processed_rows:
-                    first = processed_rows[0]
-                    logger.debug(
-                        f"[DEBUG load_jobs_list NO JOIN] first row type: {type(first)}, id={repr(first.get('id') if isinstance(first, dict) else 'N/A')}"
+                base_query = sql.SQL("SELECT * FROM {}").format(
+                    sql.Identifier(table_name)
+                )
+
+            # Build WHERE clause from where_conditions
+            params: list[Any] = []
+            if where_conditions:
+                where_parts = []
+                for col, val in where_conditions.items():
+                    if val == "NOT_NULL":
+                        where_parts.append(
+                            sql.SQL("{} IS NOT NULL AND {} != ''").format(
+                                sql.Identifier(col), sql.Identifier(col)
+                            )
+                        )
+                    else:
+                        where_parts.append(
+                            sql.SQL("{} = %s").format(sql.Identifier(col))
+                        )
+                        params.append(val)
+                if where_parts:
+                    base_query = (
+                        base_query
+                        + sql.SQL(" WHERE ")
+                        + sql.SQL(" AND ").join(where_parts)
                     )
+                    logger.info(f"Applied DB filter: {where_conditions}")
+
+            with db_client.conn.cursor() as cur:
+                cur.execute(base_query, params)
+                raw_rows = cur.fetchall()
+
+            logger.debug(f"[DEBUG load_jobs_list] raw_rows count: {len(raw_rows)}")
+            if raw_rows:
+                first = raw_rows[0]
+                logger.debug(f"[DEBUG load_jobs_list] first row type: {type(first)}")
+                if isinstance(first, dict):
+                    logger.debug(
+                        f"[DEBUG load_jobs_list] first row keys: {list(first.keys())}"
+                    )
+                else:
+                    cols = [d[0] for d in cur.description]
+                    logger.debug(f"[DEBUG load_jobs_list] columns: {cols}")
+
+            processed_rows = []
+            for row in raw_rows:
+                if isinstance(row, dict):
+                    d = dict(row)
+                    if include_entities:
+                        d["entities"] = d.pop("_joined_entities", None)
+                else:
+                    columns = [desc[0] for desc in cur.description]
+                    d = dict(zip(columns, row))
+                    if include_entities:
+                        d["entities"] = d.pop("_joined_entities", None)
+                processed_rows.append(d)
 
         jobs: list[JobData] = []
         for row in processed_rows:
@@ -308,13 +326,12 @@ def load_jobs_list(
                 logger.warning(
                     f"Skipping invalid metadata row (id={row.get('id', 'unknown')}): {e}"
                 )
-
         logger.info(
             f"Loaded {len(jobs)} jobs from '{table_name}'"
             f"{' with entities' if include_entities else ''}"
+            f"{' with where=' + str(where_conditions) if where_conditions else ''}"
         )
         return jobs
-
     except Exception as e:
         logger.warning(f"Failed to load jobs from metadata table: {e}")
         return []
@@ -958,6 +975,93 @@ def search_jobs(
     return filtered_results
 
 
+def filter_jobs_by_metadata(
+    where_conditions: dict[str, Any] | None = None,
+    title_ilike: str | None = None,
+    details_ilike: str | None = None,
+    limit: int | None = None,
+    db_client: PgVectorClient | None = None,
+) -> list[str]:
+    """
+    Filter jobs at the DB level using metadata columns and optional text search.
+    Returns list of matching job IDs.
+
+    Args:
+        where_conditions: Exact-match column filters (e.g., {"job_type": "Full-time"})
+        title_ilike: Case-insensitive LIKE pattern for title column (e.g., "%junior%")
+        details_ilike: Case-insensitive LIKE pattern for details column
+        limit: Max number of job IDs to return
+        db_client: Optional PgVectorClient instance
+
+    Returns:
+        List of job IDs matching the filters
+    """
+    if not db_client:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+
+    # Build combined where conditions
+    combined_where = dict(where_conditions) if where_conditions else {}
+
+    # For ILIKE filters, we need raw SQL since get_rows only supports exact match
+    has_text_filter = title_ilike or details_ilike
+
+    if has_text_filter:
+        ilike_clauses = []
+        params: list[Any] = []
+        if title_ilike:
+            ilike_clauses.append("title ILIKE %s")
+            params.append(title_ilike)
+        if details_ilike:
+            ilike_clauses.append("details ILIKE %s")
+            params.append(details_ilike)
+
+        where_parts = []
+        for col, val in combined_where.items():
+            where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
+            params.append(val)
+
+        if ilike_clauses:
+            where_parts.append(
+                sql.SQL("(")
+                + sql.SQL(" OR ").join(map(sql.SQL, ilike_clauses))
+                + sql.SQL(")")
+            )
+
+        full_where = (
+            sql.SQL(" AND ").join(where_parts) if where_parts else sql.SQL("TRUE")
+        )
+
+        query = sql.SQL("SELECT id FROM {} WHERE {}").format(
+            sql.Identifier(DEFAULT_TABLE_METADATA),
+            full_where,
+        )
+        if limit:
+            query = sql.SQL("{} LIMIT %s").format(query)
+            params.append(limit)
+
+        with db_client.conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        job_ids = [row["id"] for row in rows]
+        logger.info(
+            f"DB metadata filter: {len(job_ids)} jobs matched "
+            f"(where={combined_where}, title_ilike={title_ilike}, details_ilike={details_ilike})"
+        )
+        return job_ids
+    else:
+        # Use existing get_rows for exact-match-only filters
+        rows = db_client.get_rows(
+            DEFAULT_TABLE_METADATA,
+            where_conditions=combined_where if combined_where else None,
+            limit=limit,
+        )
+        job_ids = [row["id"] for row in rows]
+        logger.info(
+            f"DB metadata filter: {len(job_ids)} jobs matched (where={combined_where})"
+        )
+        return job_ids
+
+
 def hybrid_search_jobs(
     query: str,
     top_k: int | None = 10,
@@ -965,26 +1069,84 @@ def hybrid_search_jobs(
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
     enrich_with_metadata: bool = True,
+    metadata_filters: dict[str, Any] | None = None,
+    title_ilike: str | None = None,
+    details_ilike: str | None = None,
 ) -> list[HybridSearchResult]:
     """
     Hybrid search combining vector search with BM25 reranking.
-    Optionally enriches results with full metadata.
+    Optionally pre-filters candidates at the DB metadata level before vector search.
+
+    NEW ARGS:
+        metadata_filters: Dict of exact-match column filters applied via SQL WHERE
+                          before vector search (e.g., {"job_type": "Full-time"})
+        title_ilike: Case-insensitive LIKE pattern for title pre-filtering
+        details_ilike: Case-insensitive LIKE pattern for details pre-filtering
     """
     from jet.vectors.reranker.bm25 import rerank_bm25
 
-    # Ensure db_client is available for both search and enrichment
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
-    raw_results = search_jobs(
-        query=query,
-        top_k=top_k,
-        threshold=threshold,
-        embed_model=embed_model,
-        db_client=db_client,
-        enrich_with_metadata=False,
-    )
+    # --- NEW: Pre-filter at DB level if filters provided ---
+    candidate_ids: list[str] | None = None
+    if metadata_filters or title_ilike or details_ilike:
+        candidate_ids = filter_jobs_by_metadata(
+            where_conditions=metadata_filters,
+            title_ilike=title_ilike,
+            details_ilike=details_ilike,
+            limit=top_k * 5 if top_k else None,
+            db_client=db_client,
+        )
+        if not candidate_ids:
+            logger.warning(
+                "DB pre-filter returned 0 candidates; returning empty results"
+            )
+            return []
+        logger.info(
+            f"Pre-filtered to {len(candidate_ids)} candidate job IDs for hybrid search"
+        )
 
+    # If we have candidate IDs, search only those; otherwise standard search
+    if candidate_ids is not None:
+        # Load embeddings only for filtered candidates
+        candidate_embeddings = db_client.get_embeddings(
+            DEFAULT_TABLE_DATA, ids=candidate_ids
+        )
+        if not candidate_embeddings:
+            logger.warning("No embeddings found for pre-filtered candidate IDs")
+            return []
+
+        # Build documents/metadata from candidate chunks
+        raw_results = []
+        for chunk_id in candidate_ids:
+            emb = candidate_embeddings.get(chunk_id)
+            if emb is None:
+                continue
+            row = db_client.get_row(DEFAULT_TABLE_DATA, chunk_id)
+            if not row:
+                continue
+            raw_results.append(
+                {
+                    "id": chunk_id,
+                    "content": row.get("content", ""),
+                    "header": row.get("header", ""),
+                    "parent_header": row.get("parent_header", ""),
+                    "chunk_meta": row.get("chunk_meta", {}),
+                    "score": 1.0,  # placeholder; rerank will re-score
+                }
+            )
+    else:
+        raw_results = search_jobs(
+            query=query,
+            top_k=top_k,
+            threshold=threshold,
+            embed_model=embed_model,
+            db_client=db_client,
+            enrich_with_metadata=False,
+        )
+
+    # --- Existing BM25 rerank logic (unchanged) ---
     ids = [result["id"] for result in raw_results]
     documents = [f"{result['content']}" for result in raw_results]
     metadatas = [
@@ -1006,14 +1168,12 @@ def hybrid_search_jobs(
     filtered_results = [
         result for result in reranked_results if is_valid_score(result.get("score"))
     ]
-
     removed_count = len(reranked_results) - len(filtered_results)
     if removed_count > 0:
         logger.debug(
             f"Filtered out {removed_count} reranked results with invalid scores"
         )
 
-    # Now db_client is guaranteed to exist when enrich_with_metadata is True
     if enrich_with_metadata and db_client:
         enriched_results = []
         for result in filtered_results:
@@ -1021,10 +1181,8 @@ def hybrid_search_jobs(
             doc_id = chunk_meta.get("doc_id", "")
             if not doc_id:
                 doc_id = result.get("id", "")
-
             metadata = _load_metadata_from_table(db_client, doc_id)
             entity_row = load_job_entities(doc_id, db_client=db_client)
-
             enriched = {**result}
             if metadata:
                 enriched.update(

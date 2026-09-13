@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from typing import List, Optional
 
@@ -27,12 +27,14 @@ class JobSourcePlatform(str, Enum):
 
 
 class JobAnalytics(BaseModel):
-    """Structured analytics-ready job record with normalized scope-of-work dimensions."""
+    """Structured analytics-ready job record with normalized scope-of-work dimensions.
+    All fields are optional to allow partial entity extraction from incomplete job postings."""
 
     # --- Core Identifiers ---
-    company_name: str = Field(description="Name of the hiring company")
-    nature_of_business: str = Field(
-        description="Industry sector. e.g., 'SaaS', 'Healthcare', 'E-commerce', 'FinTech'"
+    company_name: Optional[str] = Field(None, description="Name of the hiring company")
+    nature_of_business: Optional[str] = Field(
+        None,
+        description="Industry sector. e.g., 'SaaS', 'Healthcare', 'E-commerce', 'FinTech'",
     )
 
     # --- Geographic & Source Normalization ---
@@ -52,11 +54,11 @@ class JobAnalytics(BaseModel):
     )
 
     # --- Employment Metadata (Normalized Enums) ---
-    employment_type: EmploymentType = Field(
-        description="Standardized employment classification"
+    employment_type: Optional[EmploymentType] = Field(
+        None, description="Standardized employment classification"
     )
-    work_mode: WorkMode = Field(
-        description="Standardized remote/onsite/hybrid classification"
+    work_mode: Optional[WorkMode] = Field(
+        None, description="Standardized remote/onsite/hybrid classification"
     )
 
     # --- Compensation (Structured Numeric Range) ---
@@ -95,6 +97,33 @@ class JobAnalytics(BaseModel):
     )
 
     # --- Validators ---
+    @field_validator("posted_date", mode="before")
+    @classmethod
+    def coerce_posted_date(cls, v):
+        """Accept datetime strings, date strings, date/datetime objects.
+        Truncate any time component to produce a pure date."""
+        if v is None:
+            return None
+        if isinstance(v, date) and not isinstance(v, datetime):
+            return v
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return None
+            # Try ISO datetime first (handles '2026-09-08T15:55:20.528667')
+            try:
+                return datetime.fromisoformat(v.replace("Z", "+00:00")).date()
+            except ValueError:
+                pass
+            # Fall back to date-only parse
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                raise ValueError(f"Cannot parse posted_date: {v!r}")
+        raise ValueError(f"Unsupported posted_date type: {type(v)}")
+
     @field_validator("salary_max")
     @classmethod
     def validate_salary_range(cls, v, info):
