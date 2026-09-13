@@ -154,16 +154,6 @@ def _metadata_row_to_jobdata(row: dict) -> JobData:
     Convert a metadata table row directly to JobData.
     Entities are no longer stored in jobs_meta; use load_job_entities() separately.
     """
-    # DEBUG: Trace what row actually contains
-    logger.debug(f"[DEBUG _metadata_row_to_jobdata] row type: {type(row)}")
-    logger.debug(
-        f"[DEBUG _metadata_row_to_jobdata] row keys: {list(row.keys()) if isinstance(row, dict) else 'NOT A DICT'}"
-    )
-    sample_keys = ["id", "title", "company", "entities"]
-    for k in sample_keys:
-        val = row.get(k, "<MISSING>") if isinstance(row, dict) else "<NOT DICT>"
-        logger.debug(f"[DEBUG _metadata_row_to_jobdata] row['{k}'] = {repr(val)}")
-
     job_data: JobData = {
         "id": row.get("id", ""),
         "link": row.get("link", ""),
@@ -179,11 +169,6 @@ def _metadata_row_to_jobdata(row: dict) -> JobData:
         "hours_per_week": row.get("hours_per_week"),
         "tags": row.get("tags"),
     }
-
-    logger.debug(
-        f"Reconstructed JobData from metadata for {job_data['id']}: "
-        f"title='{job_data['title']}', company='{job_data['company']}'"
-    )
     return job_data
 
 
@@ -599,7 +584,8 @@ def save_job_embeddings(
         if existing_hash is None or existing_hash != job_hash:
             jobs_to_process.append((job, job_hash))
         else:
-            logger.debug(f"Skipping job {job['id']} - no changes detected.")
+            # logger.debug(f"Skipping job {job['id']} - no changes detected.")
+            pass
 
     jobs_to_process.sort(
         key=lambda x: datetime.fromisoformat(x[0]["posted_date"]), reverse=True
