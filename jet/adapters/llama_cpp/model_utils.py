@@ -216,9 +216,6 @@ def _fetch_models_from_host(url: str, max_retries: int = 3) -> List[Dict[str, An
 
     for attempt in range(1, max_retries + 1):
         try:
-            logger.info(
-                "Fetching models from %s (attempt %d/%d)", url, attempt, max_retries
-            )
             response = client.models.list()
 
             # Handle both object and dict responses
@@ -229,9 +226,6 @@ def _fetch_models_from_host(url: str, max_retries: int = 3) -> List[Dict[str, An
                     response if isinstance(response, dict) else response.model_dump()
                 )
 
-            logger.info(
-                "Successfully fetched models from %s on attempt %d", url, attempt
-            )
             break  # Success - exit retry loop
 
         except Exception as e:
@@ -274,7 +268,6 @@ def _fetch_models_from_host(url: str, max_retries: int = 3) -> List[Dict[str, An
         normalized_model["model_type"] = model_type
         result.append(normalized_model)
 
-    logger.debug("Parsed %d models from %s", len(result), url)
     return result
 
 
