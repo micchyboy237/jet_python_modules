@@ -480,8 +480,20 @@ if __name__ == "__main__":
     console.print(f"[bold blue]{'=' * 60}[/bold blue]")
 
     try:
-        loaded_models = get_loaded_models()
-        model_count = len(loaded_models["data"])
+        # Fetch models per-URL so we can display the source URL for each model
+        urls = get_llama_cpp_candidate_urls()
+        all_loaded_models: List[Dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for url in urls:
+            response = get_loaded_models(base_url=url)
+            for model in response["data"]:
+                if model["id"] not in seen_ids:
+                    model["_source_url"] = url
+                    all_loaded_models.append(model)
+                    seen_ids.add(model["id"])
+
+        model_count = len(all_loaded_models)
 
         if model_count == 0:
             console.print("  [yellow]⚠️ No loaded models found[/yellow]")
@@ -497,16 +509,18 @@ if __name__ == "__main__":
             table.add_column("Context Size", style="blue")
             table.add_column("Train Context", style="blue")
             table.add_column("Embedding Size", style="blue")
-            table.add_column("Owned By", style="white")
+            table.add_column("URL", style="yellow")
 
-            for model in loaded_models["data"]:
+            for model in all_loaded_models:
                 model_id = model["id"]
                 model_type = model["model_type"]
-                owned_by = model.get("owned_by", "N/A")
+                source_url = model.get("_source_url", "N/A")
 
                 # Get context and embedding size
                 try:
-                    ctx_embd_size = get_model_ctx_embd_size(model_id)
+                    ctx_embd_size = get_model_ctx_embd_size(
+                        model_id, base_url=source_url
+                    )
                     n_ctx = ctx_embd_size["ctx"]
                     n_ctx_train = ctx_embd_size["ctx_train"]
                     n_embd = ctx_embd_size["embd_dims"]
@@ -524,7 +538,7 @@ if __name__ == "__main__":
                     str(n_ctx),
                     str(n_ctx_train),
                     str(n_embd),
-                    owned_by,
+                    source_url,
                 )
 
             console.print(table)
