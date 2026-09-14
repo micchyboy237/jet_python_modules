@@ -48,7 +48,7 @@ logger.info(
 )
 vector_results = vector_search(QUERY, DOCUMENTS)
 keyword_results = rerank(QUERY, DOCUMENTS, method="bm25", normalize_scores=False)
-reranker_results = rerank(QUERY, DOCUMENTS, method="auto", normalize_scores=False)
+reranker_results = rerank(QUERY, DOCUMENTS, method="model", normalize_scores=False)
 
 INPUTS = {
     "query": QUERY,

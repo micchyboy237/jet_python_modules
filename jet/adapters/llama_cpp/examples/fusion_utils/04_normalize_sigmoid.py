@@ -42,7 +42,7 @@ DOCUMENTS = [
 ]
 
 logger.info(f"Fetching raw cross-encoder reranker logits for query='{QUERY}'")
-reranker_results = rerank(QUERY, DOCUMENTS, method="auto", normalize_scores=False)
+reranker_results = rerank(QUERY, DOCUMENTS, method="model", normalize_scores=False)
 reranker_results_by_doc = sorted(reranker_results, key=lambda r: r["index"])
 
 INPUTS = {

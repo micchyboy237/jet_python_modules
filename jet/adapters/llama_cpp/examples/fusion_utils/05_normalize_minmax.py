@@ -44,7 +44,7 @@ n_docs = len(DOCUMENTS)
 logger.info(f"Fetching raw signals (different natural scales) for query='{QUERY}'")
 bm25_results = rerank(QUERY, DOCUMENTS, method="bm25", normalize_scores=False)
 vector_results = vector_search(QUERY, DOCUMENTS)
-reranker_results = rerank(QUERY, DOCUMENTS, method="auto", normalize_scores=False)
+reranker_results = rerank(QUERY, DOCUMENTS, method="model", normalize_scores=False)
 
 INPUTS = {
     "signals": {

@@ -52,8 +52,8 @@ vector_results = vector_search(QUERY, DOCUMENTS)
 logger.info("Computing BM25 keyword scores")
 keyword_results = rerank(QUERY, DOCUMENTS, method="bm25", normalize_scores=True)
 
-logger.info("Computing cross-encoder reranker scores (auto: model, falls back to BM25)")
-reranker_results = rerank(QUERY, DOCUMENTS, method="auto", normalize_scores=True)
+logger.info("Computing cross-encoder reranker scores")
+reranker_results = rerank(QUERY, DOCUMENTS, method="model", normalize_scores=True)
 
 INPUTS = {
     "query": QUERY,
