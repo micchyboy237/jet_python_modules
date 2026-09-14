@@ -98,6 +98,9 @@ When coding:
 - Include logs that cover all steps.
 """.strip()
 
+DEFAULT_SYSTEM_MESSAGE = """
+""".strip()
+
 # For existing projects
 # DEFAULT_INSTRUCTIONS_MESSAGE += (
 # "\n- Only respond with parts of the code that have been added or updated to keep it short and concise."
