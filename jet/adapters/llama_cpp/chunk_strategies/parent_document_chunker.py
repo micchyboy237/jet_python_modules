@@ -118,7 +118,7 @@ class ParentDocumentChunker:
 
         Returns:
             Dict with 'parents' and 'children' lists. Each child has
-            'parent_id'; each parent has 'child_ids'.
+            'parent_id' and 'num_tokens'; each parent has 'child_ids' and 'num_tokens'.
         """
         if not text.strip():
             return {"parents": [], "children": []}
@@ -167,6 +167,10 @@ class ParentDocumentChunker:
             child_ids_for_parent: List[str] = []
             for c_idx, child_text in enumerate(child_texts):
                 child_id = f"ch_{p_idx}_{c_idx}_{uuid.uuid4().hex[:8]}"
+
+                # Count tokens for child chunk
+                actual_child_tokens = count_tokens(child_text, model=self.model)
+
                 child_ids_for_parent.append(child_id)
                 children.append(
                     {
@@ -176,6 +180,7 @@ class ParentDocumentChunker:
                         "chunk_role": "child",
                         "parent_chunk_index": p_idx,
                         "child_index_within_parent": c_idx,
+                        "num_tokens": actual_child_tokens,  # ← Added
                     }
                 )
 
