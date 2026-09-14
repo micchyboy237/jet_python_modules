@@ -1262,8 +1262,7 @@ def hybrid_search_jobs(
             enriched = {**result}
             enriched["parent_content"] = parent_content  # ← NEW top-level
 
-            # Also inject into nested metadata for consistency
-            enriched_meta = {**chunk_meta, "parent_content": parent_content}
+            enriched_meta = {**chunk_meta}
             enriched["metadata"] = enriched_meta
 
             if metadata:
