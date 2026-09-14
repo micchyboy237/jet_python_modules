@@ -7,19 +7,21 @@ Features Summary
   OpenAI endpoints for chat, embeddings, and reranking.
 - Uses reusable observability modules instead of inline Phoenix/OpenTelemetry setup.
 - Sends OpenInference-compatible traces to Arize Phoenix.
-- Captures hierarchical spans for:
-  - Agent session
-  - ReAct loop iterations
-  - LLM chat calls
-  - Embedding calls
-  - Reranker calls
-  - Tool execution
-- Redacts sensitive text before writing prompt, message, tool, and document
-  content to spans.
-- Tracks token usage, loop steps, repeated tool calls, success/failure status,
-  and final answer metadata.
+- Captures complete hierarchical observability:
+  - Agent session root span with prompt versioning and loop metadata.
+  - Per-iteration spans with thought, planned action, observations, errors,
+    repeated-call detection, and circuit-breaker signals.
+  - LLM chat spans with redacted I/O, invocation parameters, and token counts.
+  - Embedding spans with per-text indexed vectors and token usage.
+  - Reranker spans with indexed input/output documents and relevance scores.
+  - Tool execution spans with redacted parameters, output, and schema version.
+- Redacts all sensitive text before writing to spans or console output.
+- Tracks aggregate loop metrics: total steps, tokens, repeated calls, success,
+  failure reason, and final answer.
 - Emits a stable Phoenix trace redirect URL at the end of each run.
 - Uses a strict Pydantic JSON schema for structured agent actions.
+- Separates generic observability infrastructure from business-specific
+  agent telemetry to keep both layers independently maintainable.
 """
 
 import json
@@ -157,7 +159,6 @@ class LocalLLMClient:
                 },
             }
 
-            # Pass JSON schema dict, not Pydantic class, to preserve streaming.
             if response_format is not None:
                 create_kwargs["response_format"] = response_format
 
@@ -332,7 +333,6 @@ def search_docs(
             )
         )
 
-        # This creates a child embedding span.
         embedder.embed([query])
 
         candidate_docs = [
@@ -341,7 +341,6 @@ def search_docs(
             "Annual Report FY2025: Full-year revenue $14.1B. R&D spending increased 18% focused on generative AI infrastructure. Share buyback program expanded to $5B.",
         ]
 
-        # This creates a child reranker span.
         reranked = reranker.rerank(query, candidate_docs, top_k=3)
 
         result = "\n---\n".join([r["document"] for r in reranked])
@@ -360,7 +359,7 @@ def search_docs(
 TOOLS = {"search_docs": search_docs}
 
 
-# ─── 6. REACT LOOP WITH HIERARCHICAL TRACING ────────────────────────────────
+# ─── 6. REACT LOOP WITH COMPLETE HIERARCHICAL OBSERVABILITY ─────────────────
 
 
 @dataclass
@@ -398,6 +397,10 @@ def run_react_loop(
         system_prompt_hash=hash_prompt(SYSTEM_PROMPT),
         max_steps=max_steps,
     ) as root_span:
+        # Attach user query to root span for top-level visibility
+        root_span.set_attribute(SpanAttributes.INPUT_VALUE, redact(user_query))
+        root_span.set_attribute(SpanAttributes.INPUT_MIME_TYPE, "text/plain")
+
         for step in range(max_steps):
             meta.total_steps += 1
             console.rule(f"[bold magenta]Step {step + 1}/{max_steps}")
@@ -407,21 +410,30 @@ def run_react_loop(
                 attributes={
                     "react.step_number": step,
                     "react.prompt_version": PROMPT_TEMPLATE_VERSION,
+                    "react.message_count": len(messages),
                 },
             ) as iter_span:
+                # ── LLM Call (creates child llm.chat span via reusable builder) ──
                 response = llm.chat(
                     messages,
                     response_format=AGENT_ACTION_JSON_SCHEMA,
                 )
 
                 raw_output = response["content"]
-                meta.total_tokens += response["usage"].get("total_tokens", 0)
+                step_tokens = response["usage"].get("total_tokens", 0)
+                meta.total_tokens += step_tokens
 
+                iter_span.set_attribute("react.step_tokens", step_tokens)
+
+                # ── Parse & Validate Structured Output ──
                 try:
                     parsed = AgentAction.model_validate_json(raw_output)
                 except Exception as e:
                     iter_span.record_exception(e)
                     iter_span.set_attribute("react.parse_error", str(e)[:1000])
+                    iter_span.set_attribute(
+                        "react.raw_output", redact(raw_output[:2000])
+                    )
 
                     observation = (
                         "System parsing error: Your previous response was not valid "
@@ -443,6 +455,7 @@ def run_react_loop(
                 action = parsed.action
                 action_input = parsed.action_input
 
+                # ── Business-Specific Iteration Attributes ──
                 iter_span.set_attribute("react.thought_raw", redact(thought))
                 iter_span.set_attribute("react.planned_action", action)
                 iter_span.set_attribute(
@@ -456,6 +469,7 @@ def run_react_loop(
                 console.print(Text(f"\n💭 Thought: {thought}", style="italic dim"))
                 console.print(Text(f"⚡ Action: {action}", style="bold yellow"))
 
+                # ── Terminal Condition: Final Answer ──
                 if action == "final_answer":
                     meta.success = True
                     final_answer = action_input.get("answer", "")
@@ -464,7 +478,16 @@ def run_react_loop(
                         "agent.final_answer",
                         redact(final_answer[:3000]),
                     )
+                    root_span.set_attribute(
+                        SpanAttributes.OUTPUT_VALUE, redact(final_answer[:3000])
+                    )
+                    root_span.set_attribute(
+                        SpanAttributes.OUTPUT_MIME_TYPE, "text/plain"
+                    )
                     iter_span.set_attribute("react.final_answer_reached", True)
+                    iter_span.set_attribute(
+                        "react.final_answer", redact(final_answer[:3000])
+                    )
 
                     console.print(
                         Panel(
@@ -475,8 +498,10 @@ def run_react_loop(
                     )
                     break
 
+                # ── Unknown Tool Error ──
                 if action not in TOOLS:
                     iter_span.set_attribute("react.error", f"Unknown tool: {action}")
+                    iter_span.set_attribute("react.error_type", "unknown_tool")
 
                     messages.append({"role": "assistant", "content": raw_output})
 
@@ -489,17 +514,22 @@ def run_react_loop(
                     console.print(Text(f"❌ {error_msg}", style="bold red"))
                     continue
 
+                # ── Repeated Tool Call Detection & Circuit Breaker ──
                 tool_sig = f"{action}:{json.dumps(action_input, sort_keys=True)}"
 
                 if tool_sig in meta.previous_tool_signatures:
                     meta.repeated_tool_calls += 1
+                    repeat_count = meta.previous_tool_signatures.count(tool_sig)
+
                     iter_span.set_attribute("react.repeated_call", True)
+                    iter_span.set_attribute("react.repeat_count", repeat_count)
+                    iter_span.set_attribute("react.tool_signature", tool_sig)
 
                     console.print(Text("⚠️ Repeated tool call detected", style="yellow"))
 
-                    repeat_count = meta.previous_tool_signatures.count(tool_sig)
-
                     if repeat_count >= 2:
+                        iter_span.set_attribute("react.circuit_breaker_triggered", True)
+
                         console.print(
                             Text(
                                 "🛑 Circuit breaker: forcing final_answer after repeated failures",
@@ -524,6 +554,7 @@ def run_react_loop(
 
                 meta.previous_tool_signatures.append(tool_sig)
 
+                # ── Tool Execution (creates child tool.* span via reusable builder) ──
                 try:
                     observation = TOOLS[action](
                         **action_input,
@@ -531,8 +562,11 @@ def run_react_loop(
                         reranker=reranker,
                     )
                     iter_span.set_attribute(
-                        "react.observation_length",
-                        len(observation),
+                        "react.observation_length", len(observation)
+                    )
+                    iter_span.set_attribute(
+                        "react.observation_preview",
+                        redact(observation[:500]),
                     )
 
                 except Exception as e:
@@ -541,6 +575,7 @@ def run_react_loop(
                     )
 
                     iter_span.set_attribute("react.tool_error", str(e)[:1000])
+                    iter_span.set_attribute("react.tool_error_type", type(e).__name__)
                     iter_span.record_exception(e)
 
                     console.print(
@@ -557,6 +592,8 @@ def run_react_loop(
 
         else:
             meta.failure_reason = "max_steps_exhausted"
+            root_span.set_attribute("agent.loop.failure_reason", meta.failure_reason)
+
             console.print(
                 Text(
                     "⏰ Max steps exhausted without final answer",
@@ -564,6 +601,7 @@ def run_react_loop(
                 )
             )
 
+        # ── Aggregate Loop Metrics on Root Span ──
         root_span.set_attribute("agent.loop.total_steps", meta.total_steps)
         root_span.set_attribute("agent.loop.total_tokens", meta.total_tokens)
         root_span.set_attribute(
@@ -571,6 +609,14 @@ def run_react_loop(
             meta.repeated_tool_calls,
         )
         root_span.set_attribute("agent.loop.success", meta.success)
+        root_span.set_attribute(
+            "agent.loop.unique_tool_signatures",
+            len(set(meta.previous_tool_signatures)),
+        )
+        root_span.set_attribute(
+            "agent.loop.total_tool_calls",
+            len(meta.previous_tool_signatures),
+        )
 
         if meta.failure_reason:
             root_span.set_attribute(
@@ -584,6 +630,7 @@ def run_react_loop(
             f"Repeated Calls: {meta.repeated_tool_calls} | Success: {meta.success}"
         )
 
+        # ── Trace Link ──
         phoenix_host = PHOENIX_REST_API.rstrip("/")
         if phoenix_host.endswith("/v1"):
             phoenix_host = phoenix_host[:-3]
