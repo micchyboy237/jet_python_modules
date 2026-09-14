@@ -1,3 +1,12 @@
+"""
+Example: Hybrid Retrieval-Augmented Generation (RAG) Pipeline
+
+Minimal demonstration of a hybrid RAG pipeline using both dense and BM25 retrievers fused by Reciprocal Rank Fusion (RRF).
+
+Usage:
+    python -m jet.adapters.llama_cpp.rag.hybrid_rag.example
+"""
+
 import logging
 
 from .models import Document
