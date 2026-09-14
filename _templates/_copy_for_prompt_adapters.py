@@ -73,6 +73,9 @@ include_files = [
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/__init__.py",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/chunking.py",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/markdown.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/tokenization.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/truncation.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/types.py",
     "",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/__init__.py",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/_common.py",
@@ -83,15 +86,16 @@ include_files = [
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/sentence_chunker.py",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/smart_chunker.py",
     "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/react_agent/react_with_telemetry.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/llama_cpp/crag_base.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/observability",
+    "",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/llama_cpp/crag_base.py",
     "",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/search/searxng.py",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/playwright_utils.py",
     "",
     # Replace with code to be updated
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/langgraph/examples/rag/langgraph_agentic_rag.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/llama_cpp/live_rag_search",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/llama_cpp/live_rag_search",
     "",
 ]
 
@@ -111,16 +115,8 @@ COMPRESSION_MODEL = "gpt-4o"
 TOKEN_BUDGET = 8000
 
 DEFAULT_QUERY_MESSAGE = r"""
-Update live_rag_search with the ff:
-- Analyze which features from existing code can be reused
-- Implement complete observability, similar to react_with_telemetry and crag_base
-- Refactor with a __main__ and argparse using args with existing defaults
-- If applicable:
-    - Reuse from jet.search.searxng or from searxng_search_tool to replace static urls
-    - Always use streaming LLM call, with flushed logs on each streamed chunk content displayed naturally
-    - enable_thinking should be false using extra_body -> chat_template_kwargs
-
-Show full updated code
+Given the observability code from jet/observability, which of the other files should be observed?
+Is it best practice to update existing code to incorporate observability or should we have separate observed versions?
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
