@@ -17,6 +17,7 @@ from playwright.async_api import async_playwright
 from playwright.sync_api import Browser as SyncBrowser
 from playwright.sync_api import Page as SyncPage
 from playwright.sync_api import sync_playwright
+from playwright_stealth import Stealth
 from tqdm.asyncio import tqdm
 
 REDIS_CONFIG = RedisConfigParams(port=6379)
@@ -50,12 +51,18 @@ async def asetup_browser_page(*, headless: bool = True) -> AsyncPage:
 
 
 def setup_sync_browser_session(*, headless: bool = True) -> SyncBrowser:
-    """Sets up a synchronous Playwright browser session with anti-detection settings."""
+    """Sets up a synchronous Playwright browser session with v2.x stealth applied to persistent context."""
+    logger.log("Initializing sync Playwright with stealth...", colors=["BLUE", "INFO"])
+
     playwright = sync_playwright().start()
     ua = UserAgent()
     generated_dir = os.path.join(get_entry_file_dir(), "generated")
     user_data_dir = os.path.join(generated_dir, "browser_context")
     shutil.rmtree(user_data_dir, ignore_errors=True)
+
+    logger.log(
+        f"Launching persistent context at: {user_data_dir}", colors=["GRAY", "DEBUG"]
+    )
     context = playwright.chromium.launch_persistent_context(
         user_data_dir=user_data_dir,
         headless=headless,
@@ -63,16 +70,39 @@ def setup_sync_browser_session(*, headless: bool = True) -> SyncBrowser:
         user_agent=ua.random,
         viewport={"width": 1440, "height": 900, "deviceScaleFactor": 0.9},
     )
+
+    # Manually apply stealth to the persistent context
+    stealth = Stealth()
+    try:
+        stealth.apply_stealth_sync(context)
+        logger.log(
+            "Stealth evasions applied successfully to persistent context",
+            colors=["GREEN", "SUCCESS"],
+        )
+    except Exception as e:
+        logger.log(
+            f"Failed to apply stealth to persistent context: {e}",
+            colors=["RED", "ERROR"],
+        )
+
     return context
 
 
 async def setup_async_browser_session(*, headless: bool = True) -> AsyncBrowser:
-    """Sets up an asynchronous Playwright browser session with anti-detection settings."""
+    """Sets up an asynchronous Playwright browser session with v2.x stealth applied to persistent context."""
+    logger.log("Initializing async Playwright with stealth...", colors=["BLUE", "INFO"])
+
+    # NOTE: Stealth().use_async() does NOT support launch_persistent_context yet [[1]].
+    # We must apply stealth manually to the persistent context.
     playwright = await async_playwright().start()
     ua = UserAgent()
     generated_dir = os.path.join(get_entry_file_dir(), "generated")
     user_data_dir = os.path.join(generated_dir, "browser_context")
     shutil.rmtree(user_data_dir, ignore_errors=True)
+
+    logger.log(
+        f"Launching persistent context at: {user_data_dir}", colors=["GRAY", "DEBUG"]
+    )
     context = await playwright.chromium.launch_persistent_context(
         user_data_dir=user_data_dir,
         headless=headless,
@@ -80,6 +110,22 @@ async def setup_async_browser_session(*, headless: bool = True) -> AsyncBrowser:
         user_agent=ua.random,
         viewport={"width": 1440, "height": 900, "deviceScaleFactor": 0.9},
     )
+
+    # Manually apply stealth to the persistent context
+    stealth = Stealth()
+    try:
+        await stealth.apply_stealth_async(context)
+        logger.log(
+            "Stealth evasions applied successfully to persistent context",
+            colors=["GREEN", "SUCCESS"],
+        )
+    except Exception as e:
+        logger.log(
+            f"Failed to apply stealth to persistent context: {e}",
+            colors=["RED", "ERROR"],
+        )
+        # Continue execution but warn that stealth may be incomplete
+
     return context
 
 
