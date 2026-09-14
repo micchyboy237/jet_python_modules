@@ -1,3 +1,11 @@
+"""
+ReAct Agent Example with Local Models & Phoenix Tracing.
+
+Demonstrates a retrieval-augmented ReAct loop using local LLM, embedding,
+and reranker clients. Includes full OpenTelemetry instrumentation via
+custom span helpers for agent, tool, LLM, embedding, and reranker steps.
+"""
+
 import json
 import uuid
 from dataclasses import dataclass, field
