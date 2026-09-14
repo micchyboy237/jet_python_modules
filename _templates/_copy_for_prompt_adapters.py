@@ -3,7 +3,7 @@ import json
 import os
 
 import tiktoken
-from jet.logger import logger
+from rich.console import Console
 from tqdm import tqdm
 
 from _utils_copy_for_prompt import (
@@ -14,6 +14,9 @@ from _utils_copy_for_prompt import (
     format_file_structure,
     remove_parent_paths,
 )
+
+# Initialize Rich Console
+console = Console()
 
 exclude_files = [
     "**/.git/",
@@ -50,57 +53,57 @@ exclude_files = [
     "**/hls.min.js",
 ]
 include_files = [
-    "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/config.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/factory.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/model_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/scoring_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/embed_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/vector_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/rerank_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/hybrid_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/vectors/reranker/bm25.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/chat_stream_types.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/structured_output.py",
-    "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils/__init__.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils/token_counting.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils/tokenization.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils/tokenizer_management.py",
-    "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/__init__.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/chunking.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/markdown.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/tokenization.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/truncation.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/types.py",
-    "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/__init__.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/_common.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/fixed_size_chunker.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/model_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/parent_document_chunker.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/rag_formatter.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/sentence_chunker.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/smart_chunker.py",
-    "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/observability",
-    "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/ensemble_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/multi_vector_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm_reranker_utils.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/fusion_utils.py",
-    "",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/llama_cpp/crag_base.py",
-    "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/search/searxng.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/playwright_utils.py",
-    "",
+    r"",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/config.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/factory.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/model_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/scoring_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/embed_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/vector_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/rerank_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/hybrid_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/vectors/reranker/bm25.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/chat_stream_types.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/structured_output.py",
+    r"",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils/__init__.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils/token_counting.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils/tokenization.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils/tokenizer_management.py",
+    r"",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/__init__.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/chunking.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/markdown.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/tokenization.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/truncation.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/types.py",
+    r"",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/__init__.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/_common.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/fixed_size_chunker.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/model_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/parent_document_chunker.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/rag_formatter.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/sentence_chunker.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/smart_chunker.py",
+    r"",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/observability",
+    r"",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/ensemble_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/multi_vector_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm_reranker_utils.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/fusion_utils.py",
+    r"",
+    # r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/llama_cpp/crag_base.py",
+    r"",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/search/searxng.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/playwright_utils.py",
+    r"",
     # Replace with code to be updated
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/langgraph/examples/rag/langgraph_agentic_rag.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/llama_cpp/live_rag_search",
-    "",
+    # r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/langgraph/examples/rag/langgraph_agentic_rag.py",
+    # r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/agents/llama_cpp/live_rag_search",
+    r"",
 ]
 
 structure_include = [
@@ -119,8 +122,6 @@ COMPRESSION_MODEL = "gpt-4o"
 TOKEN_BUDGET = 8000
 
 DEFAULT_QUERY_MESSAGE = r"""
-Given the observability code from jet/observability, which of the other files should be observed?
-Is it best practice to update existing code to incorporate observability or should we have separate observed versions?
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
@@ -208,7 +209,7 @@ def get_language_from_extension(filename: str) -> str:
 
 def main():
     global exclude_files, include_files, include_content, exclude_content
-    print("Running _copy_for_prompt.py")
+    console.print("[bold green]Running _copy_for_prompt.py[/bold green]")
     # Parse command-line options
     parser = argparse.ArgumentParser(
         description="Generate clipboard content from specified files."
@@ -324,26 +325,29 @@ def main():
     query_only = args.query_only
 
     # Find all files matching the patterns in the base directory and its subdirectories
-    print("\n")
+    console.print()
     context_files = find_files(
         base_dir, include, exclude, include_content, exclude_content, case_sensitive
     )
-    print("\n")
-    print(f"Include patterns: {include}")
-    print(f"Exclude patterns: {exclude}")
-    print(f"Include content patterns: {include_content}")
-    print(f"Exclude content patterns: {exclude_content}")
-    print(f"Case sensitive: {case_sensitive}")
-    print(f"Filenames only: {filenames_only}")
-    print(f"Compress enabled: {compress_enabled}")
-    print(
-        f"\nFound files ({len(context_files)}):\n{json.dumps(context_files, indent=2)}"
+    console.print()
+    console.print(f"[bold]Include patterns:[/bold] {include}")
+    console.print(f"[bold]Exclude patterns:[/bold] {exclude}")
+    console.print(f"[bold]Include content patterns:[/bold] {include_content}")
+    console.print(f"[bold]Exclude content patterns:[/bold] {exclude_content}")
+    console.print(f"[bold]Case sensitive:[/bold] {case_sensitive}")
+    console.print(f"[bold]Filenames only:[/bold] {filenames_only}")
+    console.print(f"[bold]Compress enabled:[/bold] {compress_enabled}")
+    console.print(
+        f"\n[bold]Found files ({len(context_files)}):[/bold]\n{json.dumps(context_files, indent=2)}"
     )
-    print("\n")
+    console.print()
+
     # Initialize the clipboard content
     clipboard_content = ""
     if not context_files:
-        print("No context files found matching the given patterns.")
+        console.print(
+            "[yellow]No context files found matching the given patterns.[/yellow]"
+        )
     else:
         # Append relative filenames to the clipboard content
         for file in tqdm(
@@ -371,6 +375,7 @@ def main():
                 else:
                     clipboard_content += f"{prefix}\n"
         clipboard_content = clean_newlines(clipboard_content).strip()
+
     # Generate and format the file structure
     structure_include_files = structure_include
     if include:
@@ -388,6 +393,7 @@ def main():
         shorten_funcs=shorten_funcs,
         show_file_length=show_file_length,
     )
+
     # Build the clipboard content parts
     clipboard_content_parts = []
     if not query_only:
@@ -407,6 +413,7 @@ def main():
             f"Existing Files Contents\n{clipboard_content}\n"
         )
     clipboard_content = "\n\n".join(clipboard_content_parts)
+
     # Compress to reduce tokens (optional)
     if compress_enabled:
         from headroom import compress
@@ -423,26 +430,28 @@ def main():
             protect_analysis_context=False,  # do not protect code from compression
             # kompress_model="disabled",
         )
-        # Log compression stats using logger.log for each result.*
-        logger.log("Tokens before:", f"{result.tokens_before:,}")
-        logger.log("Tokens after:", f"{result.tokens_after:,}")
-        logger.log(
-            "Tokens saved:",
-            f"{result.tokens_saved:,} ({result.compression_ratio:.1%})",
+        # Log compression stats using rich console
+        console.print(f"[bold cyan]Tokens before:[/bold cyan] {result.tokens_before:,}")
+        console.print(f"[bold cyan]Tokens after:[/bold cyan] {result.tokens_after:,}")
+        console.print(
+            f"[bold green]Tokens saved:[/bold green] {result.tokens_saved:,} ({result.compression_ratio:.1%})"
         )
-        logger.log(
-            "Transforms applied:",
-            str(result.transforms_applied),
+        console.print(
+            f"[bold magenta]Transforms applied:[/bold magenta] {result.transforms_applied}"
         )
     else:
-        logger.log("Compression skipped (use -c or --compress to enable)")
+        console.print("[dim]Compression skipped (use -c or --compress to enable)[/dim]")
+
     # Copy the content to the clipboard
     copy_to_clipboard(clipboard_content)
+
     # Print the copied content character count
-    logger.log("Prompt Char Count:", len(clipboard_content))
-    logger.log("Tokens Count (gpt-4o):", count_tokens(clipboard_content))
+    console.print(f"[bold blue]Prompt Char Count:[/bold blue] {len(clipboard_content)}")
+    console.print(
+        f"[bold blue]Tokens Count (gpt-4o):[/bold blue] {count_tokens(clipboard_content)}"
+    )
     # Newline
-    print("\n")
+    console.print()
 
 
 def count_tokens(
