@@ -10,11 +10,7 @@ import json
 import shutil
 from pathlib import Path
 
-from jet.adapters.llama_cpp.examples.fusion_utils._helpers import ranking_in_doc_order
 from jet.adapters.llama_cpp.fusion_utils import fuse_rrf
-from jet.adapters.llama_cpp.rerank_utils import rerank
-from jet.adapters.llama_cpp.vector_utils import vector_search
-from jet.logger import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -33,29 +29,16 @@ SETTINGS = {
     "description": "Combining BM25 and vector search rankings via RRF",
 }
 
-QUERY = "What do pandas eat?"
-
-DOCUMENTS = [
-    "Python is a high-level programming language.",
-    "Machine learning is a subset of artificial intelligence.",
-    "The giant panda is a bear species endemic to China.",
-    "JavaScript is commonly used for web development.",
-    "Pandas eat bamboo and live in mountainous regions.",
-]
-
-logger.info(f"Fetching BM25 ranking for query='{QUERY}'")
-bm25_results = rerank(QUERY, DOCUMENTS, method="bm25")
-logger.info(f"BM25 ranking (doc indices): {ranking_in_doc_order(bm25_results)}")
-
-logger.info(f"Fetching vector-search ranking for query='{QUERY}'")
-vector_results = vector_search(QUERY, DOCUMENTS)
-logger.info(f"Vector ranking (doc indices): {ranking_in_doc_order(vector_results)}")
-
 INPUTS = {
-    "query": QUERY,
-    "bm25_ranking": ranking_in_doc_order(bm25_results),
-    "vector_ranking": ranking_in_doc_order(vector_results),
-    "documents": DOCUMENTS,
+    "bm25_ranking": [2, 0, 4, 1, 3],
+    "vector_ranking": [0, 1, 2, 3, 4],
+    "documents": [
+        "Python is a high-level programming language.",
+        "Machine learning is a subset of artificial intelligence.",
+        "The giant panda is a bear species endemic to China.",
+        "JavaScript is commonly used for web development.",
+        "Pandas eat bamboo and live in mountainous regions.",
+    ],
 }
 
 console.print(Panel("🔀 RRF Fusion Demo", style="bold cyan"))

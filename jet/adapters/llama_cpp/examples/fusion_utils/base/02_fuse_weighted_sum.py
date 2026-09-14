@@ -11,11 +11,7 @@ import shutil
 from pathlib import Path
 
 import numpy as np
-from jet.adapters.llama_cpp.examples.fusion_utils._helpers import scores_in_doc_order
 from jet.adapters.llama_cpp.fusion_utils import fuse_weighted_sum
-from jet.adapters.llama_cpp.rerank_utils import rerank
-from jet.adapters.llama_cpp.vector_utils import vector_search
-from jet.logger import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -26,45 +22,27 @@ OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# --- SETTINGS: change normalize to True (real signals aren't pre-scaled) ---
 SETTINGS = {
     "strategy": "weighted_sum",
     "weights": {"embedding": 0.4, "keyword": 0.3, "reranker": 0.3},
-    "normalize": True,
-    "description": "Live signals (embedding/BM25/reranker) combined with tuned weights",
+    "normalize": False,
+    "description": "Pre-normalized signals combined with tuned weights",
 }
-
-# --- replace the whole INPUTS block with: ---
-QUERY = "What do pandas eat?"
-
-DOCUMENTS = [
-    "The giant panda is a bear species endemic to China.",
-    "Python is a high-level programming language.",
-    "Bears are carnivoran mammals of the family Ursidae.",
-    "Machine learning is a subset of artificial intelligence.",
-    "Pandas eat bamboo and live in mountainous regions.",
-]
-n_docs = len(DOCUMENTS)
-
-logger.info(f"Computing embedding similarity for query='{QUERY}'")
-vector_results = vector_search(QUERY, DOCUMENTS)
-
-logger.info("Computing BM25 keyword scores")
-keyword_results = rerank(QUERY, DOCUMENTS, method="bm25", normalize_scores=True)
-
-logger.info("Computing cross-encoder reranker scores (auto: model, falls back to BM25)")
-reranker_results = rerank(QUERY, DOCUMENTS, method="auto", normalize_scores=True)
 
 INPUTS = {
-    "query": QUERY,
-    "documents": DOCUMENTS,
+    "documents": [
+        "The giant panda is a bear species endemic to China.",
+        "Python is a high-level programming language.",
+        "Bears are carnivoran mammals of the family Ursidae.",
+        "Machine learning is a subset of artificial intelligence.",
+        "Pandas eat bamboo and live in mountainous regions.",
+    ],
     "signal_scores": {
-        "embedding": scores_in_doc_order(vector_results, n_docs, "score"),
-        "keyword": scores_in_doc_order(keyword_results, n_docs, "score"),
-        "reranker": scores_in_doc_order(reranker_results, n_docs, "score"),
+        "embedding": [0.92, 0.31, 0.78, 0.25, 0.88],
+        "keyword": [0.85, 0.10, 0.60, 0.05, 0.90],
+        "reranker": [0.95, 0.20, 0.55, 0.15, 0.80],
     },
 }
-logger.info(f"signal_scores populated: {INPUTS['signal_scores']}")
 
 console.print(Panel("⚖️ Weighted Sum Fusion Demo", style="bold cyan"))
 

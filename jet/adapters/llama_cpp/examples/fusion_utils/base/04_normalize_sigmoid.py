@@ -11,8 +11,6 @@ import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.fusion_utils import normalize_sigmoid
-from jet.adapters.llama_cpp.rerank_utils import rerank
-from jet.logger import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -29,27 +27,18 @@ SETTINGS = {
     "description": "Effect of temperature on sigmoid normalization of raw reranker logits",
 }
 
-QUERY = "What do pandas eat?"
-
-DOCUMENTS = [
-    "Machine learning is a subset of artificial intelligence.",
-    "JavaScript is commonly used for web development.",
-    "Bears are carnivoran mammals of the family Ursidae.",
-    "The giant panda is a bear species endemic to China.",
-    "Pandas primarily eat bamboo shoots and leaves.",
-    "Giant pandas spend most of their day eating bamboo.",
-    "Pandas eat bamboo and live year-round in mountainous China.",
-]
-
-logger.info(f"Fetching raw cross-encoder reranker logits for query='{QUERY}'")
-reranker_results = rerank(QUERY, DOCUMENTS, method="auto", normalize_scores=False)
-reranker_results_by_doc = sorted(reranker_results, key=lambda r: r["index"])
-
 INPUTS = {
-    "raw_scores": [r["raw_score"] for r in reranker_results_by_doc],
-    "labels": [DOCUMENTS[r["index"]][:35] + "..." for r in reranker_results_by_doc],
+    "raw_scores": [-3.0, -1.0, 0.0, 0.5, 1.5, 3.0, 5.0],
+    "labels": [
+        "Clearly irrelevant",
+        "Likely irrelevant",
+        "Neutral",
+        "Slightly relevant",
+        "Relevant",
+        "Highly relevant",
+        "Definitive match",
+    ],
 }
-logger.info(f"raw_scores from live reranker: {INPUTS['raw_scores']}")
 
 console.print(Panel("📈 Sigmoid Normalization Demo", style="bold cyan"))
 

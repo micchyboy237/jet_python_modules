@@ -10,11 +10,7 @@ import json
 import shutil
 from pathlib import Path
 
-from jet.adapters.llama_cpp.examples.fusion_utils._helpers import scores_in_doc_order
 from jet.adapters.llama_cpp.fusion_utils import normalize_minmax
-from jet.adapters.llama_cpp.rerank_utils import rerank
-from jet.adapters.llama_cpp.vector_utils import vector_search
-from jet.logger import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -30,31 +26,20 @@ SETTINGS = {
     "description": "Scaling heterogeneous signals to [0, 1] for fair comparison",
 }
 
-QUERY = "What do pandas eat?"
-
-DOCUMENTS = [
-    "JavaScript is commonly used for web development.",
-    "Bears are carnivoran mammals of the family Ursidae.",
-    "Machine learning is a subset of artificial intelligence.",
-    "The giant panda is a bear species endemic to China.",
-    "Pandas eat bamboo and live in mountainous regions.",
-]
-n_docs = len(DOCUMENTS)
-
-logger.info(f"Fetching raw signals (different natural scales) for query='{QUERY}'")
-bm25_results = rerank(QUERY, DOCUMENTS, method="bm25", normalize_scores=False)
-vector_results = vector_search(QUERY, DOCUMENTS)
-reranker_results = rerank(QUERY, DOCUMENTS, method="auto", normalize_scores=False)
-
 INPUTS = {
     "signals": {
-        "bm25_raw": scores_in_doc_order(bm25_results, n_docs, "raw_score"),
-        "cosine_similarity": scores_in_doc_order(vector_results, n_docs, "score"),
-        "reranker_logits": scores_in_doc_order(reranker_results, n_docs, "raw_score"),
+        "bm25_raw": [0.0, 3.2, 8.7, 12.1, 24.5],
+        "cosine_similarity": [0.15, 0.42, 0.68, 0.81, 0.95],
+        "reranker_logits": [-2.1, 0.3, 1.8, 3.5, 6.2],
     },
-    "documents": DOCUMENTS,
+    "documents": [
+        "JavaScript is commonly used for web development.",
+        "Bears are carnivoran mammals of the family Ursidae.",
+        "Machine learning is a subset of artificial intelligence.",
+        "The giant panda is a bear species endemic to China.",
+        "Pandas eat bamboo and live in mountainous regions.",
+    ],
 }
-logger.info(f"raw signals: {INPUTS['signals']}")
 
 console.print(Panel("📏 Min-Max Normalization Demo", style="bold cyan"))
 
