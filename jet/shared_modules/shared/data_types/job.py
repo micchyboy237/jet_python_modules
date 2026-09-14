@@ -69,6 +69,7 @@ class HybridResultMetadata(TypedDict, total=False):
     num_tokens: int
     parent_header: str
     header: str
+    parent_content: str  # Full parent section text (PDR)
 
 
 class VectorSearchResult(TypedDict, total=False):
@@ -89,8 +90,9 @@ class VectorSearchResult(TypedDict, total=False):
     tags: list[str] | None
     hours_per_week: int | None
     # Chunk-level fields
-    header: str
     parent_header: str
+    header: str
+    parent_content: str  # Full parent section text (PDR)
     content: str
     chunk_meta: ChunkMeta
     posted_date: str | None
@@ -109,6 +111,7 @@ class HybridSearchResult(TypedDict, total=False):
     text: str
     metadata: HybridResultMetadata
     # Optionally enriched job fields (when enrich_with_metadata=True)
+    parent_content: str  # Full parent section text (PDR)
     job_title: str
     company: str
     link: str

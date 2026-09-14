@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Any
 
 import numpy as np
-from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
@@ -542,24 +541,53 @@ def save_job_embeddings(
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
     overwrite_db: bool = False,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
-    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+    parent_chunk_size: int | None = None,
+    child_chunk_size: int | None = None,
+    chunk_overlap: int = 0,
 ) -> dict:
     """
-    Save chunked embeddings to DEFAULT_TABLE_DATA and full metadata to DEFAULT_TABLE_METADATA.
+    Save PDR chunked embeddings to DEFAULT_TABLE_DATA (children only),
+    parent content to job_parents, and full metadata to DEFAULT_TABLE_METADATA.
 
-    DEFAULT_TABLE_DATA: Only stores chunked embeddings data
-    DEFAULT_TABLE_METADATA: Stores complete JobData (all fields including title and details)
+    PDR Architecture:
+      - Parents: Full logical sections stored in job_parents (NOT embedded)
+      - Children: Granular sentence chunks stored in jobs (embedded for search)
+      - Retrieval: Match children → resolve to unique parents → full context for LLM
+
+    Args:
+        jobs: List of JobData dicts to process.
+        embed_model: Embedding model key for child embeddings.
+        db_client: Optional PgVectorClient instance.
+        overwrite_db: If True, drop and recreate tables.
+        parent_chunk_size: Max tokens per parent. None → auto-derive from LLM context.
+        child_chunk_size: Max tokens per child. None → auto-derive from parent // 8.
+        chunk_overlap: Overlap between consecutive children. Recommended: 0.
+
+    Returns:
+        Dict with processing summary including parent/child counts.
     """
+    from jet.adapters.llama_cpp.chunk_strategies import ParentDocumentChunker
+    from jet.adapters.llama_cpp.config import LLM_MODEL
+
     if not db_client:
         db_client = PgVectorClient(
             dbname=DEFAULT_JOBS_DB_NAME, overwrite_db=overwrite_db
         )
+
     ctx_embd_size = get_model_ctx_embd_size(embed_model)
     embedding_dimension = ctx_embd_size["embd_dims"]
 
+    # ✅ FIX: Use LLM_MODEL for parent sizing, NOT embed_model
+    # embed_model (nomic-embed:2-moe) has 512 ctx → would produce parent=128, child=64
+    # LLM_MODEL (qwen3.5-uncensored:2b) has 16384 ctx → produces parent=1024, child=128
+    pdr_chunker = ParentDocumentChunker(model=LLM_MODEL)
+    logger.info(
+        f"PDR chunker initialized: parent_size={parent_chunk_size or 'auto'}, "
+        f"child_size={child_chunk_size or 'auto'}, overlap={chunk_overlap}"
+    )
+
     with db_client:
-        # Create chunked data table (no metadata column)
+        # ── Ensure tables exist ──────────────────────────────────────────
         chunk_table_query = f"""
         CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
             id              TEXT PRIMARY KEY,
@@ -573,317 +601,312 @@ def save_job_embeddings(
             updated_at      TIMESTAMPTZ DEFAULT NOW()
         );
         """
+        parent_table_query = """
+        CREATE TABLE IF NOT EXISTS job_parents (
+            id              TEXT PRIMARY KEY,
+            job_id          TEXT NOT NULL,
+            parent_index    INT NOT NULL,
+            content         TEXT NOT NULL,
+            num_tokens      INT NOT NULL,
+            child_ids       JSONB NOT NULL,
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            updated_at      TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_parents_job_id
+            ON job_parents(job_id);
+        """
         with db_client.conn.cursor() as cur:
             cur.execute(chunk_table_query)
-            logger.debug(f"Created or verified '{DEFAULT_TABLE_DATA}' table.")
+            cur.execute(parent_table_query)
+        logger.debug(f"Ensured '{DEFAULT_TABLE_DATA}' and 'job_parents' tables exist.")
 
-        # Ensure metadata table exists
         _ensure_metadata_table(db_client)
 
-        # Get existing chunk hashes for comparison
+        # ── Load existing state for dedup ────────────────────────────────
         existing_chunks = db_client.get_rows(DEFAULT_TABLE_DATA)
-        existing_job_hashes = {}
-        existing_text_hashes = {}
+        existing_job_hashes: dict[str, str] = {}
+        existing_text_hashes: dict[str, str] = {}
         for row in existing_chunks:
             chunk_meta = row.get("chunk_meta") or {}
             doc_id = chunk_meta.get("doc_id")
             if doc_id:
                 existing_job_hashes[doc_id] = chunk_meta.get("content_hash")
             existing_text_hashes[row["id"]] = chunk_meta.get("text_hash")
-        logger.debug(f"Existing job hashes: {len(existing_job_hashes)}")
-        logger.debug(f"Existing text hashes: {len(existing_text_hashes)}")
 
-    # Determine which jobs need processing
-    jobs_to_process: list[tuple[JobData, str]] = []
-    for job in jobs:
-        job_hash = compute_job_hash(job)
-        existing_hash = existing_job_hashes.get(job["id"])
-        if existing_hash is None or existing_hash != job_hash:
-            jobs_to_process.append((job, job_hash))
-        else:
-            # logger.debug(f"Skipping job {job['id']} - no changes detected.")
-            pass
+        logger.debug(
+            f"Existing job hashes: {len(existing_job_hashes)}, "
+            f"text hashes: {len(existing_text_hashes)}"
+        )
 
-    jobs_to_process.sort(
-        key=lambda x: datetime.fromisoformat(x[0]["posted_date"]), reverse=True
-    )
+        # ── Filter to new/changed jobs ───────────────────────────────────
+        jobs_to_process: list[tuple[JobData, str]] = []
+        for job in jobs:
+            job_hash = compute_job_hash(job)
+            existing_hash = existing_job_hashes.get(job["id"])
+            if existing_hash is None or existing_hash != job_hash:
+                jobs_to_process.append((job, job_hash))
 
-    if not jobs_to_process:
-        logger.info("No new or changed jobs to process.")
-        return {
-            "chunks_with_data": [],
-            "rows": [],
-            "embedding_texts": [],
-            "embeddings": np.array([]),
-            "max_header_token": 0,
-            "summary": {
-                "count": 0,
-                "min_token": 0,
-                "ave_token": 0,
-                "max_token": 0,
-            },
-        }
+        jobs_to_process.sort(
+            key=lambda x: datetime.fromisoformat(x[0]["posted_date"]), reverse=True
+        )
 
-    # Save metadata for all jobs first (primary data store)
-    with db_client:
-        jobs_saved_metadata = set()
-        for job, job_hash in jobs_to_process:
+        if not jobs_to_process:
+            logger.info("No new or changed jobs to process.")
+            return {
+                "parents": [],
+                "children": [],
+                "embedding_texts": [],
+                "embeddings": np.array([]),
+                "summary": {"parent_count": 0, "child_count": 0},
+            }
+
+        # ── Save metadata for all jobs being processed ───────────────────
+        jobs_saved_metadata: set[str] = set()
+        for job, _ in jobs_to_process:
             job_id = job["id"]
             if job_id not in jobs_saved_metadata:
                 flat_metadata = {
-                    key: _serialize_for_jsonb(value)
-                    for key, value in job.items()
-                    if key != "entities"
+                    k: _serialize_for_jsonb(v)
+                    for k, v in job.items()
+                    if k != "entities"
                 }
                 _save_metadata_to_table(db_client, job_id, flat_metadata)
                 jobs_saved_metadata.add(job_id)
-                logger.info(
-                    f"Saved metadata for job {job_id} to '{DEFAULT_TABLE_METADATA}' table"
-                )
         db_client.commit()
         logger.success(
-            f"Saved metadata for {len(jobs_saved_metadata)} jobs to '{DEFAULT_TABLE_METADATA}' table."
+            f"Saved metadata for {len(jobs_saved_metadata)} jobs to "
+            f"'{DEFAULT_TABLE_METADATA}' table."
         )
 
-    # Prepare text for chunking
-    job_headers = []
-    job_texts = []
-    job_by_id = {}
-    for job, job_hash in jobs_to_process:
-        job_by_id[job["id"]] = job
-        header = f"{job['title']}"
-        job_headers.append(header)
-        text = ""
-        text += f"Details\n{job['details']}\n\n"
-        text += f"Company: {job['company']}\n"
-        if job.get("keywords"):
-            text += f"Keywords: {', '.join(job['keywords'])}\n"
-        if job.get("job_type"):
-            text += f"Job Type: {job['job_type']}\n"
-        if job.get("salary"):
-            text += f"Salary: {job['salary']}\n"
-        if job.get("hours_per_week"):
-            text += f"Hours per Week: {job['hours_per_week']}\n"
-        job_texts.append(text)
+        # ── PDR Chunking ─────────────────────────────────────────────────
+        all_parents: list[dict] = []
+        all_children: list[dict] = []
+        job_by_child_id: dict[str, tuple[JobData, str]] = {}
 
-    job_header_token_counts: list[int] = count_tokens(
-        job_headers, model=embed_model, prevent_total=True
-    )
-    max_job_header_token = (
-        max(job_header_token_counts) if job_header_token_counts else 0
-    )
+        for job, job_hash in jobs_to_process:
+            job_id = job["id"]
 
-    # Chunk the texts
-    chunks_with_data = chunk_texts_with_data(
-        job_texts,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        ids=[job["id"] for job, _ in jobs_to_process],
-        buffer=max_job_header_token,
-        model=embed_model,
-    )
+            # Build composite text (same structure as before)
+            text_parts = [f"Details\n{job['details']}\n"]
+            text_parts.append(f"Company: {job['company']}\n")
+            if job.get("keywords"):
+                text_parts.append(f"Keywords: {', '.join(job['keywords'])}\n")
+            if job.get("job_type"):
+                text_parts.append(f"Job Type: {job['job_type']}\n")
+            if job.get("salary"):
+                text_parts.append(f"Salary: {job['salary']}\n")
+            if job.get("hours_per_week"):
+                text_parts.append(f"Hours per Week: {job['hours_per_week']}\n")
+            job_text = "".join(text_parts)
 
-    # Generate chunk IDs
-    for chunk in chunks_with_data:
-        chunk["id"] = generate_key(
-            chunk["doc_id"], chunk["chunk_index"], chunk["doc_index"]
-        )
-        logger.debug(
-            f"Generated chunk ID: {chunk['id']} for doc_id: {chunk['doc_id']}, "
-            f"chunk_index: {chunk['chunk_index']}, doc_index: {chunk['doc_index']}"
-        )
-
-    all_num_tokens = [chunk["num_tokens"] for chunk in chunks_with_data]
-    count = len(chunks_with_data)
-    min_token = min(all_num_tokens) if all_num_tokens else 0
-    ave_token = (
-        math.ceil(sum(all_num_tokens) / len(all_num_tokens)) if all_num_tokens else 0
-    )
-    max_token = max(all_num_tokens) if all_num_tokens else 0
-    logger.log("count:", count, colors=["GRAY", "INFO"])
-    logger.log("min_token:", min_token, colors=["GRAY", "SUCCESS"])
-    logger.log("ave_token:", ave_token, colors=["GRAY", "SUCCESS"])
-    logger.log("max_token:", max_token, colors=["GRAY", "SUCCESS"])
-
-    # Determine which chunks need new embeddings
-    chunks_to_embed = []
-    embedding_texts = []
-    existing_embeddings = {}
-    for chunk in chunks_with_data:
-        job = job_by_id.get(chunk["doc_id"])
-        if not job:
-            logger.error(f"No job found for doc_id: {chunk['doc_id']}")
-            raise ValueError(f"No job found for doc_id: {chunk['doc_id']}")
-
-        header = f"{job['title']}"
-        text = f"{header}\n{chunk['content']}"
-        text_hash = compute_text_hash(text)
-        chunk["text_hash"] = text_hash
-
-        existing_text_hash = existing_text_hashes.get(chunk["id"])
-        logger.debug(
-            f"Chunk ID: {chunk['id']}, Computed text_hash: {text_hash}, "
-            f"Existing text_hash: {existing_text_hash}"
-        )
-
-        if existing_text_hash is None or existing_text_hash != text_hash:
-            chunks_to_embed.append(chunk)
-            embedding_texts.append(text)
-            logger.info(
-                f"Generating new embedding for chunk {chunk['id']} (new or changed content)"
+            # Generate PDR parent-child pairs
+            pdr_result = pdr_chunker.chunk_pdr(
+                text=job_text,
+                parent_chunk_size=parent_chunk_size,
+                child_chunk_size=child_chunk_size,
+                chunk_overlap=chunk_overlap,
             )
-        else:
-            with db_client:
-                embedding = db_client.get_embedding_by_id(
-                    DEFAULT_TABLE_DATA, chunk["id"]
-                )
-                if embedding is not None:
-                    existing_embeddings[chunk["id"]] = embedding
-                    logger.info(
-                        f"Reusing existing embedding for chunk {chunk['id']} from database"
-                    )
-                else:
-                    logger.warning(
-                        f"No embedding found for unchanged chunk {chunk['id']}, will regenerate"
-                    )
-                    chunks_to_embed.append(chunk)
-                    embedding_texts.append(text)
 
-    # Generate new embeddings
-    new_embeddings = (
-        generate_embeddings(embedding_texts, embed_model)
-        if embedding_texts
-        else np.array([])
-    )
+            # Tag parents/children with job_id for DB storage
+            for parent in pdr_result["parents"]:
+                parent["job_id"] = job_id
+                all_parents.append(parent)
 
-    if len(chunks_to_embed) != len(new_embeddings):
-        raise ValueError(
-            f"Mismatch between chunks_to_embed ({len(chunks_to_embed)}) "
-            f"and new_embeddings ({len(new_embeddings)})"
+            for child in pdr_result["children"]:
+                child["doc_id"] = job_id
+                all_children.append(child)
+                job_by_child_id[child["id"]] = (job, job_hash)
+
+        logger.info(
+            f"PDR chunking complete: {len(all_parents)} parents, "
+            f"{len(all_children)} children from {len(jobs_to_process)} jobs"
         )
 
-    # Map embeddings to chunks
-    embeddings = []
-    chunk_embedding_map = {
-        chunk["id"]: emb for chunk, emb in zip(chunks_to_embed, new_embeddings)
-    }
-    for chunk in chunks_with_data:
-        if chunk["id"] in chunk_embedding_map:
-            embeddings.append(chunk_embedding_map[chunk["id"]])
-        elif chunk["id"] in existing_embeddings:
-            embeddings.append(existing_embeddings[chunk["id"]])
-        else:
-            logger.error(f"No embedding found for chunk {chunk['id']}")
-            raise ValueError(f"No embedding found for chunk {chunk['id']}")
-
-    embeddings = np.array(embeddings)
-
-    # Prepare chunk rows (no metadata field)
-    rows_data = []
-    chunk_rows = []
-    for chunk, embedding in zip(chunks_with_data, embeddings):
-        job, job_hash = next(
-            (j, h) for j, h in jobs_to_process if j["id"] == chunk["doc_id"]
-        )
-
-        chunk_meta = {
-            "doc_id": chunk["doc_id"],
-            "header_doc_id": generate_key(job["title"]),
-            "parent_id": generate_key(job["company"]),
-            "doc_index": chunk["doc_index"],
-            "chunk_index": chunk["chunk_index"],
-            "num_tokens": chunk["num_tokens"],
-            "level": 1,
-            "parent_level": 0,
-            "start_idx": chunk["start_idx"],
-            "end_idx": chunk["end_idx"],
-            "content_hash": job_hash,
-            "text_hash": chunk["text_hash"],
-        }
-
-        header = job["title"]
-        parent_header = job["company"]
-
-        # Chunk row only contains chunk-specific data, no metadata
-        chunk_row = {
-            "id": chunk["id"],
-            "header": header,
-            "parent_header": parent_header,
-            "content": chunk["content"],
-            "posted_date": job["posted_date"],
-            "chunk_meta": chunk_meta,
-            "embedding": embedding.tolist(),
-        }
-        chunk_rows.append(chunk_row)
-
-        rows_data.append(
-            {
-                "id": chunk["id"],
-                "text": f"{header}\n{chunk['content']}",
-                "embedding": embedding,
-                "content_hash": job_hash,
-                "text_hash": chunk["text_hash"],
-            }
-        )
-
-    # Save chunk rows to DEFAULT_TABLE_DATA
-    with db_client:
-        try:
-            # Check existing chunks
+        # ── Clean up stale data for re-processed jobs ────────────────────
+        reprocessed_job_ids = [j["id"] for j, _ in jobs_to_process]
+        if reprocessed_job_ids:
             with db_client.conn.cursor() as cur:
+                # Delete old children
                 cur.execute(
-                    sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
-                        sql.Identifier(DEFAULT_TABLE_DATA)
-                    ),
-                    ([row["id"] for row in chunk_rows],),
+                    sql.SQL(
+                        "DELETE FROM {} WHERE chunk_meta->>'doc_id' = ANY(%s)"
+                    ).format(sql.Identifier(DEFAULT_TABLE_DATA)),
+                    (reprocessed_job_ids,),
                 )
-                existing_chunk_ids = {row["id"] for row in cur.fetchall()}
-
-            chunk_create_count = sum(
-                1 for row in chunk_rows if row["id"] not in existing_chunk_ids
-            )
-            chunk_update_count = len(chunk_rows) - chunk_create_count
-
-            if chunk_create_count > 0:
-                logger.info(
-                    f"Creating {chunk_create_count} new chunks in '{DEFAULT_TABLE_DATA}' table"
+                deleted_children = cur.rowcount
+                # Delete old parents
+                cur.execute(
+                    sql.SQL("DELETE FROM job_parents WHERE job_id = ANY(%s)"),
+                    (reprocessed_job_ids,),
                 )
-            if chunk_update_count > 0:
-                logger.info(
-                    f"Updating {chunk_update_count} existing chunks in '{DEFAULT_TABLE_DATA}' table"
-                )
-
-            # Validate all rows have IDs
-            for idx, row in enumerate(chunk_rows):
-                if "id" not in row:
-                    logger.error(f"Chunk row {idx} missing id: {row}")
-                    raise ValueError(f"Chunk row {idx} missing id")
-
-            chunk_results = db_client.create_or_update_rows(
-                DEFAULT_TABLE_DATA, chunk_rows
+                deleted_parents = cur.rowcount
+            db_client.commit()
+            logger.info(
+                f"Cleaned up {deleted_children} old children and "
+                f"{deleted_parents} old parents for {len(reprocessed_job_ids)} jobs"
             )
 
+        # ── Save parents to job_parents ──────────────────────────────────
+        parent_rows = []
+        for parent in all_parents:
+            parent_rows.append(
+                {
+                    "id": parent["id"],
+                    "job_id": parent["job_id"],
+                    "parent_index": parent["parent_chunk_index"],
+                    "content": parent["content"],
+                    "num_tokens": parent["num_tokens"],
+                    "child_ids": parent["child_ids"],
+                }
+            )
+
+        if parent_rows:
+            db_client.create_or_update_rows("job_parents", parent_rows)
             db_client.commit()
             logger.success(
-                f"Saved {len(chunk_results)} chunk records to '{DEFAULT_TABLE_DATA}' table."
+                f"Saved {len(parent_rows)} parent records to 'job_parents' table"
             )
-        except Exception as e:
-            logger.error(f"Failed to save chunk data: {str(e)}")
-            db_client.conn.rollback()
-            raise
+
+        # ── Prepare children for embedding ───────────────────────────────
+        chunks_to_embed: list[dict] = []
+        embedding_texts: list[str] = []
+        existing_embeddings: dict[str, list[float]] = {}
+
+        for child in all_children:
+            job, _ = job_by_child_id[child["id"]]
+            header = job["title"]
+            embed_text = f"{header}\n{child['content']}"
+            text_hash = compute_text_hash(embed_text)
+            child["text_hash"] = text_hash
+
+            existing_text_hash = existing_text_hashes.get(child["id"])
+            if existing_text_hash is not None and existing_text_hash == text_hash:
+                # Reuse existing embedding if content unchanged
+                cached_emb = db_client.get_embedding_by_id(
+                    DEFAULT_TABLE_DATA, child["id"]
+                )
+                if cached_emb is not None:
+                    existing_embeddings[child["id"]] = cached_emb
+                    logger.debug(
+                        f"Reusing embedding for child {child['id']} (hash match)"
+                    )
+                    continue
+                else:
+                    logger.warning(
+                        f"No cached embedding for unchanged child {child['id']}, "
+                        f"regenerating"
+                    )
+
+            chunks_to_embed.append(child)
+            embedding_texts.append(embed_text)
+
+        logger.info(
+            f"Embedding {len(chunks_to_embed)} new/changed children "
+            f"(reused {len(all_children) - len(chunks_to_embed)})"
+        )
+
+        # ── Batch embed children ─────────────────────────────────────────
+        new_embeddings = (
+            generate_embeddings(embedding_texts, embed_model)
+            if embedding_texts
+            else np.array([])
+        )
+
+        if len(chunks_to_embed) != len(new_embeddings):
+            raise ValueError(
+                f"Mismatch: {len(chunks_to_embed)} chunks vs "
+                f"{len(new_embeddings)} embeddings"
+            )
+
+        # Map embeddings back to all children
+        new_emb_map = {c["id"]: emb for c, emb in zip(chunks_to_embed, new_embeddings)}
+        child_embedding_map: dict[str, np.ndarray] = {}
+        for child in all_children:
+            if child["id"] in new_emb_map:
+                child_embedding_map[child["id"]] = new_emb_map[child["id"]]
+            elif child["id"] in existing_embeddings:
+                child_embedding_map[child["id"]] = np.array(
+                    existing_embeddings[child["id"]]
+                )
+            else:
+                raise ValueError(f"No embedding found for child {child['id']}")
+
+        # ── Save child chunks to jobs table ──────────────────────────────
+        chunk_rows = []
+        for child in all_children:
+            job, job_hash = job_by_child_id[child["id"]]
+            embedding = child_embedding_map[child["id"]]
+
+            chunk_meta = {
+                "doc_id": child["doc_id"],
+                "header_doc_id": generate_key(job["title"]),
+                "parent_id": child["parent_id"],
+                "doc_index": 0,
+                "chunk_index": child["child_index_within_parent"],
+                "num_tokens": child["num_tokens"],
+                "level": 1,
+                "parent_level": 0,
+                "start_idx": 0,
+                "end_idx": 0,
+                "content_hash": job_hash,
+                "text_hash": child["text_hash"],
+                "chunk_role": "child",
+                "parent_chunk_index": child["parent_chunk_index"],
+                "child_index_within_parent": child["child_index_within_parent"],
+            }
+
+            chunk_rows.append(
+                {
+                    "id": child["id"],
+                    "header": job["title"],
+                    "parent_header": job["company"],
+                    "content": child["content"],
+                    "posted_date": job["posted_date"],
+                    "chunk_meta": chunk_meta,
+                    "embedding": embedding.tolist(),
+                }
+            )
+
+        if chunk_rows:
+            db_client.create_or_update_rows(DEFAULT_TABLE_DATA, chunk_rows)
+            db_client.commit()
+            logger.success(
+                f"Saved {len(chunk_rows)} child chunk records to "
+                f"'{DEFAULT_TABLE_DATA}' table"
+            )
+
+    # ── Summary stats ────────────────────────────────────────────────────
+    child_token_counts = [c["num_tokens"] for c in all_children]
+    parent_token_counts = [p["num_tokens"] for p in all_parents]
+
+    summary = {
+        "parent_count": len(all_parents),
+        "child_count": len(all_children),
+        "jobs_processed": len(jobs_to_process),
+        "parent_tokens": {
+            "min": min(parent_token_counts) if parent_token_counts else 0,
+            "avg": math.ceil(sum(parent_token_counts) / len(parent_token_counts))
+            if parent_token_counts
+            else 0,
+            "max": max(parent_token_counts) if parent_token_counts else 0,
+        },
+        "child_tokens": {
+            "min": min(child_token_counts) if child_token_counts else 0,
+            "avg": math.ceil(sum(child_token_counts) / len(child_token_counts))
+            if child_token_counts
+            else 0,
+            "max": max(child_token_counts) if child_token_counts else 0,
+        },
+    }
+
+    logger.info(f"PDR embedding summary: {summary}")
 
     return {
-        "chunks_with_data": chunks_with_data,
-        "rows": rows_data,
+        "parents": all_parents,
+        "children": all_children,
         "embedding_texts": embedding_texts,
-        "embeddings": embeddings,
-        "max_header_token": max_job_header_token,
-        "summary": {
-            "count": count,
-            "min_token": min_token,
-            "ave_token": ave_token,
-            "max_token": max_token,
-        },
+        "embeddings": new_embeddings,
+        "summary": summary,
     }
 
 
@@ -898,6 +921,52 @@ def is_valid_score(score) -> bool:
     return score > 0
 
 
+def _resolve_parents_from_children(
+    results: list[dict],
+    db_client: PgVectorClient,
+) -> dict[str, str]:
+    """
+    Resolve child search results to their parent content.
+
+    Extracts unique parent_ids from chunk_meta, batch-fetches from
+    job_parents table, and returns a mapping of parent_id → content.
+
+    Args:
+        results: List of search result dicts with chunk_meta containing parent_id.
+        db_client: Active PgVectorClient instance.
+
+    Returns:
+        Dict mapping parent_id to full parent content string.
+    """
+    parent_ids: set[str] = set()
+    for result in results:
+        chunk_meta = result.get("chunk_meta") or result.get("metadata", {})
+        pid = chunk_meta.get("parent_id")
+        if pid:
+            parent_ids.add(pid)
+
+    if not parent_ids:
+        logger.debug("No parent_ids found in search results")
+        return {}
+
+    try:
+        parent_rows = db_client.get_rows("job_parents", ids=list(parent_ids))
+        parent_map = {row["id"]: row["content"] for row in parent_rows}
+        missing = parent_ids - set(parent_map.keys())
+        if missing:
+            logger.warning(
+                f"Missing {len(missing)} parents in job_parents table: "
+                f"{list(missing)[:5]}..."
+            )
+        logger.debug(
+            f"Resolved {len(parent_map)}/{len(parent_ids)} parents from job_parents"
+        )
+        return parent_map
+    except Exception as e:
+        logger.error(f"Failed to resolve parents from job_parents: {e}")
+        return {}
+
+
 def search_jobs(
     query: str,
     top_k: int | None = None,
@@ -908,19 +977,8 @@ def search_jobs(
 ) -> list[VectorSearchResult]:
     """
     Search for jobs based on a query string and return ranked results with data.
-    Searches against chunked embeddings in DEFAULT_TABLE_DATA and optionally
-    enriches results with full metadata from DEFAULT_TABLE_METADATA.
-
-    Args:
-        query: Search query string
-        top_k: Number of top results to return
-        threshold: Minimum score threshold
-        embed_model: Embedding model to use
-        db_client: Optional PgVectorClient instance
-        enrich_with_metadata: If True, enrich results with full metadata from metadata table
-
-    Returns:
-        List of JobSearchResult dictionaries containing rank, score, and job data
+    Searches against CHILD embeddings in DEFAULT_TABLE_DATA, resolves to
+    PARENT content from job_parents for full-context retrieval.
     """
     query_embedding = generate_embeddings([query], embed_model)[0]
     if not db_client:
@@ -933,46 +991,56 @@ def search_jobs(
             top_k=top_k,
             threshold=threshold,
         )
+        filtered_results = [r for r in results if is_valid_score(r["score"])]
+        removed_count = len(results) - len(filtered_results)
+        if removed_count > 0:
+            logger.debug(f"Filtered out {removed_count} results with invalid scores")
 
-    filtered_results = [result for result in results if is_valid_score(result["score"])]
-    removed_count = len(results) - len(filtered_results)
-    if removed_count > 0:
-        logger.debug(f"Filtered out {removed_count} results with invalid scores")
+        if enrich_with_metadata:
+            # ← NEW: Resolve parent content for all child hits
+            parent_map = _resolve_parents_from_children(filtered_results, db_client)
 
-    # Enrich results with metadata if requested
-    if enrich_with_metadata:
-        enriched_results = []
-        for result in filtered_results:
-            chunk_meta = result.get("chunk_meta", {})
-            job_id = chunk_meta.get("doc_id", result.get("id", ""))
+            enriched_results = []
+            for result in filtered_results:
+                chunk_meta = result.get("chunk_meta", {})
+                job_id = chunk_meta.get("doc_id", result.get("id", ""))
+                metadata = _load_metadata_from_table(db_client, job_id)
+                entity_row = load_job_entities(job_id, db_client=db_client)
 
-            metadata = _load_metadata_from_table(db_client, job_id)
-            entity_row = load_job_entities(job_id, db_client=db_client)
+                # ← NEW: Attach parent content (falls back to child content)
+                parent_id = chunk_meta.get("parent_id")
+                parent_content = parent_map.get(parent_id, result.get("content", ""))
 
-            enriched = {**result}
-            if metadata:
-                enriched.update(
-                    {
-                        "job_title": metadata.get("title", result.get("header", "")),
-                        "company": metadata.get(
-                            "company", result.get("parent_header", "")
-                        ),
-                        "link": metadata.get("link", ""),
-                        "keywords": metadata.get("keywords", []),
-                        "entities": entity_row["entities"] if entity_row else None,
-                        "domain": metadata.get("domain"),
-                        "salary": metadata.get("salary"),
-                        "job_type": metadata.get("job_type"),
-                        "tags": metadata.get("tags"),
-                        "hours_per_week": metadata.get("hours_per_week"),
-                    }
-                )
-            enriched_results.append(enriched)
+                enriched = {**result}
+                enriched["parent_content"] = parent_content  # ← NEW
 
-        logger.debug(f"Enriched {len(enriched_results)} search results with metadata")
-        return enriched_results
+                if metadata:
+                    enriched.update(
+                        {
+                            "job_title": metadata.get(
+                                "title", result.get("header", "")
+                            ),
+                            "company": metadata.get(
+                                "company", result.get("parent_header", "")
+                            ),
+                            "link": metadata.get("link", ""),
+                            "keywords": metadata.get("keywords", []),
+                            "entities": entity_row["entities"] if entity_row else None,
+                            "domain": metadata.get("domain"),
+                            "salary": metadata.get("salary"),
+                            "job_type": metadata.get("job_type"),
+                            "tags": metadata.get("tags"),
+                            "hours_per_week": metadata.get("hours_per_week"),
+                        }
+                    )
+                enriched_results.append(enriched)
 
-    return filtered_results
+            logger.debug(
+                f"Enriched {len(enriched_results)} search results with metadata + parent content"
+            )
+            return enriched_results
+
+        return filtered_results
 
 
 def filter_jobs_by_metadata(
@@ -1175,6 +1243,9 @@ def hybrid_search_jobs(
         )
 
     if enrich_with_metadata and db_client:
+        # ← NEW: Resolve parent content for all child hits
+        parent_map = _resolve_parents_from_children(filtered_results, db_client)
+
         enriched_results = []
         for result in filtered_results:
             chunk_meta = result.get("metadata", {})
@@ -1183,7 +1254,18 @@ def hybrid_search_jobs(
                 doc_id = result.get("id", "")
             metadata = _load_metadata_from_table(db_client, doc_id)
             entity_row = load_job_entities(doc_id, db_client=db_client)
+
+            # ← NEW: Attach parent content
+            parent_id = chunk_meta.get("parent_id")
+            parent_content = parent_map.get(parent_id, result.get("text", ""))
+
             enriched = {**result}
+            enriched["parent_content"] = parent_content  # ← NEW top-level
+
+            # Also inject into nested metadata for consistency
+            enriched_meta = {**chunk_meta, "parent_content": parent_content}
+            enriched["metadata"] = enriched_meta
+
             if metadata:
                 enriched.update(
                     {
@@ -1204,8 +1286,9 @@ def hybrid_search_jobs(
                     f"No metadata found for doc_id='{doc_id}' (chunk_id={result.get('id')})"
                 )
             enriched_results.append(enriched)
+
         logger.debug(
-            f"Enriched {len(enriched_results)} hybrid search results with metadata"
+            f"Enriched {len(enriched_results)} hybrid search results with metadata + parent content"
         )
         return enriched_results
 
