@@ -4,9 +4,6 @@ Lightweight sync/async interface to llama.cpp-compatible servers (OpenAI API
 protocol). Provides agentic tool-use loops, vision input, streaming, and
 structured output validation WITHOUT OpenTelemetry or Phoenix overhead.
 
-For traced execution with rich console output and Phoenix integration,
-use `jet.adapters.llama_cpp.llm_utils_observed` instead.
-
 ## Function Selection
 | Need                               | Sync       | Async      |
 |------------------------------------|------------|------------|
