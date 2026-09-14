@@ -1,33 +1,9 @@
-"""
-react_with_telemetry.py
-
-Features Summary
-----------------
-- Runs a local ReAct-style retrieval-augmented agent using llama.cpp-compatible
-  OpenAI endpoints for chat, embeddings, and reranking.
-- Uses reusable observability modules instead of inline Phoenix/OpenTelemetry setup.
-- Sends OpenInference-compatible traces to Arize Phoenix.
-- Captures hierarchical spans for:
-  - Agent session
-  - ReAct loop iterations
-  - LLM chat calls
-  - Embedding calls
-  - Reranker calls
-  - Tool execution
-- Redacts sensitive text before writing prompt, message, tool, and document
-  content to spans.
-- Tracks token usage, loop steps, repeated tool calls, success/failure status,
-  and final answer metadata.
-- Emits a stable Phoenix trace redirect URL at the end of each run.
-- Uses a strict Pydantic JSON schema for structured agent actions.
-"""
-
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-import requests
 from jet.adapters.llama_cpp.config import (
     EMBED_BASE_URL_LG,
     EMBED_MODEL_LG,
@@ -37,26 +13,15 @@ from jet.adapters.llama_cpp.config import (
     RERANK_BASE_URL,
     RERANK_MODEL,
 )
-from jet.observability import (
-    agent_span,
-    console,
-    embedding_span,
-    get_tracer,
-    hash_prompt,
-    init_tracing,
-    llm_span,
-    redact,
-    reranker_span,
-    tool_span,
-)
 from openai import OpenAI
-from openinference.semconv.trace import (
-    DocumentAttributes,
-    EmbeddingAttributes,
-    RerankerAttributes,
-    SpanAttributes,
-)
+from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from phoenix.otel import BatchSpanProcessor, HTTPSpanExporter, TracerProvider, register
 from pydantic import BaseModel, Field
+from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
@@ -64,15 +29,32 @@ from rich.text import Text
 
 PROJECT_NAME = "react-agent-local"
 
-init_tracing(
-    project_name=PROJECT_NAME,
-    phoenix_rest_api=PHOENIX_REST_API,
+# ✅ Manually create resource WITH project name
+resource = Resource.create(
+    {
+        "openinference.project.name": PROJECT_NAME,
+    }
 )
 
-tracer = get_tracer(__name__)
+provider = TracerProvider(resource=resource)
+exporter = HTTPSpanExporter(
+    endpoint=f"{PHOENIX_REST_API}/traces",
+)
+provider.add_span_processor(BatchSpanProcessor(exporter))
+trace.set_tracer_provider(provider)
 
-# ─── 2. CONFIGURATION ───────────────────────────────────────────────────────
+# Register with set_global_tracer_provider=False to avoid duplicate processors
+# project_name here is ignored when set_global_tracer_provider=False,
+# but we include it for documentation / future compatibility
+register(
+    project_name=PROJECT_NAME,
+    set_global_tracer_provider=False,
+)
 
+tracer = trace.get_tracer(__name__)
+console = Console(force_terminal=True, highlight=False)
+
+# ─── 2. CONFIGURATION & REDACTION ────────────────────────────────────────────
 PROMPT_TEMPLATE_VERSION = "v3.1"
 
 SYSTEM_PROMPT = """You are a ReAct agent operating in a retrieval-augmented environment. Think step-by-step.
@@ -96,11 +78,22 @@ You MUST respond with valid JSON matching this exact schema:
   "action_input": {<tool params> | {"answer": "<response>"}}
 }"""
 
-TOOL_SCHEMA_VERSION = "v1.2"
+PII_PATTERNS = ["ssn", "password", "api_key", "secret", "token"]
+
+
+def redact(text: str) -> str:
+    lower = text.lower()
+    for pattern in PII_PATTERNS:
+        if pattern in lower:
+            return "[REDACTED: contains sensitive content]"
+    return text
+
+
+def hash_prompt(prompt: str) -> str:
+    return hashlib.sha256(prompt.encode()).hexdigest()[:12]
+
 
 # ─── 3. STRUCTURED OUTPUT SCHEMA ────────────────────────────────────────────
-
-
 class AgentAction(BaseModel):
     thought: str = Field(description="Step-by-step reasoning")
     action: str = Field(description="Tool name or 'final_answer'")
@@ -110,6 +103,7 @@ class AgentAction(BaseModel):
     )
 
 
+# Pre-compute JSON schema once for reuse across all LLM calls
 AGENT_ACTION_JSON_SCHEMA = {
     "type": "json_schema",
     "json_schema": {
@@ -120,44 +114,44 @@ AGENT_ACTION_JSON_SCHEMA = {
 }
 
 
-# ─── 4. LOCAL CLIENT WRAPPERS WITH REUSABLE OBSERVABILITY ───────────────────
-
-
+# ─── 4. LLAMA.CPP CLIENT WRAPPERS WITH INSTRUMENTATION ──────────────────────
 class LocalLLMClient:
     def __init__(self, base_url: str, model_name: str):
         self.client = OpenAI(base_url=base_url.rstrip("/"), api_key="local")
         self.model_name = model_name
 
     def chat(self, messages: list[dict], response_format=None, **kwargs) -> dict:
-        invocation_params: dict[str, Any] = {
-            "max_tokens": kwargs.get("max_tokens", 8192),
-            "temperature": kwargs.get("temperature", 0.3),
-            "top_p": kwargs.get("top_p", 0.95),
-            "presence_penalty": kwargs.get("presence_penalty", 1.5),
-        }
-
-        with llm_span(
-            name="llm.chat",
-            model_name=self.model_name,
-            messages=messages,
-            invocation_params=invocation_params,
-            provider="llama_cpp",
+        with tracer.start_as_current_span(
+            "llm.chat",
+            attributes={
+                SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.LLM.value,
+                SpanAttributes.LLM_MODEL_NAME: self.model_name,
+                SpanAttributes.LLM_PROVIDER: "llama_cpp",
+                SpanAttributes.LLM_INVOCATION_PARAMETERS: json.dumps(kwargs),
+            },
         ) as span:
+            safe_messages = [
+                {"role": m["role"], "content": redact(m["content"])} for m in messages
+            ]
+            span.set_attribute(
+                SpanAttributes.LLM_INPUT_MESSAGES, json.dumps(safe_messages)
+            )
+
             create_kwargs: dict[str, Any] = {
                 "model": self.model_name,
                 "messages": messages,
                 "stream": True,
                 "stream_options": {"include_usage": True},
-                "max_tokens": invocation_params["max_tokens"],
-                "temperature": invocation_params["temperature"],
-                "top_p": invocation_params["top_p"],
-                "presence_penalty": invocation_params["presence_penalty"],
+                "max_tokens": kwargs.get("max_tokens", 8192),
+                "temperature": kwargs.get("temperature", 0.3),
+                "top_p": kwargs.get("top_p", 0.95),
+                "presence_penalty": kwargs.get("presence_penalty", 1.5),
                 "extra_body": {
                     "chat_template_kwargs": {"enable_thinking": False},
                 },
             }
 
-            # Pass JSON schema dict, not Pydantic class, to preserve streaming.
+            # Pass JSON schema dict (not Pydantic class) to preserve streaming
             if response_format is not None:
                 create_kwargs["response_format"] = response_format
 
@@ -167,10 +161,8 @@ class LocalLLMClient:
             usage_data: dict[str, int] = {}
 
             console.print(Text("🤖 LLM: ", style="bold cyan"), end="")
-
             for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
-
                 if delta and delta.content:
                     collected_content.append(delta.content)
                     print(delta.content, end="", flush=True)
@@ -183,15 +175,11 @@ class LocalLLMClient:
                     }
 
             print(flush=True)
-
             output = "".join(collected_content)
 
             span.set_attribute(
                 SpanAttributes.LLM_OUTPUT_MESSAGES,
-                json.dumps(
-                    [{"role": "assistant", "content": redact(output)}],
-                    ensure_ascii=False,
-                ),
+                json.dumps([{"role": "assistant", "content": redact(output)}]),
             )
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
@@ -202,8 +190,7 @@ class LocalLLMClient:
                 usage_data.get("completion_tokens", 0),
             )
             span.set_attribute(
-                SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
-                usage_data.get("total_tokens", 0),
+                SpanAttributes.LLM_TOKEN_COUNT_TOTAL, usage_data.get("total_tokens", 0)
             )
 
             return {"content": output, "usage": usage_data}
@@ -211,22 +198,27 @@ class LocalLLMClient:
 
 class LocalEmbedderClient:
     def __init__(self, base_url: str, model_name: str):
-        self.client = OpenAI(base_url=base_url.rstrip("/"), api_key="local")
+        self.base_url = base_url.rstrip("/")
         self.model_name = model_name
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        with embedding_span(
-            name="CreateEmbeddings",
-            model_name=self.model_name,
-            texts=texts,
-        ) as span:
-            resp = self.client.embeddings.create(
-                model=self.model_name,
-                input=texts,
-            )
+        from openinference.semconv.trace import EmbeddingAttributes
 
+        with tracer.start_as_current_span(
+            "CreateEmbeddings",
+            attributes={
+                SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.EMBEDDING.value,
+                SpanAttributes.EMBEDDING_MODEL_NAME: self.model_name,
+                SpanAttributes.INPUT_VALUE: json.dumps([redact(t) for t in texts]),
+                SpanAttributes.INPUT_MIME_TYPE: "application/json",
+            },
+        ) as span:
+            resp = OpenAI(base_url=self.base_url, api_key="local").embeddings.create(
+                model=self.model_name, input=texts
+            )
             embeddings = [item.embedding for item in resp.data]
 
+            # Record per-embedding text + vector using indexed attributes
             for i, (text, vector) in enumerate(zip(texts, embeddings)):
                 span.set_attribute(
                     f"{SpanAttributes.EMBEDDING_EMBEDDINGS}.{i}.{EmbeddingAttributes.EMBEDDING_TEXT}",
@@ -239,12 +231,10 @@ class LocalEmbedderClient:
 
             if hasattr(resp, "usage") and resp.usage:
                 span.set_attribute(
-                    SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
-                    resp.usage.prompt_tokens or 0,
+                    SpanAttributes.LLM_TOKEN_COUNT_PROMPT, resp.usage.prompt_tokens or 0
                 )
                 span.set_attribute(
-                    SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
-                    resp.usage.total_tokens or 0,
+                    SpanAttributes.LLM_TOKEN_COUNT_TOTAL, resp.usage.total_tokens or 0
                 )
 
             return embeddings
@@ -256,18 +246,38 @@ class LocalRerankerClient:
         self.model_name = model_name
 
     def rerank(self, query: str, documents: list[str], top_k: int = 5) -> list[dict]:
+        from openinference.semconv.trace import DocumentAttributes, RerankerAttributes
+
+        # ✅ DEBUG
         console.print(f"[dim]🔎 Reranker INPUT docs count: {len(documents)}[/dim]")
 
-        with reranker_span(
-            name="reranker.rerank",
-            model_name=self.model_name,
-            query=query,
-            documents=documents,
-            top_k=top_k,
+        safe_docs = [redact(str(d)) for d in documents]
+
+        with tracer.start_as_current_span(
+            "reranker.rerank",
+            attributes={
+                SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.RERANKER.value,
+                RerankerAttributes.RERANKER_QUERY: redact(query),
+                RerankerAttributes.RERANKER_MODEL_NAME: self.model_name,
+                RerankerAttributes.RERANKER_TOP_K: top_k,
+                # ❌ DO NOT set RERANKER_INPUT_DOCUMENTS as a JSON string
+                # The Phoenix UI expects indexed/flattened attributes instead
+            },
         ) as span:
+            # ✅ FIX: Set input documents as indexed attributes per OpenInference spec
+            # This is what the Phoenix UI .map() actually iterates over
+            for i, doc_text in enumerate(safe_docs):
+                span.set_attribute(
+                    f"{RerankerAttributes.RERANKER_INPUT_DOCUMENTS}.{i}.{DocumentAttributes.DOCUMENT_CONTENT}",
+                    doc_text,
+                )
+
+            # ✅ DEBUG
             console.print(
-                f"[green]✅ Set {len(documents)} indexed input_documents attributes[/green]"
+                f"[green]✅ Set {len(safe_docs)} indexed input_documents attributes[/green]"
             )
+
+            import requests
 
             resp = requests.post(
                 f"{self.base_url}/rerank",
@@ -282,7 +292,7 @@ class LocalRerankerClient:
 
             raw_results = resp.get("results", [])
 
-            enriched_results: list[dict] = []
+            enriched_results = []
             for r in raw_results:
                 idx = r["index"]
                 enriched_results.append(
@@ -293,6 +303,7 @@ class LocalRerankerClient:
                     }
                 )
 
+            # Output documents (already correctly indexed)
             for i, result in enumerate(enriched_results):
                 span.set_attribute(
                     f"{RerankerAttributes.RERANKER_OUTPUT_DOCUMENTS}.{i}.{DocumentAttributes.DOCUMENT_CONTENT}",
@@ -306,23 +317,24 @@ class LocalRerankerClient:
             console.print(
                 f"[dim]🔎 Reranker OUTPUT: {len(enriched_results)} docs returned[/dim]"
             )
-
             return enriched_results
 
 
-# ─── 5. TOOL REGISTRY WITH REUSABLE OBSERVABILITY ───────────────────────────
+# ─── 5. TOOL REGISTRY WITH INSTRUMENTATION ───────────────────────────────────
+TOOL_SCHEMA_VERSION = "v1.2"
 
 
 def search_docs(
-    query: str,
-    embedder: LocalEmbedderClient,
-    reranker: LocalRerankerClient,
+    query: str, embedder: LocalEmbedderClient, reranker: LocalRerankerClient
 ) -> str:
-    with tool_span(
-        name="tool.search_docs",
-        tool_name="search_docs",
-        parameters={"query": query},
-        schema_version=TOOL_SCHEMA_VERSION,
+    with tracer.start_as_current_span(
+        "tool.search_docs",
+        attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.TOOL.value,
+            SpanAttributes.TOOL_NAME: "search_docs",
+            SpanAttributes.TOOL_PARAMETERS: json.dumps({"query": redact(query)}),
+            "tool.schema_version": TOOL_SCHEMA_VERSION,
+        },
     ) as span:
         console.print(
             Panel(
@@ -332,18 +344,15 @@ def search_docs(
             )
         )
 
-        # This creates a child embedding span.
-        embedder.embed([query])
-
+        embeddings = embedder.embed([query])
         candidate_docs = [
             "Q3 2026 Earnings Report: Revenue grew 12% YoY to $4.2B driven by AI product adoption. Operating margin expanded to 28%. EPS of $3.15 beat consensus by 8%.",
             "Q2 2026 Earnings Report: Revenue of $3.8B, up 9% YoY. Cloud segment grew 22%. Company raised full-year guidance citing strong enterprise demand.",
             "Annual Report FY2025: Full-year revenue $14.1B. R&D spending increased 18% focused on generative AI infrastructure. Share buyback program expanded to $5B.",
         ]
-
-        # This creates a child reranker span.
         reranked = reranker.rerank(query, candidate_docs, top_k=3)
 
+        # Safe: rerank() now guarantees "document" key via index mapping
         result = "\n---\n".join([r["document"] for r in reranked])
 
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, redact(result[:2000]))
@@ -353,16 +362,13 @@ def search_docs(
         console.print(
             Text(f"✅ Found {len(reranked)} relevant documents", style="green")
         )
-
         return result
 
 
 TOOLS = {"search_docs": search_docs}
 
 
-# ─── 6. REACT LOOP WITH HIERARCHICAL TRACING ────────────────────────────────
-
-
+# ─── 6. REACT LOOP WITH HIERARCHICAL TRACING ─────────────────────────────────
 @dataclass
 class LoopMeta:
     total_steps: int = 0
@@ -382,8 +388,6 @@ def run_react_loop(
 ) -> str:
     session_id = str(uuid.uuid4())
     meta = LoopMeta()
-    final_answer = "No answer produced"
-
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_query},
@@ -391,12 +395,15 @@ def run_react_loop(
 
     console.print(Panel(user_query, title="🎯 User Query", border_style="bold blue"))
 
-    with agent_span(
-        name="react_agent.session",
-        session_id=session_id,
-        prompt_template_version=PROMPT_TEMPLATE_VERSION,
-        system_prompt_hash=hash_prompt(SYSTEM_PROMPT),
-        max_steps=max_steps,
+    with tracer.start_as_current_span(
+        "react_agent.session",
+        attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.AGENT.value,
+            SpanAttributes.SESSION_ID: session_id,
+            "agent.prompt_template_version": PROMPT_TEMPLATE_VERSION,
+            "agent.system_prompt_hash": hash_prompt(SYSTEM_PROMPT),
+            "agent.max_steps": max_steps,
+        },
     ) as root_span:
         for step in range(max_steps):
             meta.total_steps += 1
@@ -404,68 +411,46 @@ def run_react_loop(
 
             with tracer.start_as_current_span(
                 f"react_loop.iteration_{step}",
-                attributes={
-                    "react.step_number": step,
-                    "react.prompt_version": PROMPT_TEMPLATE_VERSION,
-                },
+                attributes={"react.step_number": step},
             ) as iter_span:
-                response = llm.chat(
-                    messages,
-                    response_format=AGENT_ACTION_JSON_SCHEMA,
-                )
+                with tracer.start_as_current_span(
+                    "react.thought_generation",
+                    attributes={
+                        SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.LLM.value,
+                        "react.prompt_version": PROMPT_TEMPLATE_VERSION,
+                    },
+                ) as thought_span:
+                    # Pass pre-computed JSON schema dict, NOT the Pydantic class
+                    response = llm.chat(
+                        messages, response_format=AGENT_ACTION_JSON_SCHEMA
+                    )
+                    raw_output = response["content"]
+                    meta.total_tokens += response["usage"].get("total_tokens", 0)
 
-                raw_output = response["content"]
-                meta.total_tokens += response["usage"].get("total_tokens", 0)
-
-                try:
+                    # Validate against Pydantic model after streaming completes
                     parsed = AgentAction.model_validate_json(raw_output)
-                except Exception as e:
-                    iter_span.record_exception(e)
-                    iter_span.set_attribute("react.parse_error", str(e)[:1000])
+                    thought = parsed.thought
+                    action = parsed.action
+                    action_input = parsed.action_input
 
-                    observation = (
-                        "System parsing error: Your previous response was not valid "
-                        "JSON matching the required schema. Retry with valid JSON only."
+                    thought_span.set_attribute("react.thought_raw", redact(thought))
+                    thought_span.set_attribute("react.planned_action", action)
+                    thought_span.set_attribute(
+                        "react.planned_action_input",
+                        json.dumps(
+                            {k: redact(str(v)) for k, v in action_input.items()}
+                        ),
                     )
 
-                    messages.append({"role": "assistant", "content": raw_output})
-                    messages.append({"role": "user", "content": observation})
-
-                    console.print(
-                        Text(
-                            f"❌ Failed to parse agent JSON: {type(e).__name__}: {str(e)[:300]}",
-                            style="bold red",
-                        )
-                    )
-                    continue
-
-                thought = parsed.thought
-                action = parsed.action
-                action_input = parsed.action_input
-
-                iter_span.set_attribute("react.thought_raw", redact(thought))
-                iter_span.set_attribute("react.planned_action", action)
-                iter_span.set_attribute(
-                    "react.planned_action_input",
-                    json.dumps(
-                        {k: redact(str(v)) for k, v in action_input.items()},
-                        ensure_ascii=False,
-                    ),
-                )
-
-                console.print(Text(f"\n💭 Thought: {thought}", style="italic dim"))
-                console.print(Text(f"⚡ Action: {action}", style="bold yellow"))
+                    console.print(Text(f"\n💭 Thought: {thought}", style="italic dim"))
+                    console.print(Text(f"⚡ Action: {action}", style="bold yellow"))
 
                 if action == "final_answer":
                     meta.success = True
                     final_answer = action_input.get("answer", "")
-
                     root_span.set_attribute(
-                        "agent.final_answer",
-                        redact(final_answer[:3000]),
+                        "agent.final_answer", redact(final_answer[:3000])
                     )
-                    iter_span.set_attribute("react.final_answer_reached", True)
-
                     console.print(
                         Panel(
                             final_answer,
@@ -477,28 +462,20 @@ def run_react_loop(
 
                 if action not in TOOLS:
                     iter_span.set_attribute("react.error", f"Unknown tool: {action}")
-
                     messages.append({"role": "assistant", "content": raw_output})
-
-                    error_msg = (
-                        f"Error: Unknown tool '{action}'. "
-                        f"Available: {list(TOOLS.keys())}"
-                    )
+                    error_msg = f"Error: Unknown tool '{action}'. Available: {list(TOOLS.keys())}"
                     messages.append({"role": "user", "content": error_msg})
-
                     console.print(Text(f"❌ {error_msg}", style="bold red"))
                     continue
 
                 tool_sig = f"{action}:{json.dumps(action_input, sort_keys=True)}"
-
                 if tool_sig in meta.previous_tool_signatures:
                     meta.repeated_tool_calls += 1
                     iter_span.set_attribute("react.repeated_call", True)
-
                     console.print(Text("⚠️ Repeated tool call detected", style="yellow"))
 
+                    # Circuit breaker: force final_answer after 2 identical calls
                     repeat_count = meta.previous_tool_signatures.count(tool_sig)
-
                     if repeat_count >= 2:
                         console.print(
                             Text(
@@ -506,17 +483,14 @@ def run_react_loop(
                                 style="bold red",
                             )
                         )
-
                         messages.append({"role": "assistant", "content": raw_output})
                         messages.append(
                             {
                                 "role": "user",
                                 "content": (
-                                    "SYSTEM: You have called the same tool with the same "
-                                    "parameters multiple times without progress. STOP "
-                                    "searching. Provide your best answer based on the "
-                                    "observations you already have, or clearly state that "
-                                    "the information is unavailable."
+                                    "SYSTEM: You have called the same tool with the same parameters multiple times "
+                                    "without progress. STOP searching. Provide your best answer based on the "
+                                    "observations you already have, or clearly state that the information is unavailable."
                                 ),
                             }
                         )
@@ -526,57 +500,40 @@ def run_react_loop(
 
                 try:
                     observation = TOOLS[action](
-                        **action_input,
-                        embedder=embedder,
-                        reranker=reranker,
+                        **action_input, embedder=embedder, reranker=reranker
                     )
                     iter_span.set_attribute(
-                        "react.observation_length",
-                        len(observation),
+                        "react.observation_length", len(observation)
                     )
-
                 except Exception as e:
                     observation = (
                         f"Tool execution error: {type(e).__name__}: {str(e)[:500]}"
                     )
-
                     iter_span.set_attribute("react.tool_error", str(e)[:1000])
                     iter_span.record_exception(e)
-
                     console.print(
                         Text(f"💥 Tool Error: {observation}", style="bold red")
                     )
 
                 messages.append({"role": "assistant", "content": raw_output})
                 messages.append(
-                    {
-                        "role": "user",
-                        "content": f"Observation: {observation}",
-                    }
+                    {"role": "user", "content": f"Observation: {observation}"}
                 )
 
         else:
             meta.failure_reason = "max_steps_exhausted"
             console.print(
-                Text(
-                    "⏰ Max steps exhausted without final answer",
-                    style="bold red",
-                )
+                Text("⏰ Max steps exhausted without final answer", style="bold red")
             )
 
         root_span.set_attribute("agent.loop.total_steps", meta.total_steps)
         root_span.set_attribute("agent.loop.total_tokens", meta.total_tokens)
         root_span.set_attribute(
-            "agent.loop.repeated_tool_calls",
-            meta.repeated_tool_calls,
+            "agent.loop.repeated_tool_calls", meta.repeated_tool_calls
         )
         root_span.set_attribute("agent.loop.success", meta.success)
-
         if meta.failure_reason:
-            root_span.set_attribute(
-                "agent.loop.failure_reason",
-                meta.failure_reason,
-            )
+            root_span.set_attribute("agent.loop.failure_reason", meta.failure_reason)
 
         console.rule("[bold]Session Summary")
         console.print(
@@ -584,6 +541,9 @@ def run_react_loop(
             f"Repeated Calls: {meta.repeated_tool_calls} | Success: {meta.success}"
         )
 
+        # ─── LOG TRACE URL ────────────────────────────────────────────────────────
+        # Use Phoenix's stable redirect URL — no need to know project name or UI routes
+        # Format: {phoenix_host}/redirects/traces/{otel_trace_id}
         phoenix_host = PHOENIX_REST_API.rstrip("/")
         if phoenix_host.endswith("/v1"):
             phoenix_host = phoenix_host[:-3]
@@ -596,12 +556,10 @@ def run_react_loop(
         console.print(f"[dim]Session ID: {session_id}[/dim]")
         console.print(f"[dim]Trace ID:   {trace_id_hex}[/dim]")
 
-        return final_answer
+        return root_span.attributes.get("agent.final_answer", "No answer produced")
 
 
-# ─── 7. USAGE ───────────────────────────────────────────────────────────────
-
-
+# ─── 7. USAGE ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
 
@@ -612,12 +570,8 @@ if __name__ == "__main__":
         "query",
         nargs="?",
         default="What were the key findings in the Q3 2026 earnings report?",
-        help=(
-            "User query to run. Default: "
-            '"What were the key findings in the Q3 2026 earnings report?"'
-        ),
+        help='User query to run (default: "What were the key findings in the Q3 2026 earnings report?")',
     )
-
     args = parser.parse_args()
 
     llm = LocalLLMClient(LLM_BASE_URL, LLM_MODEL)
