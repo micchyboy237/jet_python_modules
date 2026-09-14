@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 
 from opentelemetry import trace
@@ -14,10 +15,12 @@ console = Console(force_terminal=True, highlight=False)
 _provider: Optional[TracerProvider] = None
 _initialized_project: Optional[str] = None
 
+PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
+
 
 def init_tracing(
     project_name: str,
-    phoenix_rest_api: str,
+    phoenix_rest_api: str = PHOENIX_URL,
     auto_instrument: bool = False,
 ) -> TracerProvider:
     """
