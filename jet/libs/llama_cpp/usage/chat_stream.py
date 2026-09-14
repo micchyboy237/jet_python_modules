@@ -5,8 +5,6 @@ Phoenix, or any tracing side effects.
 
 Uses chat_stream_utils for all shared logic. When no on_chunk callback is
 provided, defaults to a plain-stdout printer with post-stream summary.
-
-For traced execution, use chat_stream_observability.py instead.
 """
 
 from __future__ import annotations
@@ -179,7 +177,7 @@ def run_chat_stream(
     Args:
         on_chunk: Optional callback invoked for each streamed chunk. When None,
             defaults to a plain-stdout printer with post-stream summary. Pass a
-            custom callback (e.g. from chat_stream_observability) to override.
+            custom callback to override.
     """
     _using_default_printer = on_chunk is None
     chunk_state: dict[str, Any] = {"first_token_at": None, "in_think_block": False}
