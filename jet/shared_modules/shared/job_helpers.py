@@ -1225,8 +1225,8 @@ def hybrid_search_jobs(
             "start_idx": result["chunk_meta"].get("start_idx"),
             "end_idx": result["chunk_meta"].get("end_idx"),
             "num_tokens": result["chunk_meta"].get("num_tokens"),
-            "parent_header": result["parent_header"],
-            "header": result["header"],
+            "header": result.get("header", ""),
+            "parent_header": result.get("parent_header", ""),
         }
         for result in raw_results
     ]
@@ -1255,15 +1255,18 @@ def hybrid_search_jobs(
             metadata = _load_metadata_from_table(db_client, doc_id)
             entity_row = load_job_entities(doc_id, db_client=db_client)
 
-            # ← NEW: Attach parent content
+            # ← Attach parent content
             parent_id = chunk_meta.get("parent_id")
             parent_content = parent_map.get(parent_id, result.get("text", ""))
 
             enriched = {**result}
-            enriched["parent_content"] = parent_content  # ← NEW top-level
+            enriched["parent_content"] = parent_content
 
-            enriched_meta = {**chunk_meta}
-            enriched["metadata"] = enriched_meta
+            # Extract header/parent_header from metadata to top-level
+            enriched["header"] = chunk_meta.pop("header", "")
+            enriched["parent_header"] = chunk_meta.pop("parent_header", "")
+
+            enriched["metadata"] = chunk_meta
 
             if metadata:
                 enriched.update(
