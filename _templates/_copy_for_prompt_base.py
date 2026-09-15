@@ -101,13 +101,10 @@ When coding:
 - Include logs that cover all steps.
 """.strip()
 
-DEFAULT_SYSTEM_MESSAGE = """
-""".strip()
-
 # For existing projects
 # DEFAULT_INSTRUCTIONS_MESSAGE += (
 # "\n- Only respond with parts of the code that have been added or updated to keep it short and concise."
-# )z
+# )
 # For creating projects
 # DEFAULT_INSTRUCTIONS_MESSAGE += (
 # "\n- At the end, display the updated file structure and instructions for running the code."
@@ -215,12 +212,6 @@ def main():
         help="Shorten function and class definitions",
     )
     parser.add_argument(
-        "-s",
-        "--system",
-        default=DEFAULT_SYSTEM_MESSAGE,
-        help="Message to include in the clipboard content",
-    )
-    parser.add_argument(
         "-m",
         "--message",
         default=DEFAULT_QUERY_MESSAGE,
@@ -257,7 +248,7 @@ def main():
         "--query-only",
         action="store_true",
         default=False,
-        help="Include only the query message and files, omitting system and instructions",
+        help="Include only the query message and files, omitting instructions",
     )
 
     args = parser.parse_args()
@@ -269,7 +260,6 @@ def main():
     case_sensitive = args.case_sensitive
     shorten_funcs = args.shorten_funcs
     query_message = args.message
-    system_message = args.system
     instructions_message = args.instructions
     filenames_only = args.filenames_only
     show_file_length = not args.no_length
@@ -348,11 +338,11 @@ def main():
 
     # Build the clipboard content parts
     clipboard_content_parts = []
-    if not query_only:
-        if system_message:
-            clipboard_content_parts.append(f"<system>\n{system_message}\n</system>")
-    # Query should come before instructions
-    clipboard_content_parts.append(f"<query>\n{query_message}\n</query>")
+
+    # Query comes first, without wrapper tags
+    if query_message:
+        clipboard_content_parts.append(query_message)
+
     if not query_only:
         if instructions_message:
             clipboard_content_parts.append(
