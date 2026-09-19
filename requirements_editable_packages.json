@@ -100,6 +100,11 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta"
     },
     {
+        "name": "llama-index",
+        "version": "0.14.24",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index"
+    },
+    {
         "name": "llama-index-core",
         "version": "0.14.24",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core"
