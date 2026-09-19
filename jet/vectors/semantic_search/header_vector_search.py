@@ -3,7 +3,6 @@ import uuid
 from collections.abc import Callable, Iterator
 
 import numpy as np
-from jet.adapters.llama_cpp.chunking_utils import chunk_texts
 from jet.adapters.llama_cpp.config import EMBED_MODEL_LG
 from jet.adapters.llama_cpp.embed_utils import embed_batch
 from jet.adapters.llama_cpp.token_utils import get_tokenizer_fn
@@ -44,7 +43,10 @@ def collect_header_chunks(
 ]:
     """
     Collect chunked contents for each header along with metadata, preserving original texts.
+    Uses adaptive_split from jet.wordnet.sentence to respect list markers, newlines,
+    and token-aware boundaries instead of naive NLTK sent_tokenize.
     """
+    from jet.wordnet.sentence import adaptive_split
 
     def default_tokenizer(text):
         return re.findall(r"\b\w+\b|[^\w\s]", text)
@@ -76,21 +78,28 @@ def collect_header_chunks(
         headers.append(header)
         headers_context.append(headers_context_processed)
 
-        chunks = chunk_texts(
-            original_content, chunk_size, chunk_overlap, tokenizer_model, buffer
+        # Use adaptive_split instead of chunk_texts + split_sentences
+        # This respects list markers, preserves newlines, and splits at token boundaries
+        chunks = adaptive_split(
+            text=original_content,
+            count_tokens_func=lambda t: len(tokenizer(t)),
+            max_tokens=chunk_size - buffer,
         )
+
         start_idx = 0
         for chunk in chunks:
             if chunk.strip():
                 preprocessed_chunk = preprocess_text(chunk)
                 end_idx = start_idx + len(chunk)
                 num_tokens = tokenizer(chunk)
+
                 if isinstance(num_tokens, list) and len(num_tokens) > 512:
                     chunk = chunk[: int(len(chunk) * 512 / len(num_tokens))]
                     preprocessed_chunk = preprocess_text(chunk)
                     logger.info(
                         f"Truncated content chunk for doc_index {doc_index}, start_idx {start_idx}"
                     )
+
                 contents_with_indices.append(
                     (
                         doc_index,
