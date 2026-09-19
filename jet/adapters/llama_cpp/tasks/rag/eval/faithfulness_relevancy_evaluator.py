@@ -7,7 +7,7 @@ from typing import Optional, Sequence
 from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.llm_utils import chat
 from jet.logger import logger
-from llama_index.core.evaluation_base import EvaluationResult
+from llama_index.core.evaluation import EvaluationResult
 
 # Prompt template optimized for local llama.cpp models
 # Based on LLAMA3_8B_EVAL_TEMPLATE from reference but simplified for direct chat usage
