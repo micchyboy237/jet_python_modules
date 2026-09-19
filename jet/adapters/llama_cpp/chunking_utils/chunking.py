@@ -54,7 +54,7 @@ def chunk_texts(
     buffer: int = 0,
     strict_sentences: bool = True,
     min_chunk_size: int = 32,
-    show_progress: bool = True,
+    show_progress: bool = False,
 ) -> list[str]:
     """Chunk texts into smaller pieces based on token size.
 
@@ -228,7 +228,7 @@ def chunk_texts_with_data(
     buffer: int = 0,
     strict_sentences: bool = True,
     min_chunk_size: int = 32,
-    show_progress: bool = True,
+    show_progress: bool = False,
 ) -> list[ChunkResult]:
     """Chunk texts and return rich ChunkResult objects with metadata.
 
