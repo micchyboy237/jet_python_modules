@@ -1,6 +1,7 @@
 """
 Demo: Custom Span Kinds & Sync Functions
-Covers: @trace with custom kind, sync decorators, EMBEDDING span kind
+Covers: @trace with custom kind, sync decorators, EMBEDDING span kind,
+        trace URL returned as part of result dict.
 """
 
 import time
@@ -12,31 +13,28 @@ from jet.adapters.llama_cpp.config import (
     EMBED_MODEL_LG,
     PHOENIX_BASE_URL,
 )
-from jet_telemetry import initialize_telemetry, tool, trace
+from jet_telemetry import get_trace_url, initialize_telemetry, tool, trace
+from openai import OpenAI
 
 initialize_telemetry(service_name="custom-spans-demo", endpoint=PHOENIX_BASE_URL)
+
+# Initialize Sync OpenAI clients
+embed_client_sm = OpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
+embed_client_lg = OpenAI(base_url=EMBED_BASE_URL_LG, api_key="sk-local")
 
 
 @trace(kind="EMBEDDING", name="embed-query-small")
 def embed_query_small(query: str) -> list[float]:
     """Sync embedding with small model - demonstrates sync support + custom kind."""
-    import httpx
-
-    payload = {"model": EMBED_MODEL, "input": query}
-    resp = httpx.post(f"{EMBED_BASE_URL}/embeddings", json=payload, timeout=10)
-    resp.raise_for_status()
-    return resp.json()["data"][0]["embedding"]
+    resp = embed_client_sm.embeddings.create(model=EMBED_MODEL, input=query)
+    return resp.data[0].embedding
 
 
 @trace(kind="EMBEDDING", name="embed-doc-large")
 def embed_doc_large(document: str) -> list[float]:
     """Sync embedding with large model for higher quality."""
-    import httpx
-
-    payload = {"model": EMBED_MODEL_LG, "input": document}
-    resp = httpx.post(f"{EMBED_BASE_URL_LG}/embeddings", json=payload, timeout=15)
-    resp.raise_for_status()
-    return resp.json()["data"][0]["embedding"]
+    resp = embed_client_lg.embeddings.create(model=EMBED_MODEL_LG, input=document)
+    return resp.data[0].embedding
 
 
 @trace(kind="RETRIEVER", name="hybrid-search")
@@ -91,6 +89,7 @@ def batch_embed_and_search(query: str, documents: list[str]) -> dict:
         "retrieved_count": len(retrieved),
         "evaluation": eval_result,
         "latency_ms": round(elapsed * 1000, 1),
+        "trace_url": get_trace_url(PHOENIX_BASE_URL),
     }
 
 
@@ -104,8 +103,14 @@ def main():
     ]
 
     result = batch_embed_and_search("neural network optimization", docs)
-    print(f"\n📊 Search Results: {result}")
-    print(f"🔍 View custom spans at: {PHOENIX_BASE_URL}")
+
+    print(f"\n📊 Search Results:")
+    print(f"   Retrieved: {result['retrieved_count']} docs")
+    print(f"   Relevance: {result['evaluation']['avg_relevance']}")
+    print(f"   Latency:   {result['latency_ms']}ms")
+
+    if result.get("trace_url"):
+        print(f"🔍 View complete trace: {result['trace_url']}")
 
 
 if __name__ == "__main__":

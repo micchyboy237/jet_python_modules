@@ -141,7 +141,10 @@ async def research_agent(task: str, max_steps: int = 5) -> str:
 async def main():
     result = await research_agent("What's the weather in Tokyo?")
     print(f"\n🤖 Final Result: {result}")
-    print(f"🔍 View agent trace at: {PHOENIX_BASE_URL}")
+
+    # One-liner to get the link
+    if url := get_trace_url(PHOENIX_BASE_URL):
+        print(f"🔍 View complete trace: {url}")
 
 
 if __name__ == "__main__":
