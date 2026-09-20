@@ -20,15 +20,12 @@ from jet.adapters.llama_cpp.config import (
 from jet_telemetry import chain, get_trace_url, initialize_telemetry, llm, tool
 from openai import AsyncOpenAI
 
-# Initialize telemetry once at startup
 initialize_telemetry(
     service_name="rag-pipeline-demo",
     endpoint=PHOENIX_BASE_URL,
     auto_instrument=True,
     batch=True,
 )
-
-# Initialize AsyncOpenAI client
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 embed_client = AsyncOpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
 
@@ -46,7 +43,6 @@ async def embed_text(text: str, is_query: bool = False) -> list[float]:
 async def retrieve_documents(
     query_embedding: list[float], top_k: int = 5
 ) -> list[dict]:
-    # Simulated vector DB call
     await asyncio.sleep(0.05)
     return [
         {
@@ -96,7 +92,6 @@ async def generate_answer(query: str, context: list[str]) -> str:
 
     print("\n🤖 LLM Response: ", end="", flush=True)
     collected_content = []
-
     stream = await llm_client.chat.completions.create(
         model=LLM_MODEL,
         messages=messages,
@@ -105,17 +100,14 @@ async def generate_answer(query: str, context: list[str]) -> str:
         stream_options={"include_usage": True},
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
-
     async for chunk in stream:
         if chunk.choices and chunk.choices[0].delta:
             delta = chunk.choices[0].delta
             if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                # Skip thinking content if present despite disable flag
                 continue
             if delta.content:
                 collected_content.append(delta.content)
                 print(delta.content, end="", flush=True)
-
     print("\n", flush=True)
     return "".join(collected_content)
 
@@ -129,15 +121,21 @@ async def rag_pipeline(query: str) -> dict:
     context = [d["content"] for d in ranked_docs]
     answer = await generate_answer(query, context)
 
-    return {"query": query, "answer": answer, "sources": len(ranked_docs)}
+    # Capture trace URL while still inside the chain context
+    trace_url = get_trace_url(PHOENIX_BASE_URL)
+
+    return {
+        "query": query,
+        "answer": answer,
+        "sources": len(ranked_docs),
+        "trace_url": trace_url,
+    }
 
 
 async def main():
     result = await rag_pipeline("What are the key principles of AI alignment?")
     print(f"\n✅ Sources used: {result['sources']}")
-
-    # One-liner to get the link
-    if url := get_trace_url(PHOENIX_BASE_URL):
+    if url := result.get("trace_url"):
         print(f"🔍 View complete trace: {url}")
 
 

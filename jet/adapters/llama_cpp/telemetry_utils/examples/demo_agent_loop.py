@@ -11,7 +11,6 @@ from jet_telemetry import agent, get_trace_url, initialize_telemetry, llm, tool
 from openai import AsyncOpenAI
 
 initialize_telemetry(service_name="agent-demo", endpoint=PHOENIX_BASE_URL)
-
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 
 
@@ -19,7 +18,6 @@ llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 async def get_weather(city: str) -> dict:
     """Simulated weather tool."""
     await asyncio.sleep(0.1)
-    # Return a consistent structure
     return {"city": city, "temp_c": 22, "condition": "partly cloudy", "humidity": "60%"}
 
 
@@ -36,12 +34,10 @@ async def search_docs(query: str) -> list[str]:
 @llm(model_name=LLM_MODEL)
 async def plan_next_step(task: str, history: list[dict]) -> dict:
     """Streaming LLM call for agent planning."""
-    # Define tools clearly for the LLM
     tools_description = """
     Available Tools:
     1. get_weather(city: str): Get current weather.
     2. search_docs(query: str): Search technical documentation.
-    
     Respond with ONLY valid JSON:
     {
       "action": "tool_name" or "final_answer",
@@ -49,7 +45,6 @@ async def plan_next_step(task: str, history: list[dict]) -> dict:
       "reasoning": "Why you chose this action"
     }
     """
-
     messages = [
         {
             "role": "system",
@@ -63,7 +58,6 @@ async def plan_next_step(task: str, history: list[dict]) -> dict:
 
     print("\n🧠 Agent Thinking: ", end="", flush=True)
     collected_content = []
-
     try:
         stream = await llm_client.chat.completions.create(
             model=LLM_MODEL,
@@ -72,7 +66,6 @@ async def plan_next_step(task: str, history: list[dict]) -> dict:
             stream=True,
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
-
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta:
                 delta = chunk.choices[0].delta
@@ -81,17 +74,13 @@ async def plan_next_step(task: str, history: list[dict]) -> dict:
                 if delta.content:
                     collected_content.append(delta.content)
                     print(delta.content, end="", flush=True)
-
     except Exception as e:
         print(f"\n❌ LLM Error: {e}", flush=True)
         return {"action": "final_answer", "reasoning": f"LLM Error: {str(e)}"}
 
     print("\n", flush=True)
     full_response = "".join(collected_content)
-
-    # Robust JSON extraction
     try:
-        # Try to find JSON block if wrapped in markdown or text
         start = full_response.find("{")
         end = full_response.rfind("}") + 1
         if start != -1 and end > start:
@@ -105,7 +94,7 @@ async def plan_next_step(task: str, history: list[dict]) -> dict:
 
 
 @agent(name="research-agent")
-async def research_agent(task: str, max_steps: int = 5) -> str:
+async def research_agent(task: str, max_steps: int = 5) -> dict:
     """Autonomous agent that plans, uses tools, and synthesizes answers."""
     history = []
     tool_map = {"get_weather": get_weather, "search_docs": search_docs}
@@ -114,16 +103,16 @@ async def research_agent(task: str, max_steps: int = 5) -> str:
         plan = await plan_next_step(task, history)
         action = plan.get("action", "")
 
-        # Check for completion
         if action == "final_answer" or action == "done":
-            return plan.get("reasoning", "Task completed.")
+            return {
+                "result": plan.get("reasoning", "Task completed."),
+                "trace_url": get_trace_url(PHOENIX_BASE_URL),
+            }
 
-        # Execute tool
         selected_tool = tool_map.get(action)
         if selected_tool:
             try:
                 args = plan.get("args", {})
-                # Ensure args match function signature (simple validation)
                 result = await selected_tool(**args)
                 history.append({"step": step, "action": action, "result": result})
                 print(f"✅ Tool '{action}' executed successfully.", flush=True)
@@ -135,15 +124,16 @@ async def research_agent(task: str, max_steps: int = 5) -> str:
             history.append({"step": step, "error": f"Unknown action: {action}"})
             print(f"❌ Unknown action: {action}", flush=True)
 
-    return "Max steps reached. See history for details."
+    return {
+        "result": "Max steps reached. See history for details.",
+        "trace_url": get_trace_url(PHOENIX_BASE_URL),
+    }
 
 
 async def main():
-    result = await research_agent("What's the weather in Tokyo?")
-    print(f"\n🤖 Final Result: {result}")
-
-    # One-liner to get the link
-    if url := get_trace_url(PHOENIX_BASE_URL):
+    result_dict = await research_agent("What's the weather in Tokyo?")
+    print(f"\n🤖 Final Result: {result_dict['result']}")
+    if url := result_dict.get("trace_url"):
         print(f"🔍 View complete trace: {url}")
 
 
