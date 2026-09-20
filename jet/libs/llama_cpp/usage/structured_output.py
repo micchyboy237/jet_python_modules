@@ -263,13 +263,9 @@ def parse_structured_content(
 
     Validation priority:
       1. Pydantic model_validate (if model_type set)
-      2. jsonschema-rs Draft202012Validator (preferred, Rust-backed)
-      3. jsonschema Draft202012Validator (pure-Python fallback)
-      4. No schema validation (raw JSON extraction only)
-
-    The active validator backend is logged automatically and recorded in
-    StructuredResult.validator_backend for observability. Clients do NOT
-    need to import or query the backend directly.
+      2. Modern JSON Schema validation (jsonschema-rs or jsonschema fallback)
+      3. Grammar mode (trusted via GBNF constraints)
+      4. Fallback: raw JSON extraction only
 
     This is a pure function — no API calls, no streaming.
     """
@@ -365,7 +361,18 @@ def parse_structured_content(
                 validator_backend=_VALIDATOR_BACKEND,
             )
 
-    # 3. Fallback: valid JSON extracted but no schema validation performed
+    # 3. Grammar Mode: Trust the GBNF constraints
+    if resolved.output_format == OutputFormat.GRAMMAR:
+        logger.debug("✅ Grammar-constrained output accepted (GBNF validated)")
+        return StructuredResult(
+            success=True,
+            content=content,
+            parsed=extracted,
+            format_used=OutputFormat.GRAMMAR,
+            validator_backend="gbnf",
+        )
+
+    # 4. Fallback: valid JSON extracted but no schema validation performed
     logger.debug(
         "⚠️ No JSON Schema validator installed; returning extracted JSON without validation"
     )

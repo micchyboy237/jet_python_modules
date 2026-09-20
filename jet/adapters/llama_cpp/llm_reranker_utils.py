@@ -297,16 +297,17 @@ if __name__ == "__main__":
         "Java is used in enterprise applications and Android development.",
         "Python's machine learning ecosystem includes TensorFlow, PyTorch, and scikit-learn.",
     ]
+
     print("=" * 60)
-    print("GRAMMAR-BASED LLM RERANKING")
+    print("GRAMMAR-BASED LLM RERANKING EVALUATION")
     print("=" * 60)
     print(f"Query: {query}\n")
 
     reranker = LLMReranker()
 
-    # Test with reasoning DISABLED
-    print("--- Testing with include_reasoning=False ---")
-    results = reranker.rerank(
+    # Test 1: Compact Mode (No Reasoning)
+    print("--- TEST 1: include_reasoning=False ---")
+    results_compact = reranker.rerank(
         query=query,
         documents=documents,
         top_k=5,
@@ -314,9 +315,33 @@ if __name__ == "__main__":
         include_reasoning=False,
     )
 
-    if not results:
+    if not results_compact:
         print("No documents met the minimum score threshold.")
     else:
-        for i, r in enumerate(results, 1):
+        for i, r in enumerate(results_compact, 1):
             print(f"{i}. [score:{r['score']}/10] Index: {r['index']}")
-            print()
+    print()
+
+    # Test 2: Full Mode (With Reasoning)
+    print("--- TEST 2: include_reasoning=True ---")
+    results_full = reranker.rerank(
+        query=query,
+        documents=documents,
+        top_k=5,
+        min_score=7.0,
+        criteria="Consider ecosystem maturity and library support",
+        include_reasoning=True,
+    )
+
+    if not results_full:
+        print("No documents met the minimum score threshold.")
+    else:
+        for i, r in enumerate(results_full, 1):
+            print(f"{i}. [score:{r['score']}/10] Index: {r['index']}")
+            if "reason" in r and r["reason"]:
+                print(f"   Reason: {r['reason']}")
+    print()
+
+    print("=" * 60)
+    print("Evaluation Complete")
+    print("=" * 60)
