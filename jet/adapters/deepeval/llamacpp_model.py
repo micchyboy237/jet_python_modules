@@ -28,7 +28,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional
 
 from deepeval.models import DeepEvalBaseLLM
 from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL
@@ -95,9 +95,7 @@ class LlamacppModel(DeepEvalBaseLLM):
         """No-op: jet manages client lifecycle internally."""
         return self
 
-    def generate(
-        self, prompt: str, schema: Optional[BaseModel] = None
-    ) -> Tuple[Union[str, BaseModel], float]:
+    def generate(self, prompt: str, schema: Optional[BaseModel] = None) -> str:
         """Synchronous generation via jet.llm_utils.chat."""
         logger.debug(
             "LlamacppModel.generate called | model=%s | temp=%.2f | schema=%s",
@@ -105,7 +103,6 @@ class LlamacppModel(DeepEvalBaseLLM):
             self.temperature,
             schema.__name__ if schema else None,
         )
-
         result = chat(
             prompt_or_messages=prompt,
             model=self.model_name,
@@ -121,15 +118,12 @@ class LlamacppModel(DeepEvalBaseLLM):
             response_format=schema,
             **self.generation_kwargs,
         )
-
         if schema and result.structured and result.structured.success:
-            return result.structured.parsed, 0.0
+            # Return JSON string for DeepEval to parse
+            return result.structured.parsed.model_dump_json()
+        return result.content
 
-        return result.content, 0.0
-
-    async def a_generate(
-        self, prompt: str, schema: Optional[BaseModel] = None
-    ) -> Tuple[Union[str, BaseModel], float]:
+    async def a_generate(self, prompt: str, schema: Optional[BaseModel] = None) -> str:
         """Asynchronous generation via jet.llm_utils.achat."""
         logger.debug(
             "LlamacppModel.a_generate called | model=%s | temp=%.2f | schema=%s",
@@ -137,7 +131,6 @@ class LlamacppModel(DeepEvalBaseLLM):
             self.temperature,
             schema.__name__ if schema else None,
         )
-
         result = await achat(
             prompt_or_messages=prompt,
             model=self.model_name,
@@ -153,11 +146,10 @@ class LlamacppModel(DeepEvalBaseLLM):
             response_format=schema,
             **self.generation_kwargs,
         )
-
         if schema and result.structured and result.structured.success:
-            return result.structured.parsed, 0.0
-
-        return result.content, 0.0
+            # Return JSON string for DeepEval to parse
+            return result.structured.parsed.model_dump_json()
+        return result.content
 
     def get_model_name(self, *args: Any, **kwargs: Any) -> str:
         """Return display name for tracing and reporting."""
