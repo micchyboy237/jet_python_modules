@@ -1,7 +1,8 @@
 """
-Demo: Custom Decorator Stacking & Composition (Optimized for Phoenix)
-Covers: Flattened utility metrics, meaningful root span attributes,
-        and clean 1-level nesting for semantic operations.
+Demo: Custom Decorator Stacking & Composition
+Covers: Stacking multiple custom decorators, combining jet-telemetry with
+        application-specific decorators, decorator order matters, and
+        building reusable decorator chains.
 """
 
 import asyncio
@@ -388,6 +389,58 @@ async def smart_generate(prompt: str, temperature: float = 0.7) -> str:
     return "".join(collected_content)
 
 
+# --- Example Sub-Chains ---
+
+
+@chain(name="Example 1: Tool Stacking")
+async def run_example_1():
+    print("\n" + "=" * 80)
+    print("📦 Example 1: Tool with retry, cache, performance monitoring")
+    print("=" * 80)
+    result1 = await search_database("AI safety principles")
+    print(f"✅ Results: {len(result1)} items found")
+    print("\nCalling again to test cache...")
+    result1_cached = await search_database("AI safety principles")
+    print(f"✅ Cached results: {len(result1_cached)} items")
+
+
+@chain(name="Example 2: LLM Tracking")
+async def run_example_2():
+    print("\n" + "=" * 80)
+    print("🤖 Example 2: LLM with prompt tracking & performance monitoring")
+    print("=" * 80)
+    answer2 = await generate_with_tracking(
+        messages=[{"role": "user", "content": "Explain quantum computing briefly"}],
+        context="Quantum computing uses qubits instead of classical bits.",
+    )
+    print(f"✅ Answer generated ({len(answer2)} chars)")
+
+
+@chain(name="Example 3: RAG Pipeline")
+async def run_example_3():
+    print("\n" + "=" * 80)
+    print("🔗 Example 3: Enhanced RAG pipeline with stacked decorators")
+    print("=" * 80)
+    result3 = await enhanced_rag_pipeline("What is machine learning?")
+    print(f"✅ Pipeline complete")
+    print(f"   Sources: {result3['sources']}")
+    print(f"   Answer length: {len(result3['answer'])} chars")
+    if url := result3.get("trace_url"):
+        print(f"🔍 View complete trace: {url}")
+
+
+@chain(name="Example 4: Composite Decorator")
+async def run_example_4():
+    print("\n" + "=" * 80)
+    print("🎁 Example 4: Composite decorator (fully_observed_llm)")
+    print("=" * 80)
+    answer4 = await smart_generate("What are neural networks?")
+    print(f"✅ Smart generate complete ({len(answer4)} chars)")
+    print("\nCalling again to test cache...")
+    answer4_cached = await smart_generate("What are neural networks?")
+    print(f"✅ Cached answer ({len(answer4_cached)} chars)")
+
+
 @chain(name="decorator-stacking-demo")
 async def run_demo():
     """
@@ -403,42 +456,10 @@ async def run_demo():
     print("🎯 Demo: Custom Decorator Stacking & Composition")
     print("=" * 80)
 
-    print("\n" + "=" * 80)
-    print("📦 Example 1: Tool with retry, cache, performance monitoring")
-    print("=" * 80)
-    result1 = await search_database("AI safety principles")
-    print(f"✅ Results: {len(result1)} items found")
-    print("\nCalling again to test cache...")
-    result1_cached = await search_database("AI safety principles")
-    print(f"✅ Cached results: {len(result1_cached)} items")
-
-    print("\n" + "=" * 80)
-    print("🤖 Example 2: LLM with prompt tracking & performance monitoring")
-    print("=" * 80)
-    answer2 = await generate_with_tracking(
-        messages=[{"role": "user", "content": "Explain quantum computing briefly"}],
-        context="Quantum computing uses qubits instead of classical bits.",
-    )
-    print(f"✅ Answer generated ({len(answer2)} chars)")
-
-    print("\n" + "=" * 80)
-    print("🔗 Example 3: Enhanced RAG pipeline with stacked decorators")
-    print("=" * 80)
-    result3 = await enhanced_rag_pipeline("What is machine learning?")
-    print(f"✅ Pipeline complete")
-    print(f"   Sources: {result3['sources']}")
-    print(f"   Answer length: {len(result3['answer'])} chars")
-    if url := result3.get("trace_url"):
-        print(f"🔍 View complete trace: {url}")
-
-    print("\n" + "=" * 80)
-    print("🎁 Example 4: Composite decorator (fully_observed_llm)")
-    print("=" * 80)
-    answer4 = await smart_generate("What are neural networks?")
-    print(f"✅ Smart generate complete ({len(answer4)} chars)")
-    print("\nCalling again to test cache...")
-    answer4_cached = await smart_generate("What are neural networks?")
-    print(f"✅ Cached answer ({len(answer4_cached)} chars)")
+    await run_example_1()
+    await run_example_2()
+    await run_example_3()
+    await run_example_4()
 
     print("\n" + "=" * 80)
     print("✨ Demo complete! Check Phoenix UI for detailed traces.")
