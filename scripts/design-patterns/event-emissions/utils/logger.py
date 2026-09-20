@@ -18,3 +18,8 @@ def get_logger(name: str) -> logging.Logger:
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
     return logger
+
+
+if __name__ == "__main__":
+    log = get_logger("demo_utils")
+    log.info("Logger is working correctly.")

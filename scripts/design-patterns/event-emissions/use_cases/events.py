@@ -1,26 +1,31 @@
 """
-Summary: Pydantic-based event payload definitions ensuring type safety, validation,
-and immutability (frozen=True). Defines domain events like UserSignupEvent and
-OrderCreatedEvent that serve as contracts between producers and consumers.
+Summary: Python 3.12 Type Aliases for event payloads.
+Provides a clean, self-documenting way to define contracts between
+producers and consumers without external libraries like Pydantic.
 """
 
 from datetime import datetime
+from typing import TypedDict
 
-from pydantic import BaseModel, Field
 
-
-class UserSignupEvent(BaseModel):
-    """Type-safe event payload using Pydantic"""
-
+# Using TypedDict for structured data validation hints
+class UserSignupPayload(TypedDict):
     user_id: int
     email: str
-    signup_date: datetime = Field(default_factory=datetime.utcnow)
-
-    class Config:
-        frozen = True  # Makes the event immutable
+    signup_date: str
 
 
-class OrderCreatedEvent(BaseModel):
+class OrderCreatedPayload(TypedDict):
     order_id: str
     total_amount: float
     items: list[str]
+
+
+if __name__ == "__main__":
+    # Demo: Show how TypedDict provides structure
+    sample: UserSignupPayload = {
+        "user_id": 101,
+        "email": "jet@example.com",
+        "signup_date": datetime.utcnow().isoformat(),
+    }
+    print(f"Valid payload structure: {sample}")

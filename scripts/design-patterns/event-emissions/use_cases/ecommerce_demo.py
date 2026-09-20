@@ -1,8 +1,7 @@
 """
 Summary: Practical e-commerce demo showing decorator-based handler registration
-and Pydantic event emission. Demonstrates concurrent processing of user signup
-(email + analytics) and order creation (warehouse notification) with proper
-payload serialization from frozen Pydantic models.
+and type-safe event emission. Demonstrates concurrent processing of user signup
+(email + analytics) and order creation (warehouse notification).
 """
 
 import asyncio
@@ -11,47 +10,41 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from patterns.async_event_bus import Event, EventBus
-from use_cases.events import UserSignupEvent
+from patterns.async_event_bus import EventBus
+from use_cases.events import OrderCreatedPayload, UserSignupPayload
 
-# Initialize the bus
-bus = EventBus()
-
-# --- Handlers using Decorators ---
+# Initialize the bus with a specific payload type
+bus = EventBus[UserSignupPayload | OrderCreatedPayload]()
 
 
 @bus.on("user.signup")
-async def send_welcome_email(event: Event):
-    print(f"[Email Service] Sending welcome email to {event.payload['email']}")
+async def send_welcome_email(payload: UserSignupPayload):
+    print(f"[Email Service] Sending welcome email to {payload['email']}")
     await asyncio.sleep(0.5)
 
 
 @bus.on("user.signup")
-def update_analytics(event: Event):
-    print(f"[Analytics Service] Tracking user signup: {event.payload['user_id']}")
+def update_analytics(payload: UserSignupPayload):
+    print(f"[Analytics Service] Tracking user signup: {payload['user_id']}")
 
 
 @bus.on("order.created")
-async def notify_warehouse(event: Event):
-    print(
-        f"[Warehouse Service] Preparing shipment for order {event.payload['order_id']}"
-    )
+async def notify_warehouse(payload: OrderCreatedPayload):
+    print(f"[Warehouse Service] Preparing shipment for order {payload['order_id']}")
 
 
-# --- Main Logic ---
 async def main():
     print("--- Triggering User Signup ---")
-    signup_data = UserSignupEvent(user_id=101, email="jet@example.com")
-
-    signup_event = Event(event_type="user.signup", payload=signup_data.model_dump())
-    await bus.publish(signup_event)
+    await bus.publish(
+        "user.signup",
+        {"user_id": 101, "email": "jet@example.com", "signup_date": "2026-09-20"},
+    )
 
     print("\n--- Triggering Order Creation ---")
-    order_event = Event(
-        event_type="order.created",
-        payload={"order_id": "ORD-999", "total": 150.00, "items": ["Laptop"]},
+    await bus.publish(
+        "order.created",
+        {"order_id": "ORD-999", "total_amount": 150.00, "items": ["Laptop"]},
     )
-    await bus.publish(order_event)
 
 
 if __name__ == "__main__":
