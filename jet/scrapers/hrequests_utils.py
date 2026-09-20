@@ -267,7 +267,7 @@ def main(urls):
         if status == "completed":
             if not html:
                 continue
-            all_links = scrape_links(html, base_url=url)
+            all_links = scrape_links(html, url)
             logger.success(f"Scraped {url}, links count: {len(all_links)}")
             html_list.append(html)
     logger.info(f"Done sync scraped {len(html_list)} htmls")
@@ -281,7 +281,7 @@ async def amain(urls):
         if status == "completed":
             if not html:
                 continue
-            all_links = scrape_links(html, base_url=url)
+            all_links = scrape_links(html, url)
             logger.success(f"Scraped {url}, links count: {len(all_links)}")
             html_list.append(html)
 
