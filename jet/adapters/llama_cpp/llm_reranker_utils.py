@@ -17,7 +17,6 @@ class RankingResultDict(TypedDict):
 
     index: int
     score: float
-    document: str
     reason: str
 
 
@@ -26,7 +25,6 @@ class CompactRankingResultDict(TypedDict):
 
     index: int
     score: float
-    document: str
 
 
 class RankingResult(BaseModel):
@@ -34,7 +32,6 @@ class RankingResult(BaseModel):
 
     index: int = Field(description="Original document index")
     score: float = Field(description="Relevance score from 0 to 10")
-    document: str = Field(description="The document text")
     reason: str = Field(default="", description="Brief explanation for the ranking")
 
 
@@ -145,9 +142,7 @@ class LLMReranker:
             response_format=response_format,
         )
 
-        ranked_items = self._extract_results(
-            result, documents, top_k, include_reasoning
-        )
+        ranked_items = self._extract_results(result, top_k, include_reasoning)
         # Apply threshold filter
         return [item for item in ranked_items if item["score"] >= min_score]
 
@@ -213,15 +208,12 @@ class LLMReranker:
             response_format=response_format,
         )
 
-        ranked_items = self._extract_results(
-            result, documents, top_k, include_reasoning
-        )
+        ranked_items = self._extract_results(result, top_k, include_reasoning)
         return [item for item in ranked_items if item["score"] >= min_score]
 
     def _extract_results(
         self,
         result,
-        documents: list[str],
         top_k: int,
         include_reasoning: bool,
     ) -> list[RankingResultDict | CompactRankingResultDict]:
@@ -233,9 +225,6 @@ class LLMReranker:
             final_results: list[RankingResultDict | CompactRankingResultDict] = []
             for r in rankings[:top_k]:
                 item = r.model_dump() if hasattr(r, "model_dump") else r
-                # Ensure we map back to the full original document text
-                if "index" in item and item["index"] < len(documents):
-                    item["document"] = documents[item["index"]]
                 # Guarantee 'reason' key exists when reasoning is enabled
                 if include_reasoning and "reason" not in item:
                     item["reason"] = ""
@@ -246,9 +235,7 @@ class LLMReranker:
             f"Structured parse failed: {result.structured.error if result.structured else 'no structured result'}. "
             "Falling back to text parsing."
         )
-        return self._parse_text_response(result.content, documents, include_reasoning)[
-            :top_k
-        ]
+        return self._parse_text_response(result.content, include_reasoning)[:top_k]
 
     def _build_optimized_prompt(
         self,
@@ -282,7 +269,6 @@ Only return valid JSON, no other text."""
     def _parse_text_response(
         self,
         text: str,
-        documents: list[str],
         include_reasoning: bool,
     ) -> list[RankingResultDict | CompactRankingResultDict]:
         """Fallback parser for non-JSON responses."""
@@ -293,11 +279,8 @@ Only return valid JSON, no other text."""
             else:
                 rankings = result.get("rankings", [])
 
-            # Map back to full documents
             final_results: list[RankingResultDict | CompactRankingResultDict] = []
             for r in rankings:
-                if "index" in r and r["index"] < len(documents):
-                    r["document"] = documents[r["index"]]
                 if include_reasoning and "reason" not in r:
                     r["reason"] = ""
                 final_results.append(r)
@@ -308,7 +291,6 @@ Only return valid JSON, no other text."""
             error_result: RankingResultDict = {
                 "index": 0,
                 "score": 0.0,
-                "document": documents[0] if documents else "Error parsing LLM response",
                 "reason": f"Raw response: {text[:200]}...",
             }
             return [error_result]
@@ -344,7 +326,7 @@ if __name__ == "__main__":
         print("No documents met the minimum score threshold.")
     else:
         for i, r in enumerate(results, 1):
-            print(f"{i}. [score:{r['score']}/10] {r['document'][:100]}...")
+            print(f"{i}. [score:{r['score']}/10] Index: {r['index']}")
             if "reason" in r and r["reason"]:
                 print(f"   Reason: {r['reason']}")
             print()
