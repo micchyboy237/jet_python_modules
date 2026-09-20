@@ -1,13 +1,13 @@
 """
-Demo: Custom Span Kinds & LLM-Based Relevance Check
-Covers: @trace with custom kind, sync/async mixing, hybrid search logic,
+Demo: Hybrid Search with BM25, Vector Search, and LLM Relevance
+Covers: Separate span functions for vector/bm25, manual embedding spans,
         and LLM-powered relevance evaluation.
 """
 
 import asyncio
 import math
-import time
 
+import nltk
 from jet.adapters.llama_cpp.config import (
     EMBED_BASE_URL,
     EMBED_MODEL,
@@ -16,9 +16,21 @@ from jet.adapters.llama_cpp.config import (
     PHOENIX_BASE_URL,
 )
 from jet_telemetry import chain, get_trace_url, initialize_telemetry, tool
+from nltk.tokenize import word_tokenize
 from openai import AsyncOpenAI, OpenAI
+from rank_bm25 import BM25Okapi
 
-initialize_telemetry(service_name="custom-spans-demo", endpoint=PHOENIX_BASE_URL)
+# Download NLTK data if not present
+try:
+    nltk.data.find("tokenizers/punkt_tab")
+except LookupError:
+    nltk.download("punkt_tab", quiet=True)
+
+# Disable auto_instrument to prevent OpenAI from capturing raw embedding vectors
+initialize_telemetry(
+    service_name="custom-spans-demo", endpoint=PHOENIX_BASE_URL, auto_instrument=False
+)
+
 embed_client = OpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 
@@ -33,11 +45,85 @@ def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     return dot_product / (norm_a * norm_b)
 
 
+@tool(name=EMBED_MODEL)
+def embed_text(text: str) -> list[float]:
+    """
+    Embeds text using the configured model.
+    Span is named after the model and excludes raw vector from output.value.
+    """
+    resp = embed_client.embeddings.create(model=EMBED_MODEL, input=text)
+    embedding = resp.data[0].embedding
+
+    # Manually set clean metadata instead of letting auto-instrument capture the vector
+    from openinference.semconv.trace import SpanAttributes
+    from opentelemetry import trace as otel_trace
+
+    span = otel_trace.get_current_span()
+    if span.is_recording():
+        span.set_attribute(
+            SpanAttributes.OUTPUT_VALUE, f"Embedding generated ({len(embedding)} dims)"
+        )
+        span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
+        span.set_attribute("embedding.model", EMBED_MODEL)
+        span.set_attribute("embedding.dimensions", len(embedding))
+
+    return embedding
+
+
+@tool(name="vector-search-retriever")
+def vector_search(query: str, documents: list[str], top_k: int = 5) -> list[dict]:
+    """
+    Performs semantic search using cosine similarity on embeddings.
+    Returns top-k documents with their semantic scores.
+    """
+    query_emb = embed_text(query)
+    scored_docs = []
+
+    for i, doc in enumerate(documents):
+        doc_emb = embed_text(doc)
+        score = _cosine_similarity(query_emb, doc_emb)
+        scored_docs.append({"index": i, "content": doc, "sem_score": round(score, 4)})
+
+    scored_docs.sort(key=lambda x: x["sem_score"], reverse=True)
+    return scored_docs[:top_k]
+
+
+@tool(name="bm25-reranker")
+def bm25_rerank(query: str, candidates: list[dict]) -> list[dict]:
+    """
+    Reranks candidate documents using BM25 lexical scoring.
+    Takes pre-retrieved candidates and boosts them based on keyword overlap.
+    """
+    if not candidates:
+        return []
+
+    # Tokenize query and documents
+    tokenized_query = word_tokenize(query.lower())
+    tokenized_docs = [word_tokenize(c["content"].lower()) for c in candidates]
+
+    # Initialize BM25
+    bm25 = BM25Okapi(tokenized_docs)
+
+    # Get BM25 scores
+    bm25_scores = bm25.get_scores(tokenized_query)
+
+    # Update candidates with BM25 scores
+    for i, candidate in enumerate(candidates):
+        candidate["lex_score"] = round(float(bm25_scores[i]), 4)
+        # Calculate hybrid score (70% Semantic, 30% Lexical)
+        candidate["hybrid_score"] = round(
+            (0.7 * candidate["sem_score"]) + (0.3 * candidate["lex_score"]), 4
+        )
+
+    # Sort by hybrid score
+    candidates.sort(key=lambda x: x["hybrid_score"], reverse=True)
+    return candidates
+
+
 @tool(name="llm_relevance_evaluator")
 async def llm_relevance_check(query: str, documents: list[str]) -> dict:
     """
     Uses an LLM to semantically evaluate the relevance of retrieved documents.
-    Returns a structured assessment with scores and justifications.
     """
     doc_context = "\n".join(
         [f"[Doc {i + 1}]: {doc}" for i, doc in enumerate(documents)]
@@ -69,7 +155,6 @@ async def llm_relevance_check(query: str, documents: list[str]) -> dict:
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
         content = response.choices[0].message.content
-        # Simple extraction for demo purposes; in prod use response_format
         import json
 
         start = content.find("[")
@@ -81,55 +166,7 @@ async def llm_relevance_check(query: str, documents: list[str]) -> dict:
         return [{"error": str(e)}]
 
 
-@tool(name="hybrid_search_pipeline")
-def hybrid_search_pipeline(query: str, documents: list[str]) -> dict:
-    """
-    Performs hybrid search (Semantic + Lexical) and evaluates relevance via LLM.
-    """
-    start_time = time.time()
-
-    # 1. Embed Query
-    resp = embed_client.embeddings.create(model=EMBED_MODEL, input=query)
-    query_emb = resp.data[0].embedding
-
-    # 2. Score Documents (Semantic + Lexical)
-    scored_docs = []
-    for i, doc in enumerate(documents):
-        doc_resp = embed_client.embeddings.create(model=EMBED_MODEL, input=doc)
-        doc_emb = doc_resp.data[0].embedding
-        sem_score = _cosine_similarity(query_emb, doc_emb)
-
-        # Lexical Score (BM25-lite)
-        q_words = set(query.lower().split())
-        d_words = set(doc.lower().split())
-        lex_score = len(q_words & d_words) / len(q_words) if q_words else 0
-
-        final_score = (0.7 * sem_score) + (0.3 * lex_score)
-        scored_docs.append(
-            {
-                "index": i,
-                "content": doc,
-                "hybrid_score": round(final_score, 4),
-            }
-        )
-
-    # 3. Rank and Retrieve Top-K
-    scored_docs.sort(key=lambda x: x["hybrid_score"], reverse=True)
-    top_k = 3
-    retrieved = scored_docs[:top_k]
-    retrieved_contents = [d["content"] for d in retrieved]
-
-    elapsed_ms = (time.time() - start_time) * 1000
-
-    return {
-        "query": query,
-        "retrieved": retrieved,
-        "latency_ms": round(elapsed_ms, 1),
-        "contents_for_llm": retrieved_contents,
-    }
-
-
-@chain(name="llm-enhanced-search-workflow")
+@chain(name="hybrid-search-workflow")
 async def run_search_demo():
     """Root chain for the demo."""
     docs = [
@@ -143,31 +180,32 @@ async def run_search_demo():
     query = "neural network optimization"
     print(f"\n🔍 Starting hybrid search for: '{query}'")
 
-    # Step 1: Hybrid Retrieval
-    retrieval_result = hybrid_search_pipeline(query, docs)
+    # Step 1: Vector Search (Semantic Retrieval)
+    print(f"\n📐 Running vector search...")
+    vector_results = vector_search(query, docs, top_k=3)
 
-    # Step 2: LLM Relevance Check
+    # Step 2: BM25 Reranking (Lexical Boost)
+    print(f"\n📊 Running BM25 reranking...")
+    final_results = bm25_rerank(query, vector_results)
+
+    retrieved_contents = [d["content"] for d in final_results]
+
+    # Step 3: LLM Relevance Check
     print(f"\n🧠 Evaluating relevance with LLM...")
-    relevance_scores = await llm_relevance_check(
-        query, retrieval_result["contents_for_llm"]
-    )
+    relevance_scores = await llm_relevance_check(query, retrieved_contents)
 
-    print(f"\n📊 Final Results:")
-    print(f"   Latency (Retrieval): {retrieval_result['latency_ms']}ms\n")
-
-    for i, res in enumerate(retrieval_result["retrieved"]):
-        score_info = next(
-            (s for s in relevance_scores if s.get("doc_index") == res["index"]), {}
-        )
+    print(f"\n📋 Final Results:")
+    for i, res in enumerate(final_results):
+        score_info = next((s for s in relevance_scores if s.get("doc_index") == i), {})
         llm_score = score_info.get("score", "N/A")
         justification = score_info.get("justification", "No justification provided.")
 
-        print(f"   {i + 1}. [Hybrid: {res['hybrid_score']}] [LLM: {llm_score}]")
+        print(f"\n   {i + 1}. [Hybrid: {res['hybrid_score']}] [LLM: {llm_score}]")
         print(f"       Content: {res['content'][:60]}...")
-        print(f"       LLM Justification: {justification}\n")
+        print(f"       LLM Justification: {justification}")
 
     if url := get_trace_url(PHOENIX_BASE_URL):
-        print(f"🔍 View complete trace: {url}")
+        print(f"\n🔍 View complete trace: {url}")
 
 
 if __name__ == "__main__":
