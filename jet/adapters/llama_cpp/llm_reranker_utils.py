@@ -1,4 +1,4 @@
-"""LLM-based reranker for complex relevance criteria with explainability."""
+"""LLM-based reranker using GBNF Grammar for maximum efficiency and accuracy."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.factory import get_async_llm_client, get_llm_client
 from jet.adapters.llama_cpp.llm_utils import achat, chat
 from jet.logger import logger
-from pydantic import BaseModel, Field
 
 
 class RankingResultDict(TypedDict):
@@ -27,42 +26,32 @@ class CompactRankingResultDict(TypedDict):
     score: float
 
 
-class RankingResult(BaseModel):
-    """Single ranked document with score and explanation."""
+# GBNF Grammar for Compact Output (Index + Score)
+COMPACT_GRAMMAR = r"""
+root ::= rankings
+rankings ::= "[" item ("," item)* "]"
+item ::= "{" ws "\"index\"" ws ":" ws int ws "," ws "\"score\"" ws ":" ws number ws "}"
+ws ::= [ \t\n]*
+int ::= [0-9]+
+number ::= [0-9]+ "." [0-9]+
+"""
 
-    index: int = Field(description="Original document index")
-    score: float = Field(description="Relevance score from 0 to 10")
-    reason: str = Field(default="", description="Brief explanation for the ranking")
-
-
-class CompactRankingResult(BaseModel):
-    """Minimal ranking result for token-efficient responses."""
-
-    index: int = Field(description="Original document index")
-    score: float = Field(description="Relevance score from 0 to 10")
-
-
-class RankingsResponse(BaseModel):
-    """Structured response schema for LLM reranking."""
-
-    rankings: list[RankingResult] = Field(
-        description="Ranked documents ordered by relevance"
-    )
-
-
-class CompactRankingsResponse(BaseModel):
-    """Compact response schema for LLM reranking."""
-
-    rankings: list[CompactRankingResult] = Field(
-        description="Ranked documents ordered by relevance"
-    )
+# GBNF Grammar for Full Output (Index + Score + Reason)
+FULL_GRAMMAR = r"""
+root ::= rankings
+rankings ::= "[" item ("," item)* "]"
+item ::= "{" ws "\"index\"" ws ":" ws int ws "," ws "\"score\"" ws ":" ws number ws "," ws "\"reason\"" ws ":" ws string ws "}"
+ws ::= [ \t\n]*
+int ::= [0-9]+
+number ::= [0-9]+ "." [0-9]+
+string ::= "\"" char* "\""
+char ::= [^"\\] | "\\" ["\\/bfnrt]
+"""
 
 
 class LLMReranker:
     """
-    Use LLM to rerank documents with explainable relevance.
-    Reuses llm_utils.chat/achat for structured output validation and
-    factory.py for consistent client configuration.
+    Use LLM to rerank documents using GBNF Grammar for strict output control.
     """
 
     def __init__(
@@ -116,35 +105,42 @@ class LLMReranker:
         max_doc_length: int = 200,
         include_reasoning: bool = False,
     ) -> list[RankingResultDict | CompactRankingResultDict]:
-        """Synchronous rerank using llm_utils.chat with structured output."""
-        prompt = self._build_optimized_prompt(
-            query, documents, criteria, max_doc_length, include_reasoning
+        """Synchronous rerank using GBNF grammar."""
+        prompt = self._build_grammar_prompt(
+            query,
+            documents,
+            criteria,
+            max_doc_length,
+            top_k,
+            min_score,
+            include_reasoning,
         )
+
+        grammar_str = FULL_GRAMMAR if include_reasoning else COMPACT_GRAMMAR
+
+        # We use response_format to pass the grammar to llama.cpp via extra_body
+        response_format = {"type": "grammar", "grammar": grammar_str}
 
         logger.info(f"Reranking {len(documents)} docs for query='{query[:60]}...'")
-
-        response_format = (
-            RankingsResponse if include_reasoning else CompactRankingsResponse
-        )
 
         result = chat(
             prompt_or_messages=[
                 {
                     "role": "system",
-                    "content": "You are a concise relevance ranking engine.",
+                    "content": "You are a strict relevance ranking engine.",
                 },
                 {"role": "user", "content": prompt},
             ],
             model=self.model,
             client=self._get_sync_client(),
             temperature=0.0,
-            enable_thinking=False,
+            enable_thinking=False,  # Must be false for grammar
             response_format=response_format,
         )
 
-        ranked_items = self._extract_results(result, top_k, include_reasoning)
-        # Apply threshold filter
-        return [item for item in ranked_items if item["score"] >= min_score]
+        return self._parse_grammar_response(
+            result.content, include_reasoning, min_score
+        )
 
     @overload
     async def arerank(
@@ -180,24 +176,29 @@ class LLMReranker:
         max_doc_length: int = 200,
         include_reasoning: bool = False,
     ) -> list[RankingResultDict | CompactRankingResultDict]:
-        """Async rerank using llm_utils.achat with structured output."""
-        prompt = self._build_optimized_prompt(
-            query, documents, criteria, max_doc_length, include_reasoning
+        """Async rerank using GBNF grammar."""
+        prompt = self._build_grammar_prompt(
+            query,
+            documents,
+            criteria,
+            max_doc_length,
+            top_k,
+            min_score,
+            include_reasoning,
         )
+
+        grammar_str = FULL_GRAMMAR if include_reasoning else COMPACT_GRAMMAR
+        response_format = {"type": "grammar", "grammar": grammar_str}
 
         logger.info(
             f"Async reranking {len(documents)} docs for query='{query[:60]}...'"
-        )
-
-        response_format = (
-            RankingsResponse if include_reasoning else CompactRankingsResponse
         )
 
         result = await achat(
             prompt_or_messages=[
                 {
                     "role": "system",
-                    "content": "You are a concise relevance ranking engine.",
+                    "content": "You are a strict relevance ranking engine.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -208,92 +209,83 @@ class LLMReranker:
             response_format=response_format,
         )
 
-        ranked_items = self._extract_results(result, top_k, include_reasoning)
-        return [item for item in ranked_items if item["score"] >= min_score]
-
-    def _extract_results(
-        self,
-        result,
-        top_k: int,
-        include_reasoning: bool,
-    ) -> list[RankingResultDict | CompactRankingResultDict]:
-        """Extract ranked results from StreamCompletionResult, with fallback."""
-        if result.structured and result.structured.success:
-            rankings = result.structured.parsed.rankings
-            logger.debug(f"Structured parse succeeded: {len(rankings)} rankings")
-
-            final_results: list[RankingResultDict | CompactRankingResultDict] = []
-            for r in rankings[:top_k]:
-                item = r.model_dump() if hasattr(r, "model_dump") else r
-                # Guarantee 'reason' key exists when reasoning is enabled
-                if include_reasoning and "reason" not in item:
-                    item["reason"] = ""
-                final_results.append(item)
-            return final_results
-
-        logger.warning(
-            f"Structured parse failed: {result.structured.error if result.structured else 'no structured result'}. "
-            "Falling back to text parsing."
+        return self._parse_grammar_response(
+            result.content, include_reasoning, min_score
         )
-        return self._parse_text_response(result.content, include_reasoning)[:top_k]
 
-    def _build_optimized_prompt(
+    def _build_grammar_prompt(
         self,
         query: str,
         documents: list[str],
         criteria: Optional[str],
         max_doc_length: int,
+        top_k: int,
+        min_score: float,
         include_reasoning: bool,
     ) -> str:
-        """Build a token-efficient ranking prompt."""
-        # Truncate documents to reduce input tokens
+        """Build prompt with metadata prefixes and explicit constraints."""
         truncated_docs = [
             doc[:max_doc_length] + "..." if len(doc) > max_doc_length else doc
             for doc in documents
         ]
 
-        docs_text = "\n".join([f"[{i}] {doc}" for i, doc in enumerate(truncated_docs)])
+        # Add metadata prefix [ID: i] to help LLM track indices
+        docs_text = "\n".join(
+            [f"[ID: {i}] {doc}" for i, doc in enumerate(truncated_docs)]
+        )
 
         criteria_text = f"\nCriteria: {criteria}" if criteria else ""
-        explanation_note = ', "reason": brief explanation' if include_reasoning else ""
+        reasoning_instr = (
+            " Provide a short, concise reason (max 1 sentence)."
+            if include_reasoning
+            else ""
+        )
 
         return f"""Query: {query}{criteria_text}
+
 Documents:
 {docs_text}
 
-Return a JSON object with a "rankings" array. Each ranking should have:
-- "index": original document index
-- "score": relevance score from 0 to 10{explanation_note}
-Only return valid JSON, no other text."""
+Instructions:
+1. Rank the documents by relevance to the query.
+2. Return ONLY the top {top_k} documents that have a relevance score of {min_score} or higher.
+3. If fewer than {top_k} documents meet the threshold, return only those that do.
+4. Output MUST be a valid JSON array.{reasoning_instr}
 
-    def _parse_text_response(
+Format:
+[{{"index": ID, "score": 0-10{', "reason": "text"' if include_reasoning else ""}}}, ...]"""
+
+    def _parse_grammar_response(
         self,
-        text: str,
+        content: str,
         include_reasoning: bool,
+        min_score: float,
     ) -> list[RankingResultDict | CompactRankingResultDict]:
-        """Fallback parser for non-JSON responses."""
+        """Parse the grammar-constrained JSON response."""
         try:
-            result = json.loads(text)
-            if isinstance(result, list):
-                rankings = result
-            else:
-                rankings = result.get("rankings", [])
+            # Grammar ensures valid JSON, but we still parse it
+            data = json.loads(content)
+            if not isinstance(data, list):
+                data = data.get("rankings", [])
 
-            final_results: list[RankingResultDict | CompactRankingResultDict] = []
-            for r in rankings:
-                if include_reasoning and "reason" not in r:
-                    r["reason"] = ""
-                final_results.append(r)
-            return final_results
+            results = []
+            for item in data:
+                # Ensure types are correct
+                item["index"] = int(item["index"])
+                item["score"] = float(item["score"])
 
-        except (json.JSONDecodeError, KeyError):
-            logger.error(f"Failed to parse rerank response: {text[:200]}...")
-            error_result: RankingResultDict = {
-                "index": 0,
-                "score": 0.0,
-                "reason": f"Raw response: {text[:200]}...",
-            }
-            return [error_result]
+                # Apply min_score filter (double-check)
+                if item["score"] >= min_score:
+                    if include_reasoning and "reason" not in item:
+                        item["reason"] = ""
+                    results.append(item)
+            return results
+
+        except Exception as e:
+            logger.error(
+                f"Failed to parse grammar response: {e}. Content: {content[:200]}"
+            )
+            return []
 
 
 if __name__ == "__main__":
@@ -306,20 +298,20 @@ if __name__ == "__main__":
         "Python's machine learning ecosystem includes TensorFlow, PyTorch, and scikit-learn.",
     ]
     print("=" * 60)
-    print("OPTIMIZED LLM-BASED RERANKING")
+    print("GRAMMAR-BASED LLM RERANKING")
     print("=" * 60)
     print(f"Query: {query}\n")
 
     reranker = LLMReranker()
 
-    # Test with reasoning enabled and threshold
+    # Test with reasoning DISABLED
+    print("--- Testing with include_reasoning=False ---")
     results = reranker.rerank(
         query=query,
         documents=documents,
-        top_k=3,
+        top_k=5,
         min_score=7.0,
-        criteria="Consider ecosystem maturity and library support",
-        include_reasoning=True,
+        include_reasoning=False,
     )
 
     if not results:
@@ -327,6 +319,4 @@ if __name__ == "__main__":
     else:
         for i, r in enumerate(results, 1):
             print(f"{i}. [score:{r['score']}/10] Index: {r['index']}")
-            if "reason" in r and r["reason"]:
-                print(f"   Reason: {r['reason']}")
             print()
