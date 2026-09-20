@@ -1,5 +1,4 @@
 """Demo 06: Modern JSON Schema validation (Draft 2020-12) without Pydantic.
-
 Demonstrates:
   1. Passing a raw JSON Schema dict (no Pydantic model)
   2. Automatic backend selection (encapsulated — client doesn't query it)
@@ -18,7 +17,6 @@ from pathlib import Path
 from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     run_chat_stream,
-    setup_observability,
 )
 from rich.console import Console
 from rich.logging import RichHandler
@@ -32,7 +30,6 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
-
 SENSOR_READING_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "SensorReading",
@@ -96,10 +93,7 @@ def main():
             style="blue",
         )
     )
-
-    setup_observability(project_name="demo-jsonschema-modern")
     client = get_llm_client()
-
     prompt = (
         "Generate a sensor reading for an industrial IoT device.\n"
         "Sensor ID format: SNS-XXXX (4 digits).\n"
@@ -107,23 +101,20 @@ def main():
         "status (nominal/warning/critical), and tags (must include 'production').\n"
         "Return ONLY valid JSON matching the schema."
     )
-
     result = run_chat_stream(
         prompt,
         client=client,
+        project_name="demo-jsonschema-modern",
         temperature=0.0,
         max_tokens=400,
         response_format=SENSOR_READING_SCHEMA,
     )
-
     console.print("\n[bold green]✅ Raw Response:[/bold green]")
     console.print(f"   [dim]{result.content[:300]}[/dim]")
-
     structured = getattr(result, "structured", None)
     if structured is None:
         console.print("[red]No structured result attached[/red]")
         return
-
     if structured.success:
         console.print("\n[bold cyan]✅ Schema Validation PASSED[/bold cyan]")
         console.print_json(json.dumps(structured.parsed, indent=2, default=str))
@@ -137,7 +128,6 @@ def main():
         if structured.parsed:
             console.print("\n   [dim]Extracted (invalid) JSON:[/dim]")
             console.print_json(json.dumps(structured.parsed, indent=2, default=str))
-
     console.print(f"\n   [dim]Finish reason: {result.finish_reason}[/dim]")
     console.print(
         "[dim]💡 Validator backend visible in logs above and Phoenix trace attributes[/dim]"

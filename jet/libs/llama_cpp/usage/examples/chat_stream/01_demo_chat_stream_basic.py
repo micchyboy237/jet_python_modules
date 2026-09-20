@@ -1,7 +1,7 @@
 """Demo: Basic text-only chat completion with Phoenix observability.
 Demonstrates:
   1. Simple text-only chat streaming
-  2. Phoenix observability integration
+  2. Phoenix observability integration (auto-initialized via project_name)
   3. Structured StreamCompletionResult usage
 """
 
@@ -14,7 +14,6 @@ from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
     run_chat_stream,
-    setup_observability,
 )
 from rich.console import Console
 from rich.logging import RichHandler
@@ -30,13 +29,14 @@ logger = logging.getLogger(Path(__file__).stem)
 
 
 def main():
-    setup_observability(project_name="chat-stream-basic-demo")
+    # Observability is auto-initialized by run_chat_stream when project_name is set
     client = get_llm_client()
     prompt = "Write a 3 sentence romantic short story"
     result = run_chat_stream(
         prompt,
         client=client,
         model=MODEL,
+        project_name="chat-stream-basic-demo",
         temperature=0.7,
         max_tokens=16384,
     )

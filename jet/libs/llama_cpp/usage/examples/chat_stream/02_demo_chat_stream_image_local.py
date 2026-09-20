@@ -15,7 +15,6 @@ from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
     run_chat_stream,
-    setup_observability,
 )
 from rich.console import Console
 from rich.logging import RichHandler
@@ -28,7 +27,6 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
-
 LOCAL_IMAGE_PATH = (
     "/Users/jethroestrada/Desktop/External_Projects/AI/curated/"
     "awesome-ai-apps/memory_agents/ai_consultant_agent/demo.png"
@@ -36,7 +34,6 @@ LOCAL_IMAGE_PATH = (
 
 
 def main():
-    setup_observability(project_name="vision-image-local-demo")
     client = get_llm_client()
     image_path = Path(LOCAL_IMAGE_PATH)
     if not image_path.exists():
@@ -53,6 +50,7 @@ def main():
         client=client,
         image_source=str(image_path),
         model=MODEL,
+        project_name="vision-image-local-demo",
         temperature=0.7,
         max_tokens=4096,
     )

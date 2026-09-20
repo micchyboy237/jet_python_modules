@@ -15,7 +15,6 @@ from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
     run_chat_stream,
-    setup_observability,
 )
 from rich.console import Console
 from rich.logging import RichHandler
@@ -28,12 +27,10 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
-
 IMAGE_URL = "https://picsum.photos/800/600"
 
 
 def main():
-    setup_observability(project_name="vision-image-url-demo")
     client = get_llm_client()
     prompt = (
         "Describe this image in detail. Include colors, objects, composition, "
@@ -45,6 +42,7 @@ def main():
         client=client,
         image_source=IMAGE_URL,
         model=MODEL,
+        project_name="vision-image-url-demo",
         temperature=0.7,
         max_tokens=4096,
     )

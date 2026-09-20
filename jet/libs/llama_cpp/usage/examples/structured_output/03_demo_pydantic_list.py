@@ -8,7 +8,6 @@ from pathlib import Path
 from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     run_chat_stream,
-    setup_observability,
 )
 from pydantic import BaseModel
 from rich.console import Console
@@ -41,31 +40,26 @@ def main():
             style="blue",
         )
     )
-    setup_observability(project_name="demo-pydantic-list")
     client = get_llm_client()
-
     text = (
         "Tokyo, Japan has 37M people, known for technology. "
         "Delhi, India has 33M, famous for street food. "
         "Shanghai, China has 29M, global financial hub. "
         "São Paulo, Brazil has 22M, known for culture."
     )
-
-    # Use JSON Schema dict for array extraction
     city_schema = {
         "type": "array",
         "items": City.model_json_schema(),
         "title": "CityList",
     }
-
     result = run_chat_stream(
         f"Extract ALL cities as a JSON array from:\n{text}",
         client=client,
+        project_name="demo-pydantic-list",
         temperature=0.0,
         max_tokens=500,
         response_format=city_schema,
     )
-
     console.print("\n[bold green]✅ Result:[/bold green]")
     structured = getattr(result, "structured", None)
     if structured and structured.success and isinstance(structured.parsed, list):

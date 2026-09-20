@@ -17,7 +17,6 @@ from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
     run_chat_stream,
-    setup_observability,
 )
 from rich.console import Console
 from rich.logging import RichHandler
@@ -30,7 +29,6 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
-
 WEATHER_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -53,7 +51,6 @@ WEATHER_TOOL: dict[str, Any] = {
         },
     },
 }
-
 CALCULATOR_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -105,12 +102,10 @@ TOOL_REGISTRY: dict[str, Any] = {
     "get_weather": get_weather,
     "calculate": calculate,
 }
-
 TOOLS = [WEATHER_TOOL, CALCULATOR_TOOL]
 
 
 def main():
-    setup_observability(project_name="tool-registry-auto-demo")
     client = get_llm_client()
     prompt = (
         "What's the weather in Tokyo right now in celsius? Also, what is 28 * 3 + 15?"
@@ -123,6 +118,7 @@ def main():
         prompt,
         client=client,
         model=MODEL,
+        project_name="tool-registry-auto-demo",
         tools=TOOLS,
         tool_choice="auto",
         tool_registry=TOOL_REGISTRY,
