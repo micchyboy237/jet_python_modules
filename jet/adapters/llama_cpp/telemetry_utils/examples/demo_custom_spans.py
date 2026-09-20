@@ -1,7 +1,41 @@
 """
 Demo: Comprehensive Span Kinds & Hybrid Search
+
 Covers: @retriever, @embedding, @reranker, @guardrail, @evaluator, @prompt,
         and LLM-powered relevance evaluation as top-level siblings.
+
+Span Hierarchy:
+📦 custom-spans (CHAIN)
+│
+├── 🛡️ input-safety-check (GUARDRAIL)
+│   ├── attr: guardrail.input = "neural network optimization"
+│   └── attr: guardrail.result = "True"
+│
+├── 🔍 vector-search (RETRIEVER)
+│   ├── attr: retriever.model_name = "cosine-similarity"
+│   ├── attr: retrieval.query = "neural network optimization"
+│   ├── attr: retrieval.document_count = 3
+│   │
+│   ├── 🧬 embed_text (EMBEDDING) [Query]
+│   │   ├── attr: embedding.model_name = "nomic-embed:2-moe"
+│   │   ├── attr: embedding.text = "neural network optimization"
+│   │   └── attr: embedding.vector_dimension = 768
+│   │
+│   ├── 🧬 embed_text (EMBEDDING) [Doc 1]
+│   ├── 🧬 embed_text (EMBEDDING) [Doc 2]
+│   ├── 🧬 embed_text (EMBEDDING) [Doc 3]
+│   ├── 🧬 embed_text (EMBEDDING) [Doc 4]
+│   └── 🧬 embed_text (EMBEDDING) [Doc 5]
+│
+├── 📊 bm25-reranker (RERANKER)
+│   ├── attr: reranker.model_name = "bm25-okapi"
+│   ├── attr: reranker.query = "neural network optimization"
+│   └── attr: reranker.output_document_count = 3
+│
+└── 🧠 llm-relevance-judge (EVALUATOR)
+    │
+    └── 📝 relevance-eval-template (PROMPT)
+        └── (Generates the prompt string for the LLM)
 """
 
 import asyncio

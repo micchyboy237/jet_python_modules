@@ -1,6 +1,29 @@
 """
 Demo: Full RAG Pipeline with Telemetry & OpenAI Streaming
+
 Covers: @chain, @embedding, @retriever, @reranker, @llm, async support, model_name attribution
+
+Span Hierarchy:
+📦 full-rag-pipeline (CHAIN)
+│
+├── 🧬 embed_text (EMBEDDING)
+│   ├── attr: embedding.model_name = "nomic-embed:2-moe"
+│   ├── attr: embedding.text = "What are the key principles..."
+│   └── attr: embedding.vector_dimension = 768
+│
+├── 🔍 vector-store-retrieval (RETRIEVER)
+│   ├── attr: retriever.model_name = "cosine-similarity"
+│   └── attr: retrieval.document_count = 10
+│
+├── 📊 cross-encoder-reranker (RERANKER)
+│   ├── attr: reranker.model_name = "bge-reranker-v2-m3" (or configured model)
+│   ├── attr: reranker.query = "What are the key principles..."
+│   └── attr: reranker.output_document_count = 3
+│
+└── 🤖 generate_answer (LLM)
+    ├── attr: llm.model_name = "llama-3.2-3b-instruct"
+    ├── attr: llm.provider = "llama_cpp"
+    └── attr: llm.input_messages = [...]
 """
 
 import asyncio

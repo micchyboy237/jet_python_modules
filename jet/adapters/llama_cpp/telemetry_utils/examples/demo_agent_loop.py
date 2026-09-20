@@ -1,6 +1,24 @@
 """
 Demo: Autonomous Agent with Tool Use & OpenAI Streaming
+
 Covers: @agent, @tool, @chain, nested spans, streaming LLM planning
+
+Span Hierarchy:
+📦 research-agent (AGENT)
+│
+├── 🧠 plan_next_step (LLM) [Iteration 1]
+│   ├── attr: llm.model_name = "llama-3.2-3b-instruct"
+│   └── attr: llm.input_messages = [...]
+│
+├── 🛠️ get_weather (TOOL)
+│   ├── attr: tool.name = "get_weather"
+│   ├── attr: tool.description = "Get current weather..."
+│   └── attr: tool.parameters = {"city": "Tokyo"}
+│
+├── 🧠 plan_next_step (LLM) [Iteration 2]
+│   └── (Decides to finish or call another tool)
+│
+└── ... (Continues until max_steps or final_answer)
 """
 
 import asyncio

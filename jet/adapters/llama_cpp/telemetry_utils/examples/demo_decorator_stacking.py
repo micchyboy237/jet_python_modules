@@ -1,8 +1,42 @@
 """
 Demo: Custom Decorator Stacking & Composition
+
 Covers: Stacking multiple custom decorators, combining jet-telemetry with
         application-specific decorators, decorator order matters, and
         building reusable decorator chains.
+
+Span Hierarchy:
+📦 decorator-stacking-demo (CHAIN)
+│
+├── 📦 Example 1: Tool Stacking (CHAIN)
+│   │
+│   └── 🛠️ search_database (TOOL)
+│       ├── attr: tool.name = "search_database"
+│       ├── attr: perf.search_database.duration_ms = 150.2
+│       ├── attr: cache.hit = False (first call) / True (second call)
+│       └── attr: retry.attempts_taken = 1
+│
+├── 📦 Example 2: LLM Tracking (CHAIN)
+│   │
+│   └── 🤖 generate_with_tracking (LLM)
+│       ├── attr: llm.model_name = "llama-3.2-3b-instruct"
+│       ├── attr: perf.generate_with_tracking.duration_ms = 1200.5
+│       └── attr: prompt.context.hash = "a1b2c3d4..."
+│
+├── 📦 Example 3: RAG Pipeline (CHAIN)
+│   │
+│   └── 📦 enhanced-rag-with-stacking (CHAIN)
+│       ├── attr: perf.enhanced-rag-with-stacking.duration_ms = 2500.0
+│       │
+│       ├── 🛠️ search_database (TOOL) [Nested]
+│       └── 🤖 generate_with_tracking (LLM) [Nested]
+│
+└── 📦 Example 4: Composite Decorator (CHAIN)
+    │
+    └── 🤖 smart_generate (LLM)
+        ├── attr: llm.model_name = "llama-3.2-3b-instruct"
+        ├── attr: cache.hit = False
+        └── attr: perf.smart_generate.duration_ms = 900.1
 """
 
 import asyncio
