@@ -7,7 +7,7 @@ import asyncio
 import json
 
 from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL, PHOENIX_BASE_URL
-from jet_telemetry import agent, initialize_telemetry, llm, tool
+from jet_telemetry import agent, get_trace_url, initialize_telemetry, llm, tool
 from openai import AsyncOpenAI
 
 initialize_telemetry(service_name="agent-demo", endpoint=PHOENIX_BASE_URL)

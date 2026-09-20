@@ -17,7 +17,7 @@ from jet.adapters.llama_cpp.config import (
     RERANK_BASE_URL,
     RERANK_MODEL,
 )
-from jet_telemetry import chain, initialize_telemetry, llm, tool
+from jet_telemetry import chain, get_trace_url, initialize_telemetry, llm, tool
 from openai import AsyncOpenAI
 
 # Initialize telemetry once at startup
