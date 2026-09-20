@@ -1,6 +1,6 @@
 """
 Summary: Centralized OpenTelemetry setup for Jet's projects.
-Uses arize-phoenix-otel to configure tracing with Phoenix-aware defaults.
+Uses arize-phoenix-otel 0.17.1+ with proper Resource-based service naming.
 """
 
 import os
@@ -23,10 +23,15 @@ def initialize_telemetry(
         "PHOENIX_ENDPOINT", "http://localhost:6006"
     )
 
-    # Set the environment variable expected by phoenix.otel before registering
+    # Set the environment variables expected by phoenix.otel before registering
     os.environ["PHOENIX_COLLECTOR_ENDPOINT"] = phoenix_endpoint
 
-    # Register Phoenix OTEL with the service name
-    pxtl.register(service_name=service_name)
+    # In OTEL 1.44+, service name is set via OTEL_SERVICE_NAME env var
+    # This is read automatically by register() when creating the Resource [[29]]
+    os.environ["OTEL_SERVICE_NAME"] = service_name
+
+    # Register Phoenix OTEL - do NOT pass service_name directly
+    # The SDK reads OTEL_SERVICE_NAME and PHOENIX_COLLECTOR_ENDPOINT from env [[1]]
+    pxtl.register()
 
     print(f"[JetTelemetry] Initialized for '{service_name}' -> {phoenix_endpoint}")
