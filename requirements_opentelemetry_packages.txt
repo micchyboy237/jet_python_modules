@@ -1,6 +1,6 @@
-arize-phoenix==20.0.0
-arize-phoenix-client==3.1.0
-arize-phoenix-evals==3.4.0
+arize-phoenix==20.4.0
+arize-phoenix-client==3.3.0
+arize-phoenix-evals==3.5.1
 arize-phoenix-otel==0.17.1
 arize-phoenix-sqlean==0.1.0
 opentelemetry-api==1.44.0

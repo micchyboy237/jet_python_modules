@@ -1,6 +1,6 @@
 """
 Demo: Full RAG Pipeline with Telemetry & OpenAI Streaming
-Covers: @chain, @tool, @llm, async support, model_name attribution
+Covers: @chain, @embedding, @retriever, @reranker, @llm, async support, model_name attribution
 """
 
 import asyncio
@@ -17,7 +17,15 @@ from jet.adapters.llama_cpp.config import (
     RERANK_BASE_URL,
     RERANK_MODEL,
 )
-from jet_telemetry import chain, get_trace_url, initialize_telemetry, llm, tool
+from jet_telemetry import (
+    chain,
+    embedding,
+    get_trace_url,
+    initialize_telemetry,
+    llm,
+    reranker,
+    retriever,
+)
 from openai import AsyncOpenAI
 
 initialize_telemetry(
@@ -26,12 +34,14 @@ initialize_telemetry(
     auto_instrument=True,
     batch=True,
 )
+
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 embed_client = AsyncOpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
 
 
-@tool(description="Embeds text using local nomic-embed model")
+@embedding(model_name=EMBED_MODEL)
 async def embed_text(text: str, is_query: bool = False) -> list[float]:
+    """Embeds text using local nomic-embed model."""
     prefix = EMBED_QUERY_PREFIX if is_query else EMBED_DOC_PREFIX
     resp = await embed_client.embeddings.create(
         model=EMBED_MODEL, input=f"{prefix}{text}"
@@ -39,11 +49,12 @@ async def embed_text(text: str, is_query: bool = False) -> list[float]:
     return resp.data[0].embedding
 
 
-@tool(description="Retrieves top-k documents from vector store")
+@retriever(name="vector-store-retrieval", model_name="cosine-similarity")
 async def retrieve_documents(
     query_embedding: list[float], top_k: int = 5
 ) -> list[dict]:
-    await asyncio.sleep(0.05)
+    """Retrieves top-k documents from vector store."""
+    await asyncio.sleep(0.05)  # Simulate DB lookup
     return [
         {
             "id": i,
@@ -54,10 +65,11 @@ async def retrieve_documents(
     ]
 
 
-@tool(description="Reranks documents using cross-encoder")
+@reranker(name="cross-encoder-reranker", model_name=RERANK_MODEL or "unknown")
 async def rerank_documents(
     query: str, documents: list[dict], top_n: int = 3
 ) -> list[dict]:
+    """Reranks documents using cross-encoder."""
     if not RERANK_BASE_URL or not RERANK_MODEL:
         return documents[:top_n]
 
@@ -89,7 +101,6 @@ async def generate_answer(query: str, context: list[str]) -> str:
             "content": f"Context:\n{''.join(context)}\n\nQuestion: {query}",
         },
     ]
-
     print("\n🤖 LLM Response: ", end="", flush=True)
     collected_content = []
     stream = await llm_client.chat.completions.create(
@@ -120,10 +131,7 @@ async def rag_pipeline(query: str) -> dict:
     ranked_docs = await rerank_documents(query, docs, top_n=3)
     context = [d["content"] for d in ranked_docs]
     answer = await generate_answer(query, context)
-
-    # Capture trace URL while still inside the chain context
     trace_url = get_trace_url(PHOENIX_BASE_URL)
-
     return {
         "query": query,
         "answer": answer,

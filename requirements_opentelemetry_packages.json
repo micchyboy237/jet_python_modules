@@ -1,20 +1,23 @@
 [
   {
     "name": "arize-phoenix",
-    "version": "20.0.0",
+    "version": "20.4.0",
     "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix"
   },
   {
     "name": "arize-phoenix-client",
-    "version": "3.1.0"
+    "version": "3.3.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-client"
   },
   {
     "name": "arize-phoenix-evals",
-    "version": "3.4.0"
+    "version": "3.5.1",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-evals"
   },
   {
     "name": "arize-phoenix-otel",
-    "version": "0.17.1"
+    "version": "0.17.1",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-otel"
   },
   {
     "name": "arize-phoenix-sqlean",
@@ -22,23 +25,28 @@
   },
   {
     "name": "opentelemetry-api",
-    "version": "1.44.0"
+    "version": "1.44.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/opentelemetry-api"
   },
   {
     "name": "opentelemetry-exporter-otlp",
-    "version": "1.44.0"
+    "version": "1.44.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/exporter/opentelemetry-exporter-otlp"
   },
   {
     "name": "opentelemetry-exporter-otlp-proto-common",
-    "version": "1.44.0"
+    "version": "1.44.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/exporter/opentelemetry-exporter-otlp-proto-common"
   },
   {
     "name": "opentelemetry-exporter-otlp-proto-grpc",
-    "version": "1.44.0"
+    "version": "1.44.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/exporter/opentelemetry-exporter-otlp-proto-grpc"
   },
   {
     "name": "opentelemetry-exporter-otlp-proto-http",
-    "version": "1.44.0"
+    "version": "1.44.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/exporter/opentelemetry-exporter-otlp-proto-http"
   },
   {
     "name": "opentelemetry-instrumentation",
@@ -62,15 +70,18 @@
   },
   {
     "name": "opentelemetry-proto",
-    "version": "1.44.0"
+    "version": "1.44.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/opentelemetry-proto"
   },
   {
     "name": "opentelemetry-sdk",
-    "version": "1.44.0"
+    "version": "1.44.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/opentelemetry-sdk"
   },
   {
     "name": "opentelemetry-semantic-conventions",
-    "version": "0.65b0"
+    "version": "0.65b0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/opentelemetry-semantic-conventions"
   },
   {
     "name": "opentelemetry-util-genai",
