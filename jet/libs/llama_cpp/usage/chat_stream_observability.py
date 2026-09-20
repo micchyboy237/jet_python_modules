@@ -1,8 +1,10 @@
-# jet_python_modules/jet/libs/llama_cpp/usage/chat_stream_observability.py
-"""Observability Wrapper for chat_stream.py using jet.observability.
+"""Observability Wrapper for chat_stream.py using jet_telemetry.
 Adds OpenTelemetry tracing, Phoenix integration, rich console logging,
 and PII redaction around the pure streaming engine. All actual LLM logic
 is delegated to chat_stream pure functions.
+
+Uses jet_telemetry for initialization and helpers, and standard OTel API
+for span creation to maintain flexibility within the streaming loop.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import os
 import time
 from typing import Any, Callable
 
+# Import pure engine
 from jet.libs.llama_cpp.usage.chat_stream import (
     run_chat_stream as _pure_run_chat_stream,
 )
@@ -32,20 +35,24 @@ from jet.libs.llama_cpp.usage.structured_output import (
     OutputFormat,
     resolve_response_format,
 )
-from jet.observability import (
-    agent_span,
-    console,
-    init_tracing,
-    llm_span,
-    redact,
-)
+
+# Import jet_telemetry components
+from jet_telemetry import get_trace_url, initialize_telemetry, redact
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletionChunk
-from openinference.semconv.trace import SpanAttributes
+from openinference.semconv.trace import (
+    OpenInferenceSpanKindValues,
+    SpanAttributes,
+)
+from opentelemetry import trace as otel_trace
 from opentelemetry.trace import Status, StatusCode
+
+# Setup Rich Logging
+from rich.console import Console
 from rich.logging import RichHandler
 
-# Configure rich logging once
+console = Console(force_terminal=True, highlight=False)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
@@ -54,7 +61,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("chat-stream-obs")
 
-# Default Phoenix URL from environment
 PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 
 
@@ -170,36 +176,28 @@ def _print_chat_footer(
             f"{result.usage.get('total_tokens', 0)}t"
         )
         logger.info(f"   Throughput       : {tok_per_sec:.1f} tok/s")
-    logger.info(f"   Duration         : {total_secs:.2f}s")
-    if ttft is not None:
-        logger.info(f"   Time to first token: {ttft:.2f}s")
-    logger.info(f"   Response length  : {len(result.content)} chars")
-    if result.finish_reason:
-        logger.info(f"   Finish reason    : {result.finish_reason}")
-    if result.has_tool_calls:
-        logger.info(f"   Tool calls       : {len(result.tool_calls)}")
-    if result.structured:
-        status = "✅" if result.structured.success else "⚠️"
-        logger.info(
-            f"   Structured       : {status} {result.structured.format_used.value}"
-        )
+        logger.info(f"   Duration         : {total_secs:.2f}s")
+        if ttft is not None:
+            logger.info(f"   Time to first token: {ttft:.2f}s")
+        logger.info(f"   Response length  : {len(result.content)} chars")
+        if result.finish_reason:
+            logger.info(f"   Finish reason    : {result.finish_reason}")
+        if result.has_tool_calls:
+            logger.info(f"   Tool calls       : {len(result.tool_calls)}")
+        if result.structured:
+            status = "✅" if result.structured.success else "⚠️"
+            logger.info(
+                f"   Structured       : {status} {result.structured.format_used.value}"
+            )
     if trace_url:
         console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
     logger.info("─" * 60)
 
 
-def _build_trace_url(phoenix_url: str, trace_id: int) -> str:
-    """Build Phoenix trace redirect URL from trace ID."""
-    host = phoenix_url.rstrip("/")
-    if host.endswith("/v1"):
-        host = host[:-3]
-    return f"{host}/redirects/traces/{format(trace_id, '032x')}"
-
-
 def _extract_messages_for_span(
     prompt_or_messages: str | list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Normalize input to message list for llm_span."""
+    """Normalize input to message list for span attributes."""
     if isinstance(prompt_or_messages, list):
         return prompt_or_messages
     return [{"role": "user", "content": prompt_or_messages}]
@@ -235,143 +233,139 @@ def run_chat_stream(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Traced synchronous chat streaming using jet.observability."""
+    """Traced synchronous chat streaming using jet_telemetry."""
     if project_name:
-        init_tracing(project_name=project_name, phoenix_rest_api=phoenix_url)
+        initialize_telemetry(service_name=project_name, endpoint=phoenix_url)
 
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
     messages = _extract_messages_for_span(prompt_or_messages)
 
-    invocation_params = {
-        "temperature": temperature,
-        "top_p": top_p,
-        "max_tokens": max_tokens,
-        "enable_thinking": enable_thinking,
-    }
-
-    # Use agent_span for agentic workflows, otherwise just a null context
-    from contextlib import nullcontext
-
-    outer_cm = (
-        agent_span(
-            name="agent.workflow",
-            session_id=session_id or "default-session",
-            prompt_template_version="v1.0",
-            system_prompt_hash="",
-            max_steps=max_tool_rounds,
-        )
+    tracer = otel_trace.get_tracer(__name__)
+    span_kind = (
+        OpenInferenceSpanKindValues.AGENT
         if is_agentic
-        else nullcontext()
+        else OpenInferenceSpanKindValues.LLM
     )
+    span_name = "agent.workflow" if is_agentic else "llm.chat_stream"
+    attributes = {
+        SpanAttributes.OPENINFERENCE_SPAN_KIND: span_kind.value,
+    }
+    if is_agentic:
+        attributes[SpanAttributes.SESSION_ID] = session_id or "default-session"
+        attributes["agent.max_steps"] = max_tool_rounds
 
-    with outer_cm:
-        with llm_span(
-            name="llm.chat_stream",
-            model_name=model,
-            messages=messages,
-            invocation_params=invocation_params,
-            provider="llama_cpp",
-        ) as span:
-            trace_id = span.get_span_context().trace_id
-            trace_url = (
-                _build_trace_url(phoenix_url, trace_id) if project_name else None
-            )
+    with tracer.start_as_current_span(span_name, attributes=attributes) as span:
+        if not is_agentic:
+            span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
+            span.set_attribute(SpanAttributes.LLM_PROVIDER, "llama_cpp")
 
-            _print_chat_header(
-                model=model,
-                image_source=image_source,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                tools=tools,
-                resolved_fmt=resolved_fmt,
-                trace_url=trace_url,
-            )
+            safe_messages = [
+                {"role": m["role"], "content": redact(str(m.get("content", "")))}
+                for m in messages
+            ]
+            # ADDED: Input value and mime type for standard observability
+            span.set_attribute(SpanAttributes.INPUT_VALUE, json.dumps(safe_messages))
+            span.set_attribute(SpanAttributes.INPUT_MIME_TYPE, "application/json")
 
-            on_chunk, chunk_state = _make_chat_chunk_handler()
-            t_start = time.perf_counter()
-            console.print("[bold cyan]Response:[/bold cyan] ", end="")
-
-            result = _pure_run_chat_stream(
-                prompt_or_messages=prompt_or_messages,
-                model=model,
-                image_source=image_source,
-                client=client,
-                enable_thinking=enable_thinking,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                min_p=min_p,
-                repeat_penalty=repeat_penalty,
-                presence_penalty=presence_penalty,
-                frequency_penalty=frequency_penalty,
-                logit_bias=logit_bias,
-                seed=seed,
-                stop=stop,
-                tools=tools,
-                tool_choice=tool_choice,
-                tool_registry=tool_registry,
-                response_format=response_format,
-                max_tool_rounds=max_tool_rounds,
-                extra_body_params=extra_body_params,
-                on_chunk=on_chunk,
-            )
-
-            if chunk_state["in_think_block"]:
-                console.print("[bold orange1]</think>[/bold orange1]", end="")
-            console.print()
-
-            total_secs = time.perf_counter() - t_start
-            ttft = chunk_state.get("first_token_at")
-            if ttft is not None:
-                ttft = ttft - t_start
-
-            # --- SET OUTPUT ATTRIBUTES FOR PHOENIX UI ---
             span.set_attribute(
-                SpanAttributes.OUTPUT_VALUE, redact(result.content[:4000])
+                SpanAttributes.LLM_INPUT_MESSAGES, json.dumps(safe_messages)
             )
-            span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
+
+        trace_url = get_trace_url(phoenix_url) if project_name else None
+
+        _print_chat_header(
+            model=model,
+            image_source=image_source,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            tools=tools,
+            resolved_fmt=resolved_fmt,
+            trace_url=trace_url,
+        )
+
+        on_chunk, chunk_state = _make_chat_chunk_handler()
+        t_start = time.perf_counter()
+        console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
+        result = _pure_run_chat_stream(
+            prompt_or_messages=prompt_or_messages,
+            model=model,
+            image_source=image_source,
+            client=client,
+            enable_thinking=enable_thinking,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
+            repeat_penalty=repeat_penalty,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            logit_bias=logit_bias,
+            seed=seed,
+            stop=stop,
+            tools=tools,
+            tool_choice=tool_choice,
+            tool_registry=tool_registry,
+            response_format=response_format,
+            max_tool_rounds=max_tool_rounds,
+            extra_body_params=extra_body_params,
+            on_chunk=on_chunk,
+        )
+
+        if chunk_state["in_think_block"]:
+            console.print("[bold orange1]</think>[/bold orange1]", end="")
+        console.print()
+
+        total_secs = time.perf_counter() - t_start
+        ttft = chunk_state.get("first_token_at")
+        if ttft is not None:
+            ttft = ttft - t_start
+
+        # Set Output Attributes
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, redact(result.content[:4000]))
+        span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
+        span.set_attribute(
+            SpanAttributes.LLM_OUTPUT_MESSAGES,
+            json.dumps([{"role": "assistant", "content": redact(result.content)}]),
+        )
+        span.set_status(Status(StatusCode.OK))
+
+        if result.usage:
             span.set_attribute(
-                SpanAttributes.LLM_OUTPUT_MESSAGES,
-                json.dumps([{"role": "assistant", "content": redact(result.content)}]),
+                SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
+                result.usage.get("prompt_tokens", 0),
+            )
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                result.usage.get("completion_tokens", 0),
+            )
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
+                result.usage.get("total_tokens", 0),
             )
 
-            # Set completion metrics
-            span.set_status(Status(StatusCode.OK))
-            if result.usage:
-                span.set_attribute(
-                    SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
-                    result.usage.get("prompt_tokens", 0),
-                )
-                span.set_attribute(
-                    SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
-                    result.usage.get("completion_tokens", 0),
-                )
-                span.set_attribute(
-                    SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
-                    result.usage.get("total_tokens", 0),
-                )
-            span.set_attribute("llm.latency.total_s", round(total_secs, 4))
-            if ttft is not None:
-                span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
+        span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        if ttft is not None:
+            span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
 
-            # Record structured output validation result
-            if result.structured:
+        if result.structured:
+            span.set_attribute(
+                "llm.structured_output.success", result.structured.success
+            )
+            span.set_attribute(
+                "llm.structured_output.format", result.structured.format_used.value
+            )
+            if result.structured.error:
                 span.set_attribute(
-                    "llm.structured_output.success", result.structured.success
+                    "llm.structured_output.error", redact(result.structured.error)
                 )
-                span.set_attribute(
-                    "llm.structured_output.format", result.structured.format_used.value
-                )
-                if result.structured.error:
-                    span.set_attribute(
-                        "llm.structured_output.error", redact(result.structured.error)
-                    )
 
-            _print_chat_footer(result, total_secs, ttft, trace_url)
-            return result
+        _print_chat_footer(result, total_secs, ttft, trace_url)
+
+    return result
 
 
 async def run_chat_stream_async(
@@ -404,140 +398,138 @@ async def run_chat_stream_async(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Traced asynchronous chat streaming using jet.observability."""
+    """Traced asynchronous chat streaming using jet_telemetry."""
     if project_name:
-        init_tracing(project_name=project_name, phoenix_rest_api=phoenix_url)
+        initialize_telemetry(service_name=project_name, endpoint=phoenix_url)
 
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
     messages = _extract_messages_for_span(prompt_or_messages)
 
-    invocation_params = {
-        "temperature": temperature,
-        "top_p": top_p,
-        "max_tokens": max_tokens,
-        "enable_thinking": enable_thinking,
-    }
-
-    from contextlib import nullcontext
-
-    outer_cm = (
-        agent_span(
-            name="agent.workflow.async",
-            session_id=session_id or "default-session",
-            prompt_template_version="v1.0",
-            system_prompt_hash="",
-            max_steps=max_tool_rounds,
-        )
+    tracer = otel_trace.get_tracer(__name__)
+    span_kind = (
+        OpenInferenceSpanKindValues.AGENT
         if is_agentic
-        else nullcontext()
+        else OpenInferenceSpanKindValues.LLM
     )
+    span_name = "agent.workflow.async" if is_agentic else "llm.chat_stream.async"
+    attributes = {
+        SpanAttributes.OPENINFERENCE_SPAN_KIND: span_kind.value,
+    }
+    if is_agentic:
+        attributes[SpanAttributes.SESSION_ID] = session_id or "default-session"
+        attributes["agent.max_steps"] = max_tool_rounds
 
-    with outer_cm:
-        with llm_span(
-            name="llm.chat_stream.async",
-            model_name=model,
-            messages=messages,
-            invocation_params=invocation_params,
-            provider="llama_cpp",
-        ) as span:
-            trace_id = span.get_span_context().trace_id
-            trace_url = (
-                _build_trace_url(phoenix_url, trace_id) if project_name else None
-            )
+    with tracer.start_as_current_span(span_name, attributes=attributes) as span:
+        if not is_agentic:
+            span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
+            span.set_attribute(SpanAttributes.LLM_PROVIDER, "llama_cpp")
 
-            _print_chat_header(
-                model=model,
-                image_source=image_source,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                tools=tools,
-                resolved_fmt=resolved_fmt,
-                trace_url=trace_url,
-            )
+            safe_messages = [
+                {"role": m["role"], "content": redact(str(m.get("content", "")))}
+                for m in messages
+            ]
+            # ADDED: Input value and mime type for standard observability
+            span.set_attribute(SpanAttributes.INPUT_VALUE, json.dumps(safe_messages))
+            span.set_attribute(SpanAttributes.INPUT_MIME_TYPE, "application/json")
 
-            on_chunk, chunk_state = _make_chat_chunk_handler()
-            t_start = time.perf_counter()
-            console.print("[bold cyan]Response:[/bold cyan] ", end="")
-
-            result = await _pure_run_chat_stream_async(
-                prompt_or_messages=prompt_or_messages,
-                model=model,
-                image_source=image_source,
-                client=client,
-                enable_thinking=enable_thinking,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                min_p=min_p,
-                repeat_penalty=repeat_penalty,
-                presence_penalty=presence_penalty,
-                frequency_penalty=frequency_penalty,
-                logit_bias=logit_bias,
-                seed=seed,
-                stop=stop,
-                tools=tools,
-                tool_choice=tool_choice,
-                tool_registry=tool_registry,
-                response_format=response_format,
-                max_tool_rounds=max_tool_rounds,
-                extra_body_params=extra_body_params,
-                on_chunk=on_chunk,
-            )
-
-            if chunk_state["in_think_block"]:
-                console.print("[bold orange1]</think>[/bold orange1]", end="")
-            console.print()
-
-            total_secs = time.perf_counter() - t_start
-            ttft = chunk_state.get("first_token_at")
-            if ttft is not None:
-                ttft = ttft - t_start
-
-            # --- SET OUTPUT ATTRIBUTES FOR PHOENIX UI ---
             span.set_attribute(
-                SpanAttributes.OUTPUT_VALUE, redact(result.content[:4000])
+                SpanAttributes.LLM_INPUT_MESSAGES, json.dumps(safe_messages)
             )
-            span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
+
+        trace_url = get_trace_url(phoenix_url) if project_name else None
+
+        _print_chat_header(
+            model=model,
+            image_source=image_source,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            tools=tools,
+            resolved_fmt=resolved_fmt,
+            trace_url=trace_url,
+        )
+
+        on_chunk, chunk_state = _make_chat_chunk_handler()
+        t_start = time.perf_counter()
+        console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
+        result = await _pure_run_chat_stream_async(
+            prompt_or_messages=prompt_or_messages,
+            model=model,
+            image_source=image_source,
+            client=client,
+            enable_thinking=enable_thinking,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
+            repeat_penalty=repeat_penalty,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            logit_bias=logit_bias,
+            seed=seed,
+            stop=stop,
+            tools=tools,
+            tool_choice=tool_choice,
+            tool_registry=tool_registry,
+            response_format=response_format,
+            max_tool_rounds=max_tool_rounds,
+            extra_body_params=extra_body_params,
+            on_chunk=on_chunk,
+        )
+
+        if chunk_state["in_think_block"]:
+            console.print("[bold orange1]</think>[/bold orange1]", end="")
+        console.print()
+
+        total_secs = time.perf_counter() - t_start
+        ttft = chunk_state.get("first_token_at")
+        if ttft is not None:
+            ttft = ttft - t_start
+
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, redact(result.content[:4000]))
+        span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
+        span.set_attribute(
+            SpanAttributes.LLM_OUTPUT_MESSAGES,
+            json.dumps([{"role": "assistant", "content": redact(result.content)}]),
+        )
+        span.set_status(Status(StatusCode.OK))
+
+        if result.usage:
             span.set_attribute(
-                SpanAttributes.LLM_OUTPUT_MESSAGES,
-                json.dumps([{"role": "assistant", "content": redact(result.content)}]),
+                SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
+                result.usage.get("prompt_tokens", 0),
+            )
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                result.usage.get("completion_tokens", 0),
+            )
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
+                result.usage.get("total_tokens", 0),
             )
 
-            span.set_status(Status(StatusCode.OK))
-            if result.usage:
-                span.set_attribute(
-                    SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
-                    result.usage.get("prompt_tokens", 0),
-                )
-                span.set_attribute(
-                    SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
-                    result.usage.get("completion_tokens", 0),
-                )
-                span.set_attribute(
-                    SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
-                    result.usage.get("total_tokens", 0),
-                )
-            span.set_attribute("llm.latency.total_s", round(total_secs, 4))
-            if ttft is not None:
-                span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
+        span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        if ttft is not None:
+            span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
 
-            if result.structured:
+        if result.structured:
+            span.set_attribute(
+                "llm.structured_output.success", result.structured.success
+            )
+            span.set_attribute(
+                "llm.structured_output.format", result.structured.format_used.value
+            )
+            if result.structured.error:
                 span.set_attribute(
-                    "llm.structured_output.success", result.structured.success
+                    "llm.structured_output.error", redact(result.structured.error)
                 )
-                span.set_attribute(
-                    "llm.structured_output.format", result.structured.format_used.value
-                )
-                if result.structured.error:
-                    span.set_attribute(
-                        "llm.structured_output.error", redact(result.structured.error)
-                    )
 
-            _print_chat_footer(result, total_secs, ttft, trace_url)
-            return result
+        _print_chat_footer(result, total_secs, ttft, trace_url)
+
+    return result
 
 
 def run_generate_stream(
@@ -562,9 +554,10 @@ def run_generate_stream(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Traced synchronous raw text completion using jet.observability."""
+    """Traced synchronous raw text completion using jet_telemetry."""
+
     if project_name:
-        init_tracing(project_name=project_name, phoenix_rest_api=phoenix_url)
+        initialize_telemetry(service_name=project_name, endpoint=phoenix_url)
 
     invocation_params = {
         "temperature": temperature,
@@ -573,15 +566,22 @@ def run_generate_stream(
     }
     messages = [{"role": "user", "content": prompt}]
 
-    with llm_span(
-        name="llm.generate_stream",
-        model_name=model,
-        messages=messages,
-        invocation_params=invocation_params,
-        provider="llama_cpp",
+    tracer = otel_trace.get_tracer(__name__)
+
+    with tracer.start_as_current_span(
+        "llm.generate_stream",
+        attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.LLM.value,
+            SpanAttributes.LLM_MODEL_NAME: model,
+            SpanAttributes.LLM_PROVIDER: "llama_cpp",
+            SpanAttributes.LLM_INPUT_MESSAGES: json.dumps(
+                [{"role": "user", "content": redact(prompt)}]
+            ),
+            SpanAttributes.INPUT_VALUE: redact(prompt[:2000]),
+            SpanAttributes.INPUT_MIME_TYPE: "text/plain",
+        },
     ) as span:
-        trace_id = span.get_span_context().trace_id
-        trace_url = _build_trace_url(phoenix_url, trace_id) if project_name else None
+        trace_url = get_trace_url(phoenix_url) if project_name else None
 
         logger.info("─" * 60)
         logger.info(f"📝 Text Completion Mode | Model: {model}")
@@ -617,11 +617,10 @@ def run_generate_stream(
         if ttft is not None:
             ttft = ttft - t_start
 
-        # --- SET OUTPUT ATTRIBUTES FOR PHOENIX UI ---
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, redact(result.content[:4000]))
         span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
-
         span.set_status(Status(StatusCode.OK))
+
         if result.usage:
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
@@ -635,6 +634,7 @@ def run_generate_stream(
                 SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
                 result.usage.get("total_tokens", 0),
             )
+
         span.set_attribute("llm.latency.total_s", round(total_secs, 4))
         if ttft is not None:
             span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
@@ -644,7 +644,8 @@ def run_generate_stream(
             logger.info(f"   Time to first token: {ttft:.2f}s")
         if trace_url:
             console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
-        return result
+
+    return result
 
 
 async def run_generate_stream_async(
@@ -669,9 +670,10 @@ async def run_generate_stream_async(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Traced asynchronous raw text completion using jet.observability."""
+    """Traced asynchronous raw text completion using jet_telemetry."""
+
     if project_name:
-        init_tracing(project_name=project_name, phoenix_rest_api=phoenix_url)
+        initialize_telemetry(service_name=project_name, endpoint=phoenix_url)
 
     invocation_params = {
         "temperature": temperature,
@@ -680,15 +682,22 @@ async def run_generate_stream_async(
     }
     messages = [{"role": "user", "content": prompt}]
 
-    with llm_span(
-        name="llm.generate_stream.async",
-        model_name=model,
-        messages=messages,
-        invocation_params=invocation_params,
-        provider="llama_cpp",
+    tracer = otel_trace.get_tracer(__name__)
+
+    with tracer.start_as_current_span(
+        "llm.generate_stream.async",
+        attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.LLM.value,
+            SpanAttributes.LLM_MODEL_NAME: model,
+            SpanAttributes.LLM_PROVIDER: "llama_cpp",
+            SpanAttributes.LLM_INPUT_MESSAGES: json.dumps(
+                [{"role": "user", "content": redact(prompt)}]
+            ),
+            SpanAttributes.INPUT_VALUE: redact(prompt[:2000]),
+            SpanAttributes.INPUT_MIME_TYPE: "text/plain",
+        },
     ) as span:
-        trace_id = span.get_span_context().trace_id
-        trace_url = _build_trace_url(phoenix_url, trace_id) if project_name else None
+        trace_url = get_trace_url(phoenix_url) if project_name else None
 
         logger.info("─" * 60)
         logger.info(f"📝 Async Text Completion Mode | Model: {model}")
@@ -724,11 +733,10 @@ async def run_generate_stream_async(
         if ttft is not None:
             ttft = ttft - t_start
 
-        # --- SET OUTPUT ATTRIBUTES FOR PHOENIX UI ---
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, redact(result.content[:4000]))
         span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
-
         span.set_status(Status(StatusCode.OK))
+
         if result.usage:
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
@@ -742,6 +750,7 @@ async def run_generate_stream_async(
                 SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
                 result.usage.get("total_tokens", 0),
             )
+
         span.set_attribute("llm.latency.total_s", round(total_secs, 4))
         if ttft is not None:
             span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
@@ -751,7 +760,8 @@ async def run_generate_stream_async(
             logger.info(f"   Time to first token: {ttft:.2f}s")
         if trace_url:
             console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
-        return result
+
+    return result
 
 
 def get_args() -> argparse.Namespace:
@@ -838,6 +848,7 @@ if __name__ == "__main__":
     logger.info(f"   Project      : {args.project}")
 
     client = get_llm_client(base_url=args.base_url, timeout=args.timeout)
+
     result = run_chat_stream(
         args.prompt,
         model=args.model,
