@@ -1,7 +1,7 @@
 """
-Demo: Hybrid Search with BM25, Vector Search, and LLM Relevance
+Demo: Custom Span Kinds & Hybrid Search
 Covers: Separate span functions for vector/bm25, manual embedding spans,
-        and LLM-powered relevance evaluation.
+        and LLM-powered relevance evaluation as top-level siblings.
 """
 
 import asyncio
@@ -120,10 +120,28 @@ def bm25_rerank(query: str, candidates: list[dict]) -> list[dict]:
     return candidates
 
 
+@tool(name="hybrid_search")
+def hybrid_search_pipeline(query: str, documents: list[str]) -> dict:
+    """
+    Top-level span that orchestrates vector search and BM25 reranking.
+    """
+    print(f"\n📐 Running vector search...")
+    vector_results = vector_search(query, documents, top_k=3)
+
+    print(f"\n📊 Running BM25 reranking...")
+    final_results = bm25_rerank(query, vector_results)
+
+    return {
+        "query": query,
+        "retrieved": final_results,
+        "contents_for_llm": [d["content"] for d in final_results],
+    }
+
+
 @tool(name="llm_relevance_evaluator")
 async def llm_relevance_check(query: str, documents: list[str]) -> dict:
     """
-    Uses an LLM to semantically evaluate the relevance of retrieved documents.
+    Top-level span that uses an LLM to semantically evaluate relevance.
     """
     doc_context = "\n".join(
         [f"[Doc {i + 1}]: {doc}" for i, doc in enumerate(documents)]
@@ -180,22 +198,17 @@ async def run_search_demo():
     query = "neural network optimization"
     print(f"\n🔍 Starting hybrid search for: '{query}'")
 
-    # Step 1: Vector Search (Semantic Retrieval)
-    print(f"\n📐 Running vector search...")
-    vector_results = vector_search(query, docs, top_k=3)
+    # Step 1: Hybrid Retrieval (Top-level span 1)
+    retrieval_result = hybrid_search_pipeline(query, docs)
 
-    # Step 2: BM25 Reranking (Lexical Boost)
-    print(f"\n📊 Running BM25 reranking...")
-    final_results = bm25_rerank(query, vector_results)
-
-    retrieved_contents = [d["content"] for d in final_results]
-
-    # Step 3: LLM Relevance Check
+    # Step 2: LLM Relevance Check (Top-level span 2)
     print(f"\n🧠 Evaluating relevance with LLM...")
-    relevance_scores = await llm_relevance_check(query, retrieved_contents)
+    relevance_scores = await llm_relevance_check(
+        query, retrieval_result["contents_for_llm"]
+    )
 
     print(f"\n📋 Final Results:")
-    for i, res in enumerate(final_results):
+    for i, res in enumerate(retrieval_result["retrieved"]):
         score_info = next((s for s in relevance_scores if s.get("doc_index") == i), {})
         llm_score = score_info.get("score", "N/A")
         justification = score_info.get("justification", "No justification provided.")
