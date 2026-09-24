@@ -1296,6 +1296,26 @@ class PgVectorClient:
             "tables": table_metadata,
         }
 
+    def execute_raw_query(
+        self, query: str, params: tuple | list = (), fetch_all: bool = True
+    ) -> list[dict] | dict | None:
+        """Execute a raw SQL query and return results.
+
+        Args:
+            query: Raw SQL query string with %s placeholders for parameters
+            params: Parameters to substitute in the query
+            fetch_all: If True, return all results; if False, return single row
+
+        Returns:
+            List of dictionaries for fetch_all=True, single dict or None for fetch_all=False
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(query, params)
+            if fetch_all:
+                return cur.fetchall()
+            else:
+                return cur.fetchone()
+
 
 __all__ = [
     "SearchResult",
