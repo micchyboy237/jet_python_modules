@@ -106,7 +106,7 @@ Always check .success before reading .parsed.
   Default: "<func>-llm-utils-obs".
 - capture_content (bool, default True): Record prompt/response text in traces.
   Set False for PII-sensitive workloads.
-- phoenix_url (str): Phoenix server base URL. Default: PHOENIX_URL constant.
+- phoenix_url (str): Phoenix server base URL. Default: PHOENIX_BASE_URL constant.
 - session_id (str | None): Groups related traces as one conversation thread.
 
 ### Client / Misc
@@ -140,7 +140,7 @@ from typing import Any, Callable
 
 from jet.libs.llama_cpp.usage.chat_stream import MODEL
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    PHOENIX_URL,
+    PHOENIX_BASE_URL,
 )
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     run_chat_stream as _obs_chat,
@@ -165,7 +165,7 @@ def chat(
     *,
     project_name: str = "chat-llm-utils-obs",
     capture_content: bool = True,
-    phoenix_url: str = PHOENIX_URL,
+    phoenix_url: str = PHOENIX_BASE_URL,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -232,7 +232,7 @@ async def achat(
     *,
     project_name: str = "achat-llm-utils-obs",
     capture_content: bool = True,
-    phoenix_url: str = PHOENIX_URL,
+    phoenix_url: str = PHOENIX_BASE_URL,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
     enable_thinking: bool = False,
@@ -298,7 +298,7 @@ def generate(
     *,
     project_name: str = "generate-llm-utils-obs",
     capture_content: bool = True,
-    phoenix_url: str = PHOENIX_URL,
+    phoenix_url: str = PHOENIX_BASE_URL,
     client: OpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -349,7 +349,7 @@ async def agenerate(
     *,
     project_name: str = "agenerate-llm-utils-obs",
     capture_content: bool = True,
-    phoenix_url: str = PHOENIX_URL,
+    phoenix_url: str = PHOENIX_BASE_URL,
     client: AsyncOpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
