@@ -1,6 +1,6 @@
+# jet_python_modules/python-projects/jet-telemetry/src/jet_telemetry/__init__.py
 """
 Jet Telemetry: Minimalist shared instrumentation library.
-Compatible with: arize-phoenix-client==3.3.0, arize-phoenix==20.4.0
 """
 
 from .decorators import (
@@ -17,7 +17,6 @@ from .decorators import (
     trace,
 )
 from .helpers import (
-    export_spans_to_csv,
     export_spans_to_jsonl,
     get_spans_api_url,
     get_trace_url,
@@ -44,5 +43,4 @@ __all__ = [
     "get_trace_url",
     "get_spans_api_url",
     "export_spans_to_jsonl",
-    "export_spans_to_csv",
 ]

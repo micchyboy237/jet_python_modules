@@ -562,7 +562,6 @@ def _print_header_footer(
     if trace_url:
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
-        # Only attempt export if we have project details
         if project_name and phoenix_url:
             current_span = otel_trace.get_current_span()
             if current_span.is_recording():
@@ -576,12 +575,12 @@ def _print_header_footer(
 
                 try:
                     jsonl_path = export_spans_to_jsonl(
-                        project_name=project_name,  # Passed as project_identifier internally
+                        project_name=project_name,
                         trace_id=trace_id_hex,
                         output_path=f"traces/{trace_id_hex}.jsonl",
                         phoenix_base_url=phoenix_url,
                         wait_for_flush=True,
-                        max_retries=3,  # Handle BatchSpanProcessor lag
+                        max_retries=3,
                     )
                     if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
                         console.print(

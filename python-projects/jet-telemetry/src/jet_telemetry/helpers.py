@@ -1,7 +1,6 @@
 # jet_python_modules/python-projects/jet-telemetry/src/jet_telemetry/helpers.py
 """
-jet_python_modules/python-projects/jet-telemetry/src/jet_telemetry/helpers.py
-Updated for: arize-phoenix-client==3.3.0, arize-phoenix==20.4.0
+Jet Telemetry: Helper utilities for tracing and observability.
 """
 
 import hashlib
@@ -54,11 +53,7 @@ def get_spans_api_url(
     trace_id: str | None = None,
     limit: int = 1000,
 ) -> str:
-    """
-    Generates a Phoenix REST API URL for manual inspection.
-    Note: This is a GET endpoint for browser/curl convenience,
-    but the SDK uses POST /v1/spans internally.
-    """
+    """Generates a Phoenix REST API URL for manual inspection."""
     base = phoenix_base_url.rstrip("/")
     url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
     if trace_id:
@@ -77,7 +72,6 @@ def force_flush_traces(timeout_ms: int = 5000):
             if not success:
                 print("⚠️ Tracer provider flush timed out or failed.")
             else:
-                # Allow network transmission to complete
                 time.sleep(1.0)
     except Exception as e:
         print(f"⚠️ Failed to force flush traces: {e}")
@@ -111,16 +105,48 @@ def export_spans_to_jsonl(
 
     client = Client(base_url=phoenix_base_url)
 
-    # Build query using SpanQuery DSL (required for v3.3.0+)
-    query = SpanQuery()
+    # Build query using SpanQuery DSL
+    # Note: In phoenix-client 3.3.0, DataFrame columns are often flattened.
+    # We use the standard OpenInference attribute names which usually map directly.
+    query = SpanQuery().select(
+        "name",
+        "span_kind",
+        "parent_id",
+        "start_time",
+        "end_time",
+        "status_code",
+        "status_message",
+        "events",
+        "context.span_id",
+        "context.trace_id",
+        # Flattened attribute names commonly used in the Client DataFrame
+        "llm.model_name",
+        "llm.provider",
+        "llm.token_count.total",
+        "llm.token_count.prompt",
+        "llm.token_count.completion",
+        "llm.input_messages",
+        "llm.output_messages",
+        "llm.invocation_parameters",
+        "llm.system",
+        "llm.finish_reason",
+        "input.value",
+        "output.value",
+        "input.mime_type",
+        "output.mime_type",
+        "tool.name",
+        "tool.parameters",
+        "tool.result",
+        "retrieval.documents",
+        "embedding.embeddings",
+    )
+
     if trace_id:
-        # Use double equals for SpanQuery filter syntax
         query = query.where(f"trace_id == '{trace_id}'")
 
     last_error = None
     for attempt in range(max_retries):
         try:
-            # Use project_identifier (preferred over project_name in v3.3.0)
             spans_df = client.spans.get_spans_dataframe(
                 project_identifier=project_name,
                 query=query,
@@ -141,6 +167,19 @@ def export_spans_to_jsonl(
                 output_path.write_text("")
                 return output_path
 
+            # Convert NaN to None for cleaner JSON
+            spans_df = spans_df.where(spans_df.notna(), None)
+
+            # Check if we got mostly nulls (indicating wrong column names)
+            # If so, we might want to log a warning or try a broader select
+            non_null_counts = spans_df.count()
+            if (
+                non_null_counts.sum() < len(spans_df) * 2
+            ):  # Heuristic: if very few non-nulls
+                print(
+                    "⚠️ Warning: Exported data contains many nulls. Column names may have changed in this Phoenix version."
+                )
+
             spans_df.to_json(str(output_path), orient="records", lines=True)
             print(f"✅ Exported {len(spans_df)} spans to {output_path}")
             return output_path
@@ -154,7 +193,6 @@ def export_spans_to_jsonl(
                 time.sleep(2.0)
             else:
                 print(f"❌ Failed to export spans after {max_retries} attempts: {e}")
-                # Create empty file to indicate failure/completion
                 output_path.write_text("")
                 return output_path
 
