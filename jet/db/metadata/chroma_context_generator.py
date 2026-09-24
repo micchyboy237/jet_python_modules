@@ -70,7 +70,6 @@ class ChromaDBContextGenerator:
     def get_collections_info(self) -> List[Dict[str, Any]]:
         """Extract detailed information about all collections."""
         collections = []
-
         try:
             cursor = self.conn.execute("""
                 SELECT 
@@ -85,7 +84,6 @@ class ChromaDBContextGenerator:
                 JOIN databases d ON c.database_id = d.id
                 JOIN tenants t ON d.tenant_id = t.id
             """)
-
             for row in cursor.fetchall():
                 config = {}
                 if row["config_json_str"]:
@@ -109,7 +107,6 @@ class ChromaDBContextGenerator:
                 """,
                     (row["id"],),
                 )
-
                 metadata = {}
                 for meta_row in metadata_cursor.fetchall():
                     value = self._get_typed_value(
@@ -129,7 +126,6 @@ class ChromaDBContextGenerator:
                 """,
                     (row["id"],),
                 )
-
                 segments = []
                 for seg in segments_cursor.fetchall():
                     count_cursor = self.conn.execute(
@@ -137,7 +133,6 @@ class ChromaDBContextGenerator:
                         (seg["id"],),
                     )
                     embedding_count = count_cursor.fetchone()["cnt"]
-
                     segments.append(
                         {
                             "id": seg["id"],
@@ -161,10 +156,8 @@ class ChromaDBContextGenerator:
                         "total_embeddings": sum(s["embedding_count"] for s in segments),
                     }
                 )
-
         except sqlite3.OperationalError as e:
             print(f"⚠ Could not query collections table: {e}")
-
         return collections
 
     def _get_typed_value(self, str_val, int_val, float_val, bool_val):
@@ -193,7 +186,6 @@ class ChromaDBContextGenerator:
     ) -> List[Dict]:
         """Get sample metadata from embeddings with proper typed value extraction."""
         samples = []
-
         try:
             query = """
                 SELECT 
@@ -207,7 +199,6 @@ class ChromaDBContextGenerator:
                 FROM embeddings e
                 LEFT JOIN embedding_metadata em ON e.id = em.id
             """
-
             params = []
             if collection_name:
                 query += """
@@ -218,15 +209,12 @@ class ChromaDBContextGenerator:
                 params.append(collection_name)
 
             query += f" ORDER BY e.id LIMIT {limit * 10}"
-
             cursor = self.conn.execute(query, params)
 
             current_doc = None
             doc_metadata = {}
-
             for row in cursor.fetchall():
                 doc_id = row["id"]
-
                 if doc_id != current_doc:
                     if current_doc is not None and doc_metadata:
                         samples.append(
@@ -236,7 +224,6 @@ class ChromaDBContextGenerator:
                                 "metadata": doc_metadata.get("metadata", {}),
                             }
                         )
-
                     current_doc = doc_id
                     doc_metadata = {"segment_id": row["segment_id"], "metadata": {}}
 
@@ -255,16 +242,13 @@ class ChromaDBContextGenerator:
                 )
 
             samples = samples[:limit]
-
         except sqlite3.OperationalError as e:
             print(f"⚠ Could not query embeddings: {e}")
-
         return samples
 
     def get_metadata_keys_summary(self) -> Dict[str, Dict[str, int]]:
         """Get summary of all metadata keys and their value types."""
         summary = {}
-
         try:
             cursor = self.conn.execute("""
                 SELECT 
@@ -278,7 +262,6 @@ class ChromaDBContextGenerator:
                 GROUP BY key
                 ORDER BY total_count DESC
             """)
-
             for row in cursor.fetchall():
                 summary[row["key"]] = {
                     "total_count": row["total_count"],
@@ -291,15 +274,12 @@ class ChromaDBContextGenerator:
                 }
         except sqlite3.OperationalError as e:
             print(f"⚠ Could not query metadata summary: {e}")
-
         return summary
 
-    def generate_full_context(self) -> str:
+    def generate_rag_context(self) -> str:
         """Generate comprehensive RAG context string for LLM."""
         self.connect()
-
         context_parts = []
-
         context_parts.append("=" * 80)
         context_parts.append("CHROMA DATABASE SCHEMA & METADATA CONTEXT")
         context_parts.append(f"Generated: {datetime.now().isoformat()}")
@@ -318,10 +298,8 @@ class ChromaDBContextGenerator:
             schema = self.get_table_schema(table)
             count = self.get_row_count(table)
             columns = self.get_table_columns(table)
-
             context_parts.append(f"\n### Table: {table} ({count} rows)")
             context_parts.append(f"```sql\n{schema}\n```")
-
             context_parts.append("\n**Columns:**")
             for col in columns:
                 pk_marker = " [PK]" if col["pk"] else ""
@@ -329,6 +307,7 @@ class ChromaDBContextGenerator:
                 context_parts.append(
                     f"- `{col['name']}`: {col['type']}{pk_marker}{nullable}"
                 )
+
         context_parts.append("")
 
         collections = self.get_collections_info()
@@ -341,22 +320,18 @@ class ChromaDBContextGenerator:
                 context_parts.append(f"- Dimension: {coll['dimension']}")
                 context_parts.append(f"- Database: {coll['database']}")
                 context_parts.append(f"- Total Embeddings: {coll['total_embeddings']}")
-
                 if coll["metadata"]:
                     context_parts.append(
                         f"- Metadata: {json.dumps(coll['metadata'], indent=2)}"
                     )
-
                 if coll["configuration"]:
                     context_parts.append(
                         f"- Configuration: {json.dumps(coll['configuration'], indent=2)}"
                     )
-
                 if coll["schema"]:
                     context_parts.append(
                         f"- Schema: {json.dumps(coll['schema'], indent=2)}"
                     )
-
                 context_parts.append("\nSegments:")
                 for seg in coll["segments"]:
                     context_parts.append(
@@ -390,7 +365,6 @@ class ChromaDBContextGenerator:
             context_parts.append("-" * 80)
             first_collection = collections[0]["name"]
             samples = self.get_sample_metadata(first_collection, limit=5)
-
             if samples:
                 context_parts.append(f"Sample from collection '{first_collection}':")
                 for i, sample in enumerate(samples, 1):
@@ -412,7 +386,6 @@ class ChromaDBContextGenerator:
 
         context_parts.append("## QUERY GUIDANCE FOR DYNAMIC CHROMA QUERIES")
         context_parts.append("-" * 80)
-
         available_fields = []
         if metadata_summary:
             for key, info in metadata_summary.items():
@@ -423,7 +396,6 @@ class ChromaDBContextGenerator:
 
         guidance_text = f"""
 When constructing Chroma DB queries based on user questions:
-
 1. **Identify Collection**: Use collection names above to determine which collection to query
 2. **Available Metadata Fields**: {", ".join(available_fields) if available_fields else "None found"}
 3. **Dimension Awareness**: Note vector dimensions for embedding compatibility
@@ -460,12 +432,23 @@ results = collection.query(
 Use string comparisons in filters unless you convert them in your application logic.
 """
         context_parts.append(guidance_text)
-
         context_parts.append("=" * 80)
 
         self.disconnect()
-
         return "\n".join(context_parts)
+
+
+def generate_rag_context(db_path: str) -> str:
+    """Standalone function to generate RAG context from Chroma DB.
+
+    Args:
+        db_path: Path to the Chroma DB SQLite file
+
+    Returns:
+        Comprehensive RAG context string for LLM queries
+    """
+    generator = ChromaDBContextGenerator(db_path)
+    return generator.generate_rag_context()
 
 
 if __name__ == "__main__":
@@ -478,8 +461,7 @@ if __name__ == "__main__":
 
     DB_PATH = "/Users/jethroestrada/.cache/chrome_db/missav/chroma_data/chroma.sqlite3"
 
-    generator = ChromaDBContextGenerator(DB_PATH)
-    context = generator.generate_full_context()
+    context = generate_rag_context(DB_PATH)
 
     output_file = OUTPUT_DIR / "chroma_db_context.txt"
     with open(output_file, "w") as f:

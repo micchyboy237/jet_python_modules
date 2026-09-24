@@ -11,7 +11,6 @@ class PostgresContextGenerator:
     def __init__(self, connection_string: str):
         """
         Initialize with PostgreSQL connection string.
-
         Args:
             connection_string: PostgreSQL connection URI
                               (e.g., "postgresql://user:pass@localhost:5432/dbname")
@@ -82,17 +81,13 @@ class PostgresContextGenerator:
             """,
                 (schema, table_name),
             )
-
             columns = cursor.fetchall()
-
             if not columns:
                 return None
 
             lines = [f"CREATE TABLE {schema}.{table_name} ("]
-
             for i, col in enumerate(columns):
                 type_str = col["data_type"]
-
                 if col["character_maximum_length"]:
                     type_str += f"({col['character_maximum_length']})"
                 elif (
@@ -109,13 +104,11 @@ class PostgresContextGenerator:
                 default = (
                     f" DEFAULT {col['column_default']}" if col["column_default"] else ""
                 )
-
                 comma = "," if i < len(columns) - 1 else ""
                 lines.append(
                     f"    {col['column_name']} {type_str} {nullable}{default}{comma}"
                 )
 
-            # Get primary keys
             cursor.execute(
                 """
                 SELECT kcu.column_name
@@ -128,16 +121,13 @@ class PostgresContextGenerator:
             """,
                 (schema, table_name),
             )
-
             pk_columns = [row["column_name"] for row in cursor.fetchall()]
-
             if pk_columns:
                 lines[-1] = lines[-1].rstrip(",") + ","
                 pk_str = ", ".join(pk_columns)
                 lines.append(f"    PRIMARY KEY ({pk_str})")
 
             lines.append(");")
-
             return "\n".join(lines)
 
     def get_table_columns(self, table_name: str, schema: str = "public") -> List[Dict]:
@@ -173,7 +163,6 @@ class PostgresContextGenerator:
             """,
                 (schema, table_name),
             )
-
             columns = []
             for row in cursor.fetchall():
                 columns.append(
@@ -221,7 +210,6 @@ class PostgresContextGenerator:
             """,
                 (schema, table_name),
             )
-
             return [dict(row) for row in cursor.fetchall()]
 
     def get_indexes(self, table_name: str, schema: str = "public") -> List[Dict]:
@@ -247,7 +235,6 @@ class PostgresContextGenerator:
             """,
                 (schema, table_name),
             )
-
             return [dict(row) for row in cursor.fetchall()]
 
     def get_sample_data(
@@ -266,11 +253,9 @@ class PostgresContextGenerator:
         """Get basic statistics for each column (distinct values, nulls, etc.)."""
         stats = {}
         columns = self.get_table_columns(table_name, schema)
-
         for col in columns:
             col_name = col["name"]
             col_type = col["type"]
-
             with self.conn.cursor() as cursor:
                 cursor.execute(f"""
                     SELECT 
@@ -279,7 +264,6 @@ class PostgresContextGenerator:
                         COUNT(*) as total_count
                     FROM "{schema}"."{table_name}"
                 """)
-
                 result = cursor.fetchone()
                 if result:
                     stats[col_name] = {
@@ -294,15 +278,12 @@ class PostgresContextGenerator:
                             2,
                         ),
                     }
-
         return stats
 
-    def generate_full_context(self, schema: str = "public") -> str:
+    def generate_rag_context(self, schema: str = "public") -> str:
         """Generate comprehensive RAG context string for LLM."""
         self.connect()
-
         context_parts = []
-
         context_parts.append("=" * 80)
         context_parts.append("POSTGRESQL DATABASE SCHEMA & METADATA CONTEXT")
         context_parts.append(f"Generated: {datetime.now().isoformat()}")
@@ -311,7 +292,6 @@ class PostgresContextGenerator:
 
         schemas = self.get_all_schemas()
         tables = self.get_all_tables(schema)
-
         context_parts.append("## DATABASE OVERVIEW")
         context_parts.append(f"Available Schemas: {', '.join(schemas)}")
         context_parts.append(f"Target Schema: {schema}")
@@ -321,7 +301,6 @@ class PostgresContextGenerator:
 
         context_parts.append("## TABLE SCHEMAS")
         context_parts.append("-" * 80)
-
         for table in tables:
             schema_sql = self.get_table_schema(table, schema)
             count = self.get_row_count(table, schema)
@@ -330,7 +309,6 @@ class PostgresContextGenerator:
             indexes = self.get_indexes(table, schema)
 
             context_parts.append(f"\n### Table: {schema}.{table} ({count} rows)")
-
             if schema_sql:
                 context_parts.append(f"```sql\n{schema_sql}\n```")
 
@@ -339,7 +317,6 @@ class PostgresContextGenerator:
                 pk_marker = " [PK]" if col["pk"] else ""
                 nullable = "" if col["notnull"] else " (nullable)"
                 type_detail = col["type"]
-
                 if col["max_length"]:
                     type_detail += f"({col['max_length']})"
                 elif col["precision"]:
@@ -347,7 +324,6 @@ class PostgresContextGenerator:
                         type_detail += f"({col['precision']},{col['scale']})"
                     else:
                         type_detail += f"({col['precision']})"
-
                 context_parts.append(
                     f"- `{col['name']}`: {type_detail}{pk_marker}{nullable}"
                 )
@@ -374,15 +350,12 @@ class PostgresContextGenerator:
 
         context_parts.append("## COLUMN STATISTICS SUMMARY")
         context_parts.append("-" * 80)
-
         for table in tables[:5]:
             col_stats = self.get_column_statistics(table, schema)
-
             if col_stats:
                 context_parts.append(f"\n### Table: {table}")
                 context_parts.append("| Column | Type | Distinct Values | Null % |")
                 context_parts.append("|--------|------|-----------------|--------|")
-
                 for col_name, stats in col_stats.items():
                     context_parts.append(
                         f"| `{col_name}` | {stats['type']} | "
@@ -393,31 +366,23 @@ class PostgresContextGenerator:
 
         context_parts.append("## SAMPLE DATA")
         context_parts.append("-" * 80)
-
         for table in tables[:3]:
             samples = self.get_sample_data(table, schema, limit=3)
-
             if samples:
                 context_parts.append(f"\n### Table: {table} (first 3 rows)")
-
                 columns = list(samples[0].keys())
-
                 header = "| " + " | ".join(columns) + " |"
                 separator = "| " + " | ".join(["---"] * len(columns)) + " |"
-
                 context_parts.append(header)
                 context_parts.append(separator)
-
                 for row in samples:
                     values = [str(row[col])[:50] for col in columns]
                     context_parts.append("| " + " | ".join(values) + " |")
 
         context_parts.append("")
 
-        # Query guidance section
         context_parts.append("## QUERY GUIDANCE FOR DYNAMIC POSTGRESQL QUERIES")
         context_parts.append("-" * 80)
-
         all_columns = {}
         for table in tables:
             columns = self.get_table_columns(table, schema)
@@ -464,14 +429,25 @@ class PostgresContextGenerator:
             "- Consider NULL handling in filters (IS NULL / IS NOT NULL)",
             "- Use LIMIT for large tables to avoid memory issues",
         ]
-
         context_parts.extend(guidance_lines)
-
         context_parts.append("=" * 80)
 
         self.disconnect()
-
         return "\n".join(context_parts)
+
+
+def generate_rag_context(connection_string: str, schema: str = "public") -> str:
+    """Standalone function to generate RAG context from PostgreSQL database.
+
+    Args:
+        connection_string: PostgreSQL connection URI
+        schema: Database schema to analyze (default: "public")
+
+    Returns:
+        Comprehensive RAG context string for LLM queries
+    """
+    generator = PostgresContextGenerator(connection_string)
+    return generator.generate_rag_context(schema=schema)
 
 
 if __name__ == "__main__":
@@ -484,8 +460,7 @@ if __name__ == "__main__":
 
     CONNECTION_STRING = "postgresql://jethroestrada:@localhost:5432/jobs_db3"
 
-    generator = PostgresContextGenerator(CONNECTION_STRING)
-    context = generator.generate_full_context(schema="public")
+    context = generate_rag_context(CONNECTION_STRING, schema="public")
 
     output_file = OUTPUT_DIR / "postgres_db_context.txt"
     with open(output_file, "w") as f:
