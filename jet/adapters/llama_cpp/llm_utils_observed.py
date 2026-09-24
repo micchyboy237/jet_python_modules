@@ -1,5 +1,4 @@
 """LLM Utilities Adapter for llama.cpp with Built-in Observability
-
 High-level sync/async interface to llama.cpp-compatible servers (OpenAI API
 protocol). Provides automatic tracing, agentic tool-use loops, vision input,
 streaming, and structured output validation via OpenTelemetry and Phoenix.
@@ -15,28 +14,30 @@ no chat template. generate()/agenerate() do NOT support tools, vision, or
 structured output.
 
 ## Quick Start
-    from jet.adapters.llama_cpp.llm_utils_observed import chat
 
-    # Simple chat (traced by default)
-    result = chat("Explain OpenTelemetry in one sentence.")
-    print(result.content)
+from jet.adapters.llama_cpp.llm_utils_observed import chat
 
-    # Agentic tool use (auto-executed)
-    result = chat(
-        "What's the weather in Tokyo?",
-        tools=[{"type": "function", "function": {"name": "get_weather", ...}}],
-        tool_registry={"get_weather": get_weather_fn},
-    )
+# Simple chat (traced by default)
+result = chat("Explain OpenTelemetry in one sentence.")
+print(result.content)
 
-    # Structured output via Pydantic
-    class Answer(BaseModel):
-        summary: str
-    result = chat("Summarize X", response_format=Answer)
-    if result.structured.success:
-        answer = result.structured.parsed
+# Agentic tool use (auto-executed)
+result = chat(
+    "What's the weather in Tokyo?",
+    tools=[{"type": "function", "function": {"name": "get_weather", ...}}],
+    tool_registry={"get_weather": get_weather_fn},
+)
 
-    # Vision
-    result = chat("Describe this image", image_source="path/or/url.jpg")
+# Structured output via Pydantic
+class Answer(BaseModel):
+    summary: str
+
+result = chat("Summarize X", response_format=Answer)
+if result.structured.success:
+    answer = result.structured.parsed
+
+# Vision
+result = chat("Describe this image", image_source="path/or/url.jpg")
 
 ## Structured Output (response_format) — chat()/achat() ONLY
 Accepts any of these types; resolution and validation are fully automatic:
@@ -65,6 +66,7 @@ After streaming completes, result.structured is a StructuredResult containing:
 Always check .success before reading .parsed.
 
 ## Parameters Reference
+
 ### Input
 - prompt_or_messages (str | list[dict]): Prompt string or OpenAI messages list.
   Default: "What is OpenTelemetry in one sentence?"
@@ -72,6 +74,8 @@ Always check .success before reading .parsed.
   "qwen3.5-uncensored:2b".
 - image_source (str | None): Local path, URL, or bytes for vision input.
   chat()/achat() only.
+- system_message (str | None): Optional system message to guide the model.
+  Overrides any system message in prompt_or_messages if provided as a list.
 
 ### Sampling
 - max_tokens (int, default 16384)
@@ -104,10 +108,10 @@ Always check .success before reading .parsed.
 - project_name (str): Phoenix project for trace grouping. Empty string disables
   observability setup but still uses the observed engine.
   Default: "<func>-llm-utils-obs".
-- capture_content (bool, default True): Record prompt/response text in traces.
-  Set False for PII-sensitive workloads.
-- phoenix_url (str): Phoenix server base URL. Default: PHOENIX_BASE_URL constant.
+- phoenix_url (str): Phoenix server base URL. Default: PHOENIX_URL constant.
 - session_id (str | None): Groups related traces as one conversation thread.
+- output_dir (Path | str | None): Directory to save exported trace JSONL files.
+  If None, no export is performed.
 
 ### Client / Misc
 - client (OpenAI | AsyncOpenAI | None): Pre-configured client. If None, one is
@@ -136,11 +140,12 @@ All four functions return StreamCompletionResult with:
 """
 
 import argparse
+from pathlib import Path
 from typing import Any, Callable
 
 from jet.libs.llama_cpp.usage.chat_stream import MODEL
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    PHOENIX_BASE_URL,
+    PHOENIX_URL,
 )
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     run_chat_stream as _obs_chat,
@@ -164,8 +169,7 @@ def chat(
     model: str = MODEL,
     *,
     project_name: str = "chat-llm-utils-obs",
-    capture_content: bool = True,
-    phoenix_url: str = PHOENIX_BASE_URL,
+    phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -187,6 +191,8 @@ def chat(
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
+    system_message: str | None = None,
+    output_dir: Path | str | None = None,
 ) -> StreamCompletionResult:
     """Synchronous multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
@@ -195,11 +201,16 @@ def chat(
         f"💬 chat() called with type={type(prompt_or_messages).__name__}, "
         f"project={project_name}"
     )
+
+    # Convert output_dir to Path if it's a string
+    resolved_output_dir = (
+        Path(output_dir) if isinstance(output_dir, str) else output_dir
+    )
+
     return _obs_chat(
         prompt_or_messages=prompt_or_messages,
         model=model,
         project_name=project_name,
-        capture_content=capture_content,
         phoenix_url=phoenix_url,
         image_source=image_source,
         client=client,
@@ -222,6 +233,8 @@ def chat(
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
         session_id=session_id,
+        system_message=system_message,
+        output_dir=resolved_output_dir,
     )
 
 
@@ -231,8 +244,7 @@ async def achat(
     model: str = MODEL,
     *,
     project_name: str = "achat-llm-utils-obs",
-    capture_content: bool = True,
-    phoenix_url: str = PHOENIX_BASE_URL,
+    phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
     enable_thinking: bool = False,
@@ -254,6 +266,8 @@ async def achat(
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
+    system_message: str | None = None,
+    output_dir: Path | str | None = None,
 ) -> StreamCompletionResult:
     """Async multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
@@ -262,11 +276,16 @@ async def achat(
         f"💬 achat() called with type={type(prompt_or_messages).__name__}, "
         f"project={project_name}"
     )
+
+    # Convert output_dir to Path if it's a string
+    resolved_output_dir = (
+        Path(output_dir) if isinstance(output_dir, str) else output_dir
+    )
+
     return await _obs_achat(
         prompt_or_messages=prompt_or_messages,
         model=model,
         project_name=project_name,
-        capture_content=capture_content,
         phoenix_url=phoenix_url,
         image_source=image_source,
         client=client,
@@ -289,6 +308,8 @@ async def achat(
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
         session_id=session_id,
+        system_message=system_message,
+        output_dir=resolved_output_dir,
     )
 
 
@@ -297,8 +318,7 @@ def generate(
     model: str = MODEL,
     *,
     project_name: str = "generate-llm-utils-obs",
-    capture_content: bool = True,
-    phoenix_url: str = PHOENIX_BASE_URL,
+    phoenix_url: str = PHOENIX_URL,
     client: OpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -313,6 +333,7 @@ def generate(
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
+    output_dir: Path | str | None = None,
 ) -> StreamCompletionResult:
     """Synchronous raw text generation alternative to chat()."""
     from jet.logger import logger
@@ -320,11 +341,16 @@ def generate(
     logger.debug(
         f"✏️ generate() called with prompt length={len(prompt)}, project={project_name}"
     )
+
+    # Convert output_dir to Path if it's a string
+    resolved_output_dir = (
+        Path(output_dir) if isinstance(output_dir, str) else output_dir
+    )
+
     return _obs_generate(
         prompt=prompt,
         model=model,
         project_name=project_name,
-        capture_content=capture_content,
         phoenix_url=phoenix_url,
         client=client,
         max_tokens=max_tokens,
@@ -340,6 +366,7 @@ def generate(
         stop=stop,
         extra_body_params=extra_body_params,
         session_id=session_id,
+        output_dir=resolved_output_dir,
     )
 
 
@@ -348,8 +375,7 @@ async def agenerate(
     model: str = MODEL,
     *,
     project_name: str = "agenerate-llm-utils-obs",
-    capture_content: bool = True,
-    phoenix_url: str = PHOENIX_BASE_URL,
+    phoenix_url: str = PHOENIX_URL,
     client: AsyncOpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -364,6 +390,7 @@ async def agenerate(
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
+    output_dir: Path | str | None = None,
 ) -> StreamCompletionResult:
     """Asynchronous raw text generation alternative to achat()."""
     from jet.logger import logger
@@ -371,11 +398,16 @@ async def agenerate(
     logger.debug(
         f"✏️ agenerate() called with prompt length={len(prompt)}, project={project_name}"
     )
+
+    # Convert output_dir to Path if it's a string
+    resolved_output_dir = (
+        Path(output_dir) if isinstance(output_dir, str) else output_dir
+    )
+
     return await _obs_agenerate(
         prompt=prompt,
         model=model,
         project_name=project_name,
-        capture_content=capture_content,
         phoenix_url=phoenix_url,
         client=client,
         max_tokens=max_tokens,
@@ -391,6 +423,7 @@ async def agenerate(
         stop=stop,
         extra_body_params=extra_body_params,
         session_id=session_id,
+        output_dir=resolved_output_dir,
     )
 
 
@@ -430,6 +463,12 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="Random seed for reproducible generation.",
     )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory to save exported trace JSONL files.",
+    )
     return parser.parse_args()
 
 
@@ -439,6 +478,9 @@ if __name__ == "__main__":
     from jet.logger import logger
 
     args = get_args()
+
+    resolved_output_dir = Path(args.output_dir) if args.output_dir else None
+
     result = asyncio.run(
         achat(
             args.prompt,
@@ -446,6 +488,7 @@ if __name__ == "__main__":
             image_source=args.image_source,
             project_name=args.project,
             seed=args.seed,
+            output_dir=resolved_output_dir,
         )
     )
     logger.info(

@@ -48,7 +48,7 @@ from jet.adapters.llama_cpp.config import (
     EMBED_MODEL,
     LLM_BASE_URL,
     LLM_MODEL,
-    PHOENIX_BASE_URL,
+    PHOENIX_URL,
 )
 from jet_telemetry import (
     chain,
@@ -76,7 +76,7 @@ except LookupError:
     nltk.download("punkt_tab", quiet=True)
 
 initialize_telemetry(
-    service_name="custom-spans-demo", endpoint=PHOENIX_BASE_URL, auto_instrument=False
+    service_name="custom-spans-demo", endpoint=PHOENIX_URL, auto_instrument=False
 )
 embed_client = OpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
@@ -100,7 +100,7 @@ def log_trace_download(trace_url: str | None):
                 project_name=project_name,
                 trace_id=trace_id,
                 output_path=OUTPUT_DIR / f"{trace_id}.jsonl",
-                phoenix_base_url=PHOENIX_BASE_URL,
+                phoenix_base_url=PHOENIX_URL,
                 wait_for_flush=True,
             )
             if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
@@ -256,7 +256,7 @@ async def run_search_demo():
         print(f"       Content: {res['content'][:60]}...")
         print(f"       LLM Justification: {justification}")
 
-    log_trace_download(get_trace_url(PHOENIX_BASE_URL))
+    log_trace_download(get_trace_url(PHOENIX_URL))
 
 
 if __name__ == "__main__":

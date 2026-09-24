@@ -16,8 +16,8 @@ from typing import Any, Callable
 
 from jet_telemetry import initialize_telemetry
 
-PHOENIX_BASE_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
-initialize_telemetry(service_name="chat-stream-obs", endpoint=PHOENIX_BASE_URL)
+PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
+initialize_telemetry(service_name="chat-stream-obs", endpoint=PHOENIX_URL)
 from jet.libs.llama_cpp.usage.chat_stream import (
     run_chat_stream as _pure_run_chat_stream,
 )
@@ -622,7 +622,7 @@ def run_chat_stream(
     model: str = MODEL,
     *,
     project_name: str = "chat-stream-obs",
-    phoenix_url: str = PHOENIX_BASE_URL,
+    phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -717,7 +717,7 @@ async def run_chat_stream_async(
     model: str = MODEL,
     *,
     project_name: str = "achat-stream-obs",
-    phoenix_url: str = PHOENIX_BASE_URL,
+    phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
     enable_thinking: bool = False,
@@ -812,7 +812,7 @@ def run_generate_stream(
     model: str = MODEL,
     *,
     project_name: str = "generate-stream-obs",
-    phoenix_url: str = PHOENIX_BASE_URL,
+    phoenix_url: str = PHOENIX_URL,
     client: OpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -876,7 +876,7 @@ async def run_generate_stream_async(
     model: str = MODEL,
     *,
     project_name: str = "agenerate-stream-obs",
-    phoenix_url: str = PHOENIX_BASE_URL,
+    phoenix_url: str = PHOENIX_URL,
     client: AsyncOpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -946,7 +946,7 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument("-i", "--image-source", type=str, default=None)
     parser.add_argument("--project", type=str, default="chat-stream-obs")
-    parser.add_argument("--phoenix-url", type=str, default=PHOENIX_BASE_URL)
+    parser.add_argument("--phoenix-url", type=str, default=PHOENIX_URL)
     parser.add_argument(
         "--base-url",
         type=str,

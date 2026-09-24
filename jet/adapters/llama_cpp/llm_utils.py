@@ -72,6 +72,8 @@ Always check .success before reading .parsed.
   "qwen3.5-uncensored:2b".
 - image_source (str | None): Local path, URL, or bytes for vision input.
   chat()/achat() only.
+- system_message (str | None): Optional system message to guide the model.
+  Overrides any system message in prompt_or_messages if provided as a list.
 
 ### Sampling
 - max_tokens (int, default 16384)
@@ -172,6 +174,7 @@ def chat(
     response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
+    system_message: str | None = None,
 ) -> StreamCompletionResult:
     """Synchronous multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
@@ -200,6 +203,7 @@ def chat(
         response_format=response_format,
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
+        system_message=system_message,
     )
 
 
@@ -228,6 +232,7 @@ async def achat(
     response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
+    system_message: str | None = None,
 ) -> StreamCompletionResult:
     """Async multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
@@ -256,6 +261,7 @@ async def achat(
         response_format=response_format,
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
+        system_message=system_message,
     )
 
 
@@ -371,6 +377,12 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="Random seed for reproducible generation.",
     )
+    parser.add_argument(
+        "--system-message",
+        type=str,
+        default=None,
+        help="System message to guide the model's behavior.",
+    )
     return parser.parse_args()
 
 
@@ -386,6 +398,7 @@ if __name__ == "__main__":
             model=args.model,
             image_source=args.image_source,
             seed=args.seed,
+            system_message=args.system_message,
         )
     )
     logger.info(
