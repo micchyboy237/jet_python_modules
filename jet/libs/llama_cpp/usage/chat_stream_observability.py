@@ -9,14 +9,15 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 from jet_telemetry import initialize_telemetry
 
 PHOENIX_BASE_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 initialize_telemetry(service_name="chat-stream-obs", endpoint=PHOENIX_BASE_URL)
-
 from jet.libs.llama_cpp.usage.chat_stream import (
     run_chat_stream as _pure_run_chat_stream,
 )
@@ -551,6 +552,7 @@ def _print_header_footer(
     is_agentic: bool = False,
     project_name: str | None = None,
     phoenix_url: str | None = None,
+    output_dir: Path | None = None,
 ):
     """Unified printing logic for stream summaries."""
     logger.info("─" * 60)
@@ -562,7 +564,7 @@ def _print_header_footer(
     if trace_url:
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
-        if project_name and phoenix_url:
+        if project_name and phoenix_url and output_dir:
             current_span = otel_trace.get_current_span()
             if current_span.is_recording():
                 trace_id = current_span.get_span_context().trace_id
@@ -577,7 +579,7 @@ def _print_header_footer(
                     jsonl_path = export_spans_to_jsonl(
                         project_name=project_name,
                         trace_id=trace_id_hex,
-                        output_path=f"traces/{trace_id_hex}.jsonl",
+                        output_path=output_dir / f"{trace_id_hex}.jsonl",
                         phoenix_base_url=phoenix_url,
                         wait_for_flush=True,
                         max_retries=3,
@@ -643,6 +645,7 @@ def run_chat_stream(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
     system_message: str | None = None,
+    output_dir: Path | None = None,
 ) -> StreamCompletionResult:
     """Traced synchronous chat streaming using jet_telemetry decorators."""
     _ensure_telemetry(project_name, phoenix_url)
@@ -703,6 +706,7 @@ def run_chat_stream(
         is_agentic,
         project_name,
         phoenix_url,
+        output_dir,
     )
     return result
 
@@ -736,6 +740,7 @@ async def run_chat_stream_async(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
     system_message: str | None = None,
+    output_dir: Path | None = None,
 ) -> StreamCompletionResult:
     """Traced asynchronous chat streaming using jet_telemetry decorators."""
     _ensure_telemetry(project_name, phoenix_url)
@@ -796,6 +801,7 @@ async def run_chat_stream_async(
         is_agentic,
         project_name,
         phoenix_url,
+        output_dir,
     )
     return result
 
@@ -820,6 +826,7 @@ def run_generate_stream(
     seed: int | None = None,
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
+    output_dir: Path | None = None,
 ) -> StreamCompletionResult:
     """Traced synchronous raw text completion."""
     _ensure_telemetry(project_name, phoenix_url)
@@ -858,6 +865,7 @@ def run_generate_stream(
         is_agentic=False,
         project_name=project_name,
         phoenix_url=phoenix_url,
+        output_dir=output_dir,
     )
     return result
 
@@ -882,6 +890,7 @@ async def run_generate_stream_async(
     seed: int | None = None,
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
+    output_dir: Path | None = None,
 ) -> StreamCompletionResult:
     """Traced asynchronous raw text completion."""
     _ensure_telemetry(project_name, phoenix_url)
@@ -920,6 +929,7 @@ async def run_generate_stream_async(
         is_agentic=False,
         project_name=project_name,
         phoenix_url=phoenix_url,
+        output_dir=output_dir,
     )
     return result
 
@@ -967,6 +977,12 @@ def get_args() -> argparse.Namespace:
         default="You are a helpful assistant.",
         help="System message to guide the model's behavior.",
     )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Directory to save exported trace JSONL files.",
+    )
     return parser.parse_args()
 
 
@@ -974,6 +990,16 @@ if __name__ == "__main__":
     from jet.adapters.llama_cpp.factory import get_llm_client
 
     args = get_args()
+
+    # Setup Output Directory
+    output_dir = Path(args.output_dir) if args.output_dir else None
+    if not output_dir:
+        # Default to generated/<script_name> if not specified
+        output_dir = Path(__file__).parent / "generated" / Path(__file__).stem
+
+    shutil.rmtree(output_dir, ignore_errors=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     parsed_logit_bias: dict[str, int] | None = None
     if args.logit_bias:
         try:
@@ -1020,6 +1046,7 @@ if __name__ == "__main__":
             logit_bias=parsed_logit_bias,
             seed=args.seed,
             stop=args.stop,
+            output_dir=output_dir,
         )
     else:
         result = run_chat_stream(
@@ -1047,6 +1074,7 @@ if __name__ == "__main__":
             tool_registry=None,
             session_id=args.session_id,
             system_message=args.system_message,
+            output_dir=output_dir,
         )
     if result.has_tool_calls:
         logger.info(

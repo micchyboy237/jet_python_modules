@@ -38,8 +38,10 @@ Span Hierarchy:
 """
 
 import asyncio
+import shutil
 import time
 from functools import wraps
+from pathlib import Path
 from typing import Optional
 
 from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL, PHOENIX_BASE_URL
@@ -55,6 +57,11 @@ from jet_telemetry import (
 from openai import AsyncOpenAI
 from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace as otel_trace
+
+# Setup Output Directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 initialize_telemetry(service_name="decorator-stacking-demo", endpoint=PHOENIX_BASE_URL)
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
@@ -77,7 +84,7 @@ def log_trace_download(trace_url: str | None):
             jsonl_path = export_spans_to_jsonl(
                 project_name=project_name,
                 trace_id=trace_id,
-                output_path=f"traces/{trace_id}.jsonl",
+                output_path=OUTPUT_DIR / f"{trace_id}.jsonl",
                 phoenix_base_url=PHOENIX_BASE_URL,
                 wait_for_flush=True,
             )
