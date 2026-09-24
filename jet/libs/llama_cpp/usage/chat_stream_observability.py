@@ -12,7 +12,6 @@ import os
 import time
 from typing import Any, Callable
 
-# Initialize telemetry EARLY so decorators have access to Phoenix tracer
 from jet_telemetry import initialize_telemetry
 
 PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
@@ -70,11 +69,6 @@ def _ensure_telemetry(project_name: str, phoenix_url: str):
         initialize_telemetry(service_name=project_name, endpoint=phoenix_url)
 
 
-# ---------------------------------------------------------------------------
-# Granular Observability Wrappers
-# ---------------------------------------------------------------------------
-
-
 @tool(name="encode_image_input")
 def observe_image_encoding(image_source: str | None) -> tuple[str, str] | None:
     """Wraps image encoding in a TOOL span for visibility."""
@@ -96,19 +90,15 @@ def observe_structured_parsing(
     """Wraps structured output parsing in an EVALUATOR span."""
     if resolved_fmt.output_format == OutputFormat.TEXT:
         return None
-
     from jet.libs.llama_cpp.usage.structured_output import parse_structured_content
 
     result = parse_structured_content(content, resolved_fmt)
-
-    # Add specific attributes to the current span
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute("evaluator.format", resolved_fmt.output_format.value)
         span.set_attribute("evaluator.success", result.success)
         if result.error:
             span.set_attribute("evaluator.error", redact(result.error))
-
     return result
 
 
@@ -131,8 +121,6 @@ def observe_llm_chat_stream(
         client=client,
         **kwargs,
     )
-
-    # Post-hoc attribute setting for streaming metrics
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
@@ -164,7 +152,6 @@ async def observe_llm_chat_stream_async(
         client=client,
         **kwargs,
     )
-
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
@@ -212,11 +199,6 @@ async def observe_generate_stream_async(
     )
 
 
-# ---------------------------------------------------------------------------
-# High-Level Orchestrators
-# ---------------------------------------------------------------------------
-
-
 @agent(name="agent.chat_loop")
 def run_agentic_chat(
     prompt_or_messages: str | list[dict[str, Any]],
@@ -231,12 +213,10 @@ def run_agentic_chat(
     Top-level AGENT span for agentic loops.
     Handles image encoding, tool execution loops, and structured parsing.
     """
-    # 1. Handle Image Encoding (if present in kwargs)
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
 
-    # 2. Execute the Pure Chat Stream (which contains the internal tool loop)
     result = observe_llm_chat_stream(
         prompt_or_messages=prompt_or_messages,
         model=model,
@@ -246,7 +226,6 @@ def run_agentic_chat(
         **kwargs,
     )
 
-    # 3. Observe Structured Output Parsing
     if result.content:
         structured_result = observe_structured_parsing(result.content, resolved_fmt)
         if structured_result:
@@ -268,9 +247,6 @@ async def run_agentic_chat_async(
     """Async top-level AGENT span for agentic loops."""
     image_source = kwargs.get("image_source")
     if image_source:
-        # Note: For async, we'd ideally use an async image encoder wrapper
-        # For now, reusing sync wrapper inside async agent is acceptable
-        # as image encoding is usually fast or IO-bound via httpx internally
         observe_image_encoding(image_source)
 
     result = await observe_llm_chat_stream_async(
@@ -350,11 +326,6 @@ async def run_simple_chat_async(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Console & Summary Helpers
-# ---------------------------------------------------------------------------
-
-
 def _make_chat_chunk_handler() -> tuple[Callable[[Any], None], dict[str, Any]]:
     """Create a per-chunk callback that flushes tokens to rich console."""
     state: dict[str, Any] = {"first_token_at": None, "in_think_block": False}
@@ -430,25 +401,19 @@ def _print_header_footer(
             f"{result.usage.get('total_tokens', 0)}t"
         )
         logger.info(f"   Throughput       : {tok_per_sec:.1f} tok/s")
-
-    logger.info(f"   Duration         : {total_secs:.2f}s")
-    if ttft is not None:
-        logger.info(f"   Time to first token: {ttft:.2f}s")
+        logger.info(f"   Duration         : {total_secs:.2f}s")
+        if ttft is not None:
+            logger.info(f"   Time to first token: {ttft:.2f}s")
 
     if result.structured:
         status = "✅" if result.structured.success else "⚠️"
         logger.info(
             f"   Structured       : {status} {result.structured.format_used.value}"
         )
-
     logger.info("─" * 60)
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
+@chain(name="chat-stream-session")
 def run_chat_stream(
     prompt_or_messages: str | list[dict[str, Any]] = "What is OpenTelemetry?",
     model: str = MODEL,
@@ -482,7 +447,6 @@ def run_chat_stream(
 
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
-
     on_chunk, chunk_state = _make_chat_chunk_handler()
 
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
@@ -532,12 +496,14 @@ def run_chat_stream(
     if ttft is not None:
         ttft = ttft - t_start
 
+    # Now inside the @chain scope, so get_trace_url will find the active span
     trace_url = get_trace_url(phoenix_url) if project_name else None
-    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic)
 
+    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic)
     return result
 
 
+@chain(name="achat-stream-session")
 async def run_chat_stream_async(
     prompt_or_messages: str | list[dict[str, Any]] = "What is OpenTelemetry?",
     model: str = MODEL,
@@ -571,7 +537,6 @@ async def run_chat_stream_async(
 
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
-
     on_chunk, chunk_state = _make_chat_chunk_handler()
 
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
@@ -621,12 +586,14 @@ async def run_chat_stream_async(
     if ttft is not None:
         ttft = ttft - t_start
 
+    # Now inside the @chain scope, so get_trace_url will find the active span
     trace_url = get_trace_url(phoenix_url) if project_name else None
-    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic)
 
+    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic)
     return result
 
 
+@chain(name="generate-stream-session")
 def run_generate_stream(
     prompt: str,
     model: str = MODEL,
@@ -679,12 +646,14 @@ def run_generate_stream(
     if ttft is not None:
         ttft = ttft - t_start
 
+    # Now inside the @chain scope, so get_trace_url will find the active span
     trace_url = get_trace_url(phoenix_url) if project_name else None
-    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic=False)
 
+    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic=False)
     return result
 
 
+@chain(name="agenerate-stream-session")
 async def run_generate_stream_async(
     prompt: str,
     model: str = MODEL,
@@ -737,9 +706,10 @@ async def run_generate_stream_async(
     if ttft is not None:
         ttft = ttft - t_start
 
+    # Now inside the @chain scope, so get_trace_url will find the active span
     trace_url = get_trace_url(phoenix_url) if project_name else None
-    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic=False)
 
+    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic=False)
     return result
 
 
