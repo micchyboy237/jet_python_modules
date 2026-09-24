@@ -1,10 +1,8 @@
 """
 Demo: Custom Decorator Stacking & Composition
-
 Covers: Stacking multiple custom decorators, combining jet-telemetry with
         application-specific decorators, decorator order matters, and
         building reusable decorator chains.
-
 Span Hierarchy:
 📦 decorator-stacking-demo (CHAIN)
 │
@@ -60,6 +58,30 @@ from opentelemetry import trace as otel_trace
 
 initialize_telemetry(service_name="decorator-stacking-demo", endpoint=PHOENIX_BASE_URL)
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
+
+
+def get_spans_jsonl_download_url(
+    phoenix_base_url: str,
+    project_name: str,
+    span_ids: list[str] | None = None,
+    limit: int = 1000,
+) -> str:
+    """
+    Generates a Phoenix REST API URL to download spans as JSONL.
+    Args:
+        phoenix_base_url: Base URL of the Phoenix instance (e.g., "http://localhost:6006").
+        project_name: Name of the Phoenix project.
+        span_ids: Optional list of span IDs to filter by.
+        limit: Maximum number of spans to return per request.
+    Returns:
+        A URL to download spans as JSONL.
+    """
+    base = phoenix_base_url.rstrip("/")
+    url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
+    if span_ids:
+        span_ids_str = ",".join(span_ids)
+        url += f"&span_id={span_ids_str}"
+    return url
 
 
 def performance_monitor(func=None, *, threshold_ms: float = 500):
@@ -251,7 +273,6 @@ def cache_simulator(func=None, *, ttl_seconds: int = 60):
             async def async_wrapper(*args, **kwargs):
                 cache_key = f"{f.__name__}:{str(args)}:{str(kwargs)}"
                 span = otel_trace.get_current_span()
-
                 if cache_key in _cache:
                     cached_time, cached_result = _cache[cache_key]
                     if time.time() - cached_time < ttl_seconds:
@@ -260,12 +281,10 @@ def cache_simulator(func=None, *, ttl_seconds: int = 60):
                             span.set_attribute("cache.ttl_seconds", ttl_seconds)
                         print(f"💾 Cache HIT for '{f.__name__}'")
                         return cached_result
-
                 if span.is_recording():
                     span.set_attribute("cache.hit", False)
                     span.set_attribute("cache.ttl_seconds", ttl_seconds)
                 print(f"🔍 Cache MISS for '{f.__name__}'")
-
                 result = await f(*args, **kwargs)
                 _cache[cache_key] = (time.time(), result)
                 return result
@@ -277,7 +296,6 @@ def cache_simulator(func=None, *, ttl_seconds: int = 60):
             def sync_wrapper(*args, **kwargs):
                 cache_key = f"{f.__name__}:{str(args)}:{str(kwargs)}"
                 span = otel_trace.get_current_span()
-
                 if cache_key in _cache:
                     cached_time, cached_result = _cache[cache_key]
                     if time.time() - cached_time < ttl_seconds:
@@ -286,12 +304,10 @@ def cache_simulator(func=None, *, ttl_seconds: int = 60):
                             span.set_attribute("cache.ttl_seconds", ttl_seconds)
                         print(f"💾 Cache HIT for '{f.__name__}'")
                         return cached_result
-
                 if span.is_recording():
                     span.set_attribute("cache.hit", False)
                     span.set_attribute("cache.ttl_seconds", ttl_seconds)
                 print(f"🔍 Cache MISS for '{f.__name__}'")
-
                 result = f(*args, **kwargs)
                 _cache[cache_key] = (time.time(), result)
                 return result
@@ -365,12 +381,26 @@ async def enhanced_rag_pipeline(query: str) -> dict:
         context=context,
     )
     trace_url = get_trace_url(PHOENIX_BASE_URL)
-    return {
+
+    # Get the current trace ID for JSONL download
+    current_span = otel_trace.get_current_span()
+    trace_id_hex = None
+    if current_span.is_recording():
+        trace_id = current_span.get_span_context().trace_id
+        trace_id_hex = format(trace_id, "032x")
+
+    result_dict = {
         "query": query,
         "answer": answer,
         "sources": len(results),
         "trace_url": trace_url,
     }
+    if trace_id_hex:
+        jsonl_download_url = get_spans_jsonl_download_url(
+            PHOENIX_BASE_URL, "decorator-stacking-demo", span_ids=[trace_id_hex]
+        )
+        result_dict["jsonl_download_url"] = jsonl_download_url
+    return result_dict
 
 
 def fully_observed_llm(
@@ -423,9 +453,6 @@ async def smart_generate(prompt: str, temperature: float = 0.7) -> str:
     return "".join(collected_content)
 
 
-# --- Example Sub-Chains ---
-
-
 @chain(name="Example 1: Tool Stacking")
 async def run_example_1():
     print("\n" + "=" * 80)
@@ -461,6 +488,8 @@ async def run_example_3():
     print(f"   Answer length: {len(result3['answer'])} chars")
     if url := result3.get("trace_url"):
         print(f"🔍 View complete trace: {url}")
+    if jsonl_url := result3.get("jsonl_download_url"):
+        print(f"📥 Download spans as JSONL: {jsonl_url}")
 
 
 @chain(name="Example 4: Composite Decorator")
@@ -485,21 +514,30 @@ async def run_demo():
     if span.is_recording():
         span.set_attribute(SpanAttributes.INPUT_VALUE, "Demo Execution Start")
         span.set_attribute(SpanAttributes.INPUT_MIME_TYPE, "text/plain")
-
     print("=" * 80)
     print("🎯 Demo: Custom Decorator Stacking & Composition")
     print("=" * 80)
-
     await run_example_1()
     await run_example_2()
     await run_example_3()
     await run_example_4()
 
+    # Get the current trace ID for JSONL download
+    current_span = otel_trace.get_current_span()
+    trace_id_hex = None
+    if current_span.is_recording():
+        trace_id = current_span.get_span_context().trace_id
+        trace_id_hex = format(trace_id, "032x")
+
     print("\n" + "=" * 80)
     print("✨ Demo complete! Check Phoenix UI for detailed traces.")
+    if trace_id_hex:
+        jsonl_download_url = get_spans_jsonl_download_url(
+            PHOENIX_BASE_URL, "decorator-stacking-demo", span_ids=[trace_id_hex]
+        )
+        print(f"📥 Download all spans as JSONL: {jsonl_download_url}")
     print("=" * 80)
 
-    # Set meaningful output for the root span
     if span.is_recording():
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, "Demo Completed Successfully")
         span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")

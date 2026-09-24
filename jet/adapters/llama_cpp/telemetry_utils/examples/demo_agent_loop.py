@@ -1,8 +1,6 @@
 """
 Demo: Autonomous Agent with Tool Use & OpenAI Streaming
-
 Covers: @agent, @tool, @chain, nested spans, streaming LLM planning
-
 Span Hierarchy:
 📦 research-agent (AGENT)
 │
@@ -30,6 +28,30 @@ from openai import AsyncOpenAI
 
 initialize_telemetry(service_name="agent-demo", endpoint=PHOENIX_BASE_URL)
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
+
+
+def get_spans_jsonl_download_url(
+    phoenix_base_url: str,
+    project_name: str,
+    span_ids: list[str] | None = None,
+    limit: int = 1000,
+) -> str:
+    """
+    Generates a Phoenix REST API URL to download spans as JSONL.
+    Args:
+        phoenix_base_url: Base URL of the Phoenix instance (e.g., "http://localhost:6006").
+        project_name: Name of the Phoenix project.
+        span_ids: Optional list of span IDs to filter by.
+        limit: Maximum number of spans to return per request.
+    Returns:
+        A URL to download spans as JSONL.
+    """
+    base = phoenix_base_url.rstrip("/")
+    url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
+    if span_ids:
+        span_ids_str = ",".join(span_ids)
+        url += f"&span_id={span_ids_str}"
+    return url
 
 
 @tool(description="Get current weather for a city. Args: city (str)")
@@ -73,7 +95,6 @@ async def plan_next_step(task: str, history: list[dict]) -> dict:
             "content": f"Task: {task}\n\nHistory:\n{json.dumps(history[-2:], indent=2)}",
         },
     ]
-
     print("\n🧠 Agent Thinking: ", end="", flush=True)
     collected_content = []
     try:
@@ -95,7 +116,6 @@ async def plan_next_step(task: str, history: list[dict]) -> dict:
     except Exception as e:
         print(f"\n❌ LLM Error: {e}", flush=True)
         return {"action": "final_answer", "reasoning": f"LLM Error: {str(e)}"}
-
     print("\n", flush=True)
     full_response = "".join(collected_content)
     try:
@@ -116,17 +136,29 @@ async def research_agent(task: str, max_steps: int = 5) -> dict:
     """Autonomous agent that plans, uses tools, and synthesizes answers."""
     history = []
     tool_map = {"get_weather": get_weather, "search_docs": search_docs}
-
     for step in range(max_steps):
         plan = await plan_next_step(task, history)
         action = plan.get("action", "")
-
         if action == "final_answer" or action == "done":
-            return {
+            # Get the current trace ID for JSONL download
+            from opentelemetry import trace as otel_trace
+
+            current_span = otel_trace.get_current_span()
+            trace_id_hex = None
+            if current_span.is_recording():
+                trace_id = current_span.get_span_context().trace_id
+                trace_id_hex = format(trace_id, "032x")
+
+            result_dict = {
                 "result": plan.get("reasoning", "Task completed."),
                 "trace_url": get_trace_url(PHOENIX_BASE_URL),
             }
-
+            if trace_id_hex:
+                jsonl_download_url = get_spans_jsonl_download_url(
+                    PHOENIX_BASE_URL, "agent-demo", span_ids=[trace_id_hex]
+                )
+                result_dict["jsonl_download_url"] = jsonl_download_url
+            return result_dict
         selected_tool = tool_map.get(action)
         if selected_tool:
             try:
@@ -141,11 +173,25 @@ async def research_agent(task: str, max_steps: int = 5) -> dict:
         else:
             history.append({"step": step, "error": f"Unknown action: {action}"})
             print(f"❌ Unknown action: {action}", flush=True)
+    # Get the current trace ID for JSONL download
+    from opentelemetry import trace as otel_trace
 
-    return {
+    current_span = otel_trace.get_current_span()
+    trace_id_hex = None
+    if current_span.is_recording():
+        trace_id = current_span.get_span_context().trace_id
+        trace_id_hex = format(trace_id, "032x")
+
+    result_dict = {
         "result": "Max steps reached. See history for details.",
         "trace_url": get_trace_url(PHOENIX_BASE_URL),
     }
+    if trace_id_hex:
+        jsonl_download_url = get_spans_jsonl_download_url(
+            PHOENIX_BASE_URL, "agent-demo", span_ids=[trace_id_hex]
+        )
+        result_dict["jsonl_download_url"] = jsonl_download_url
+    return result_dict
 
 
 async def main():
@@ -153,6 +199,8 @@ async def main():
     print(f"\n🤖 Final Result: {result_dict['result']}")
     if url := result_dict.get("trace_url"):
         print(f"🔍 View complete trace: {url}")
+    if jsonl_url := result_dict.get("jsonl_download_url"):
+        print(f"📥 Download spans as JSONL: {jsonl_url}")
 
 
 if __name__ == "__main__":

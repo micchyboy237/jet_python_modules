@@ -1,9 +1,7 @@
 """
 Demo: Comprehensive Span Kinds & Hybrid Search
-
 Covers: @retriever, @embedding, @reranker, @guardrail, @evaluator, @prompt,
         and LLM-powered relevance evaluation as top-level siblings.
-
 Span Hierarchy:
 📦 custom-spans (CHAIN)
 │
@@ -74,6 +72,31 @@ initialize_telemetry(
     service_name="custom-spans-demo", endpoint=PHOENIX_BASE_URL, auto_instrument=False
 )
 
+
+def get_spans_jsonl_download_url(
+    phoenix_base_url: str,
+    project_name: str,
+    span_ids: list[str] | None = None,
+    limit: int = 1000,
+) -> str:
+    """
+    Generates a Phoenix REST API URL to download spans as JSONL.
+    Args:
+        phoenix_base_url: Base URL of the Phoenix instance (e.g., "http://localhost:6006").
+        project_name: Name of the Phoenix project.
+        span_ids: Optional list of span IDs to filter by.
+        limit: Maximum number of spans to return per request.
+    Returns:
+        A URL to download spans as JSONL.
+    """
+    base = phoenix_base_url.rstrip("/")
+    url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
+    if span_ids:
+        span_ids_str = ",".join(span_ids)
+        url += f"&span_id={span_ids_str}"
+    return url
+
+
 embed_client = OpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 
@@ -142,7 +165,6 @@ def check_input_safety(query: str) -> bool:
     """
     if not query or len(query.strip()) == 0:
         return False
-    # Simulated safety check
     return True
 
 
@@ -155,7 +177,7 @@ def build_relevance_prompt(query: str, documents: list[str]) -> str:
         [f"[Doc {i + 1}]: {doc}" for i, doc in enumerate(documents)]
     )
     return f"""
-    You are a relevance evaluator. 
+    You are a relevance evaluator.
     Query: "{query}"
     Retrieved Documents:
     {doc_context}
@@ -204,7 +226,6 @@ async def run_search_demo():
         "Transformers revolutionized natural language processing in 2017 with attention mechanisms.",
     ]
     query = "neural network optimization"
-
     print(f"\n🛡️ Running input guardrail...")
     is_safe = check_input_safety(query)
     if not is_safe:
@@ -213,15 +234,12 @@ async def run_search_demo():
 
     print(f"\n🔍 Starting hybrid search for: '{query}'")
     retrieval_result = vector_search(query, docs, top_k=3)
-
     print(f"\n📊 Running BM25 reranking...")
     final_results = bm25_rerank(query, retrieval_result)
-
     print(f"\n🧠 Evaluating relevance with LLM...")
     relevance_scores = await llm_relevance_check(
         query, [d["content"] for d in final_results]
     )
-
     print(f"\n📋 Final Results:")
     for i, res in enumerate(final_results):
         score_info = next((s for s in relevance_scores if s.get("doc_index") == i), {})
@@ -231,8 +249,22 @@ async def run_search_demo():
         print(f"       Content: {res['content'][:60]}...")
         print(f"       LLM Justification: {justification}")
 
+    # Get the current trace ID for JSONL download
+    from opentelemetry import trace as otel_trace
+
+    current_span = otel_trace.get_current_span()
+    trace_id_hex = None
+    if current_span.is_recording():
+        trace_id = current_span.get_span_context().trace_id
+        trace_id_hex = format(trace_id, "032x")
+
     if url := get_trace_url(PHOENIX_BASE_URL):
         print(f"\n🔍 View complete trace: {url}")
+    if trace_id_hex:
+        jsonl_download_url = get_spans_jsonl_download_url(
+            PHOENIX_BASE_URL, "custom-spans-demo", span_ids=[trace_id_hex]
+        )
+        print(f"📥 Download spans as JSONL: {jsonl_download_url}")
 
 
 if __name__ == "__main__":

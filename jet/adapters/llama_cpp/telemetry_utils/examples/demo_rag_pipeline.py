@@ -1,8 +1,6 @@
 """
 Demo: Full RAG Pipeline with Telemetry & OpenAI Streaming
-
 Covers: @chain, @embedding, @retriever, @reranker, @llm, async support, model_name attribution
-
 Span Hierarchy:
 📦 full-rag-pipeline (CHAIN)
 │
@@ -58,6 +56,31 @@ initialize_telemetry(
     batch=True,
 )
 
+
+def get_spans_jsonl_download_url(
+    phoenix_base_url: str,
+    project_name: str,
+    span_ids: list[str] | None = None,
+    limit: int = 1000,
+) -> str:
+    """
+    Generates a Phoenix REST API URL to download spans as JSONL.
+    Args:
+        phoenix_base_url: Base URL of the Phoenix instance (e.g., "http://localhost:6006").
+        project_name: Name of the Phoenix project.
+        span_ids: Optional list of span IDs to filter by.
+        limit: Maximum number of spans to return per request.
+    Returns:
+        A URL to download spans as JSONL.
+    """
+    base = phoenix_base_url.rstrip("/")
+    url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
+    if span_ids:
+        span_ids_str = ",".join(span_ids)
+        url += f"&span_id={span_ids_str}"
+    return url
+
+
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 embed_client = AsyncOpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
 
@@ -77,7 +100,7 @@ async def retrieve_documents(
     query_embedding: list[float], top_k: int = 5
 ) -> list[dict]:
     """Retrieves top-k documents from vector store."""
-    await asyncio.sleep(0.05)  # Simulate DB lookup
+    await asyncio.sleep(0.05)
     return [
         {
             "id": i,
@@ -95,7 +118,6 @@ async def rerank_documents(
     """Reranks documents using cross-encoder."""
     if not RERANK_BASE_URL or not RERANK_MODEL:
         return documents[:top_n]
-
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{RERANK_BASE_URL}/rerank",
@@ -155,12 +177,28 @@ async def rag_pipeline(query: str) -> dict:
     context = [d["content"] for d in ranked_docs]
     answer = await generate_answer(query, context)
     trace_url = get_trace_url(PHOENIX_BASE_URL)
-    return {
+
+    # Get the current trace ID for JSONL download
+    from opentelemetry import trace as otel_trace
+
+    current_span = otel_trace.get_current_span()
+    trace_id_hex = None
+    if current_span.is_recording():
+        trace_id = current_span.get_span_context().trace_id
+        trace_id_hex = format(trace_id, "032x")
+
+    result_dict = {
         "query": query,
         "answer": answer,
         "sources": len(ranked_docs),
         "trace_url": trace_url,
     }
+    if trace_id_hex:
+        jsonl_download_url = get_spans_jsonl_download_url(
+            PHOENIX_BASE_URL, "rag-pipeline-demo", span_ids=[trace_id_hex]
+        )
+        result_dict["jsonl_download_url"] = jsonl_download_url
+    return result_dict
 
 
 async def main():
@@ -168,6 +206,8 @@ async def main():
     print(f"\n✅ Sources used: {result['sources']}")
     if url := result.get("trace_url"):
         print(f"🔍 View complete trace: {url}")
+    if jsonl_url := result.get("jsonl_download_url"):
+        print(f"📥 Download spans as JSONL: {jsonl_url}")
 
 
 if __name__ == "__main__":

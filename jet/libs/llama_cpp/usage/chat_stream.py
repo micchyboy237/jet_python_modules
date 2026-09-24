@@ -172,6 +172,7 @@ def run_chat_stream(
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     on_chunk: Callable[[ChatCompletionChunk], None] | None = None,
+    system_message: str | None = None,
 ) -> StreamCompletionResult:
     """Pure synchronous chat streaming with tool loops and structured output.
     Args:
@@ -183,34 +184,29 @@ def run_chat_stream(
     chunk_state: dict[str, Any] = {"first_token_at": None, "in_think_block": False}
     if _using_default_printer:
         on_chunk, chunk_state = make_console_chat_printer()
-
     resolved_fmt, api_response_format, extra_body_params = prepare_response_format(
         response_format, extra_body_params
     )
-
     if client is None:
         client = get_llm_client()
-
     prompt: str | None = None
     messages: list[dict[str, Any]] | None = None
     if isinstance(prompt_or_messages, str):
         prompt = prompt_or_messages
     else:
         messages = prompt_or_messages
-
     current_messages = build_messages(
         prompt,
         messages,
         image_source,
         resolved_fmt.system_prompt_addition,
         encode_image_to_base64,
+        system_message=system_message,  # Pass system_message
     )
-
     is_agentic = tool_registry is not None
     last_result: StreamCompletionResult | None = None
     round_num = 0
     t_start = time.perf_counter()
-
     while round_num < max_tool_rounds:
         round_num += 1
         extra_body = build_chat_extra_body(
@@ -436,6 +432,7 @@ async def run_chat_stream_async(
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     on_chunk: Callable[[ChatCompletionChunk], None] | None = None,
+    system_message: str | None = None,
 ) -> StreamCompletionResult:
     """Pure asynchronous chat streaming with tool loops and structured output.
     Args:
@@ -448,31 +445,27 @@ async def run_chat_stream_async(
     chunk_state: dict[str, Any] = {"first_token_at": None, "in_think_block": False}
     if _using_default_printer:
         on_chunk, chunk_state = make_console_chat_printer()
-
     resolved_fmt, api_response_format, extra_body_params = prepare_response_format(
         response_format, extra_body_params
     )
-
     if client is None:
         client = get_async_llm_client()
-
     prompt: str | None = None
     messages: list[dict[str, Any]] | None = None
     if isinstance(prompt_or_messages, str):
         prompt = prompt_or_messages
     else:
         messages = prompt_or_messages
-
     encoded_image = None
     if image_source:
         encoded_image = await encode_image_to_base64_async(image_source)
-
     current_messages = build_messages(
         prompt,
         messages,
         image_source,
         resolved_fmt.system_prompt_addition,
         lambda src: encoded_image if encoded_image else ("", "image/jpeg"),
+        system_message=system_message,  # Pass system_message
     )
 
     is_agentic = tool_registry is not None
@@ -713,6 +706,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--tools-json", type=str, default=None)
     parser.add_argument("--tool-choice", type=str, default=None)
     parser.add_argument("--response-format", type=str, default=None)
+    parser.add_argument(
+        "--system-message",
+        type=str,
+        default="You are a helpful assistant.",
+        help="System message to guide the model's behavior.",
+    )
     return parser.parse_args()
 
 
@@ -762,12 +761,14 @@ if __name__ == "__main__":
             except json.JSONDecodeError as e:
                 print(f"❌ Invalid tools JSON: {e}", file=sys.stderr)
                 raise SystemExit(1)
+
         parsed_tool_choice: str | dict[str, Any] | None = args.tool_choice
         if parsed_tool_choice and parsed_tool_choice.startswith("{"):
             try:
                 parsed_tool_choice = json.loads(parsed_tool_choice)
             except json.JSONDecodeError:
                 pass
+
         parsed_response_format: dict[str, Any] | None = None
         if args.response_format:
             try:
@@ -797,6 +798,7 @@ if __name__ == "__main__":
             tool_choice=parsed_tool_choice,
             response_format=parsed_response_format,
             tool_registry=None,
+            system_message=args.system_message,  # Pass system_message
         )
 
     if result.has_tool_calls:

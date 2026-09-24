@@ -84,7 +84,7 @@ class StructuredResult(Generic[T]):
 
 _JSON_OBJECT_RE = re.compile(r"(\{.*\})", re.DOTALL)
 _JSON_ARRAY_RE = re.compile(r"(\[.*\])", re.DOTALL)
-_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)
 
 
 def extract_json(raw: str) -> dict | list | None:
@@ -242,16 +242,40 @@ def build_schema_prompt(schema: dict[str, Any]) -> str:
     props = schema.get("properties", {})
     required = schema.get("required", [])
     lines = ["Return a JSON object with these exact fields:"]
+
+    # Check for prefixItems (Tuple validation)
+    if "prefixItems" in schema.get("items", {}):
+        prefix_items = schema["items"]["prefixItems"]
+        lines.append("IMPORTANT: The 'items' field is a fixed-length tuple.")
+        lines.append(
+            f"Return an array with exactly {len(prefix_items)} elements in this order:"
+        )
+        for i, item_schema in enumerate(prefix_items):
+            desc = item_schema.get("description", f"Item {i}")
+            type_name = item_schema.get("type", "any")
+            lines.append(f"  - Index {i}: {type_name} ({desc})")
+        lines.append("Do NOT return objects inside this array. Return raw values.")
+        lines.append("")
+
     for name, prop in props.items():
         ptype = prop.get("type", "string")
         desc = prop.get("description", "")
         req_mark = " (required)" if name in required else " (optional)"
-        lines.append(f'  - "{name}": {ptype}{req_mark}')
-        if desc:
-            lines.append(f"    {desc}")
+
+        # Handle nested array descriptions if needed
+        if ptype == "array" and "items" in prop:
+            lines.append(f'  - "{name}": array{req_mark}')
+            if "description" in prop:
+                lines.append(f"    {prop['description']}")
+        else:
+            lines.append(f'  - "{name}": {ptype}{req_mark}')
+            if desc:
+                lines.append(f"    {desc}")
+
     if required:
         lines.append(f"\nRequired fields: {', '.join(required)}")
-    lines.append("Return ONLY valid JSON, no markdown, no explanation.")
+
+    lines.append("\nReturn ONLY valid JSON, no markdown, no explanation.")
     return "\n".join(lines)
 
 

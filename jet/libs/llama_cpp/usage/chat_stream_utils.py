@@ -205,44 +205,52 @@ def build_messages(
     messages: list[dict[str, Any]] | None,
     image_source: str | None,
     system_prompt_addition: str | None,
-    image_encoder: Callable,
+    encode_image: Callable,
+    system_message: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Build the initial messages list from prompt/messages/image inputs."""
-    current_messages: list[dict[str, Any]] | None = messages
-    if current_messages is None:
-        if image_source and prompt:
-            base64_img, mime_type = image_encoder(image_source)
-            content: Any = [
-                {"type": "text", "text": prompt},
+    """
+    Builds the messages list for the chat API, ensuring the system message is first.
+    """
+    messages = messages or []
+
+    # Build the system message content
+    system_content = system_message or system_prompt_addition
+    system_msg = (
+        {"role": "system", "content": system_content} if system_content else None
+    )
+
+    # Start with the system message if it exists
+    final_messages: list[dict[str, Any]] = []
+    if system_msg:
+        final_messages.append(system_msg)
+
+    # Add existing messages (excluding any existing system messages to avoid duplicates)
+    for msg in messages:
+        if msg.get("role") != "system":
+            final_messages.append(msg)
+
+    # Add the user prompt if provided
+    if prompt:
+        final_messages.append({"role": "user", "content": prompt})
+
+    # Handle image encoding (replace the last user message if it exists)
+    if image_source:
+        encoded_image = encode_image(image_source)
+        if encoded_image:
+            image_content = [
+                {"type": "text", "text": prompt or ""},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:{mime_type};base64,{base64_img}"},
+                    "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"},
                 },
             ]
-            current_messages = [{"role": "user", "content": content}]
-        elif prompt:
-            current_messages = [{"role": "user", "content": prompt}]
-        else:
-            current_messages = []
-    if system_prompt_addition and current_messages:
-        existing_system_idx = next(
-            (
-                i
-                for i, msg in enumerate(current_messages)
-                if msg.get("role") == "system"
-            ),
-            None,
-        )
-        if existing_system_idx is not None:
-            existing_content = current_messages[existing_system_idx].get("content", "")
-            current_messages[existing_system_idx]["content"] = (
-                f"{existing_content}\n{system_prompt_addition}"
-            )
-        else:
-            current_messages.insert(
-                0, {"role": "system", "content": system_prompt_addition}
-            )
-    return current_messages
+            # Replace the last user message with the image + text
+            if final_messages and final_messages[-1].get("role") == "user":
+                final_messages[-1] = {"role": "user", "content": image_content}
+            else:
+                final_messages.append({"role": "user", "content": image_content})
+
+    return final_messages
 
 
 # ---------------------------------------------------------------------------

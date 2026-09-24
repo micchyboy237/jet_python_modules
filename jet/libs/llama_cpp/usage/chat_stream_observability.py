@@ -14,8 +14,8 @@ from typing import Any, Callable
 
 from jet_telemetry import initialize_telemetry
 
-PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
-initialize_telemetry(service_name="chat-stream-obs", endpoint=PHOENIX_URL)
+PHOENIX_BASE_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
+initialize_telemetry(service_name="chat-stream-obs", endpoint=PHOENIX_BASE_URL)
 
 from jet.libs.llama_cpp.usage.chat_stream import (
     run_chat_stream as _pure_run_chat_stream,
@@ -40,6 +40,8 @@ from jet_telemetry import (
     agent,
     chain,
     evaluator,
+    export_spans_to_jsonl,
+    get_spans_api_url,
     get_trace_url,
     llm,
     redact,
@@ -60,8 +62,6 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger("chat-stream-obs")
-
-PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 
 
 def _ensure_telemetry(project_name: str, phoenix_url: str):
@@ -109,6 +109,7 @@ def observe_llm_chat_stream(
     model: str,
     on_chunk: Callable,
     client: OpenAI | None = None,
+    system_message: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """
@@ -120,6 +121,7 @@ def observe_llm_chat_stream(
         model=model,
         on_chunk=on_chunk,
         client=client,
+        system_message=system_message,
         **kwargs,
     )
     span = otel_trace.get_current_span()
@@ -134,6 +136,8 @@ def observe_llm_chat_stream(
                 SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
                 result.usage.get("completion_tokens", 0),
             )
+        if system_message:
+            span.set_attribute("llm.system_message", redact(system_message))
     return result
 
 
@@ -143,6 +147,7 @@ async def observe_llm_chat_stream_async(
     model: str,
     on_chunk: Callable,
     client: AsyncOpenAI | None = None,
+    system_message: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """Decorated LLM span for asynchronous chat streaming."""
@@ -151,6 +156,7 @@ async def observe_llm_chat_stream_async(
         model=model,
         on_chunk=on_chunk,
         client=client,
+        system_message=system_message,
         **kwargs,
     )
     span = otel_trace.get_current_span()
@@ -161,6 +167,8 @@ async def observe_llm_chat_stream_async(
                 SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
                 result.usage.get("total_tokens", 0),
             )
+        if system_message:
+            span.set_attribute("llm.system_message", redact(system_message))
     return result
 
 
@@ -210,7 +218,6 @@ def _execute_tool_with_span(
     Manually executes a tool function within a dedicated TOOL span.
     Uses SpanKind.INTERNAL but sets OPENINFERENCE_SPAN_KIND to "TOOL".
     """
-    # Handle arguments whether they are a string or already a dict
     if isinstance(arguments, str):
         try:
             args = json.loads(arguments) if arguments else {}
@@ -220,42 +227,29 @@ def _execute_tool_with_span(
         args = arguments
     else:
         args = {}
-
-    # Use INTERNAL kind as SpanKind.TOOL does not exist in standard OTel
     with tracer.start_as_current_span(
         f"tool_execution.{func_name}", kind=SpanKind.INTERNAL
     ) as tool_span:
-        # Set OpenInference semantic convention for Tool spans
         tool_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, "TOOL")
         tool_span.set_attribute(SpanAttributes.TOOL_NAME, func_name)
-
-        # Ensure parameters are stored as a string for tracing
         params_str = arguments if isinstance(arguments, str) else json.dumps(arguments)
         tool_span.set_attribute("tool.parameters", redact(params_str))
-
         try:
-            # Execute the tool
             if isinstance(args, dict):
                 result = func(**args)
             else:
                 result = func(args)
-
-            # Record result (be careful with size limits in OTLP)
             result_str = str(result)
             if len(result_str) > 1000:
                 result_str = result_str[:1000] + "... [truncated]"
-
             tool_span.set_attribute("tool.result", redact(result_str))
             tool_span.set_status(
                 otel_trace.status.Status(otel_trace.status.StatusCode.OK)
             )
             return result
-
         except Exception as e:
             tool_span.record_exception(e)
-            tool_span.set_status(
-                otel_trace.status.Status(otel_trace.status.StatusCode.ERROR, str(e))
-            )
+            tool_span.set_status(otel_trace.status.StatusCode.ERROR, str(e))
             return {"error": str(e)}
 
 
@@ -268,6 +262,7 @@ def run_agentic_chat(
     on_chunk: Callable,
     client: OpenAI | None = None,
     max_tool_rounds: int = 10,
+    system_message: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """
@@ -277,38 +272,30 @@ def run_agentic_chat(
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
-
-    # Prepare messages
     if isinstance(prompt_or_messages, str):
         messages = [{"role": "user", "content": prompt_or_messages}]
     else:
         messages = list(prompt_or_messages)
-
     current_messages = messages
     final_result = None
     tracer = otel_trace.get_tracer(__name__)
-
     for round_idx in range(max_tool_rounds):
-        # Call LLM
         result = observe_llm_chat_stream(
             prompt_or_messages=current_messages,
             model=model,
-            on_chunk=on_chunk
-            if round_idx == max_tool_rounds - 1
-            else lambda x: None,  # Only show final chunk stream
+            on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
             client=client,
-            **{k: v for k, v in kwargs.items() if k not in ["image_source"]},
+            system_message=system_message,
+            **{
+                k: v
+                for k, v in kwargs.items()
+                if k not in ["image_source", "system_message"]
+            },
         )
-
         final_result = result
-
-        # Check for tool calls
         if not result.tool_calls:
             break
-
-        # Execute tools
         new_messages = list(current_messages)
-        # Add assistant message with tool calls
         assistant_msg = {
             "role": "assistant",
             "content": result.content,
@@ -318,7 +305,6 @@ def run_agentic_chat(
                     "type": tc.type,
                     "function": {
                         "name": tc.name,
-                        # Ensure arguments are stored as string for LLM history
                         "arguments": tc.arguments
                         if isinstance(tc.arguments, str)
                         else json.dumps(tc.arguments),
@@ -328,20 +314,16 @@ def run_agentic_chat(
             ],
         }
         new_messages.append(assistant_msg)
-
         for tc in result.tool_calls:
             func_name = tc.name
             func = tool_registry.get(func_name)
-
             if func:
                 tool_result = _execute_tool_with_span(
                     func_name=func_name,
                     func=func,
-                    arguments=tc.arguments,  # Pass as-is; helper handles str/dict
+                    arguments=tc.arguments,
                     tracer=tracer,
                 )
-
-                # Add tool result message
                 tool_msg = {
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -358,17 +340,13 @@ def run_agentic_chat(
                     "content": json.dumps({"error": f"Tool '{func_name}' not found"}),
                 }
                 new_messages.append(tool_msg)
-
         current_messages = new_messages
-
-    # Final structured parsing
     if final_result and final_result.content:
         structured_result = observe_structured_parsing(
             final_result.content, resolved_fmt
         )
         if structured_result:
             final_result.structured = structured_result
-
     return final_result
 
 
@@ -381,36 +359,36 @@ async def run_agentic_chat_async(
     on_chunk: Callable,
     client: AsyncOpenAI | None = None,
     max_tool_rounds: int = 10,
+    system_message: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """Async top-level AGENT span for agentic loops."""
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
-
     if isinstance(prompt_or_messages, str):
         messages = [{"role": "user", "content": prompt_or_messages}]
     else:
         messages = list(prompt_or_messages)
-
     current_messages = messages
     final_result = None
     tracer = otel_trace.get_tracer(__name__)
-
     for round_idx in range(max_tool_rounds):
         result = await observe_llm_chat_stream_async(
             prompt_or_messages=current_messages,
             model=model,
             on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
             client=client,
-            **{k: v for k, v in kwargs.items() if k not in ["image_source"]},
+            system_message=system_message,
+            **{
+                k: v
+                for k, v in kwargs.items()
+                if k not in ["image_source", "system_message"]
+            },
         )
-
         final_result = result
-
         if not result.tool_calls:
             break
-
         new_messages = list(current_messages)
         assistant_msg = {
             "role": "assistant",
@@ -430,62 +408,16 @@ async def run_agentic_chat_async(
             ],
         }
         new_messages.append(assistant_msg)
-
         for tc in result.tool_calls:
             func_name = tc.name
             func = tool_registry.get(func_name)
-
             if func:
-                # Use INTERNAL kind as SpanKind.TOOL does not exist in standard OTel
-                with tracer.start_as_current_span(
-                    f"tool_execution.{func_name}", kind=SpanKind.INTERNAL
-                ) as tool_span:
-                    # Set OpenInference semantic convention for Tool spans
-                    tool_span.set_attribute(
-                        SpanAttributes.OPENINFERENCE_SPAN_KIND, "TOOL"
-                    )
-                    tool_span.set_attribute(SpanAttributes.TOOL_NAME, func_name)
-
-                    params_str = (
-                        tc.arguments
-                        if isinstance(tc.arguments, str)
-                        else json.dumps(tc.arguments)
-                    )
-                    tool_span.set_attribute("tool.parameters", redact(params_str))
-
-                    try:
-                        # Handle arguments whether they are a string or already a dict
-                        if isinstance(tc.arguments, str):
-                            try:
-                                args = json.loads(tc.arguments) if tc.arguments else {}
-                            except json.JSONDecodeError:
-                                args = {}
-                        elif isinstance(tc.arguments, dict):
-                            args = tc.arguments
-                        else:
-                            args = {}
-
-                        if isinstance(args, dict):
-                            tool_result = func(**args)
-                        else:
-                            tool_result = func(args)
-
-                        result_str = str(tool_result)
-                        if len(result_str) > 1000:
-                            result_str = result_str[:1000] + "... [truncated]"
-                        tool_span.set_attribute("tool.result", redact(result_str))
-                        tool_span.set_status(
-                            otel_trace.status.Status(otel_trace.status.StatusCode.OK)
-                        )
-                    except Exception as e:
-                        tool_span.record_exception(e)
-                        tool_span.set_status(
-                            otel_trace.status.Status(
-                                otel_trace.status.StatusCode.ERROR, str(e)
-                            )
-                        )
-                        tool_result = {"error": str(e)}
-
+                tool_result = _execute_tool_with_span(
+                    func_name=func_name,
+                    func=func,
+                    arguments=tc.arguments,
+                    tracer=tracer,
+                )
                 tool_msg = {
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -502,16 +434,13 @@ async def run_agentic_chat_async(
                     "content": json.dumps({"error": f"Tool '{func_name}' not found"}),
                 }
                 new_messages.append(tool_msg)
-
         current_messages = new_messages
-
     if final_result and final_result.content:
         structured_result = observe_structured_parsing(
             final_result.content, resolved_fmt
         )
         if structured_result:
             final_result.structured = structured_result
-
     return final_result
 
 
@@ -522,26 +451,25 @@ def run_simple_chat(
     resolved_fmt: Any,
     on_chunk: Callable,
     client: OpenAI | None = None,
+    system_message: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """Top-level CHAIN span for non-agentic chat."""
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
-
     result = observe_llm_chat_stream(
         prompt_or_messages=prompt_or_messages,
         model=model,
         on_chunk=on_chunk,
         client=client,
+        system_message=system_message,
         **kwargs,
     )
-
     if result.content:
         structured_result = observe_structured_parsing(result.content, resolved_fmt)
         if structured_result:
             result.structured = structured_result
-
     return result
 
 
@@ -552,26 +480,25 @@ async def run_simple_chat_async(
     resolved_fmt: Any,
     on_chunk: Callable,
     client: AsyncOpenAI | None = None,
+    system_message: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """Async top-level CHAIN span for non-agentic chat."""
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
-
     result = await observe_llm_chat_stream_async(
         prompt_or_messages=prompt_or_messages,
         model=model,
         on_chunk=on_chunk,
         client=client,
+        system_message=system_message,
         **kwargs,
     )
-
     if result.content:
         structured_result = observe_structured_parsing(result.content, resolved_fmt)
         if structured_result:
             result.structured = structured_result
-
     return result
 
 
@@ -585,14 +512,12 @@ def _make_chat_chunk_handler() -> tuple[Callable[[Any], None], dict[str, Any]]:
         delta = chunk.choices[0].delta
         if not delta:
             return
-
         if state["first_token_at"] is None and (
             getattr(delta, "content", None)
             or getattr(delta, "reasoning_content", None)
             or getattr(delta, "tool_calls", None)
         ):
             state["first_token_at"] = time.perf_counter()
-
         if hasattr(delta, "reasoning_content") and delta.reasoning_content:
             if not state["in_think_block"]:
                 console.print("[bold orange1]<think>[/bold orange1]", end="")
@@ -606,7 +531,6 @@ def _make_chat_chunk_handler() -> tuple[Callable[[Any], None], dict[str, Any]]:
         elif state["in_think_block"]:
             console.print("[bold orange1]</think>[/bold orange1]", end="")
             state["in_think_block"] = False
-
         if hasattr(delta, "content") and delta.content:
             console.print(
                 f"[bold cyan]{delta.content}[/bold cyan]",
@@ -625,6 +549,8 @@ def _print_header_footer(
     model: str,
     trace_url: str | None,
     is_agentic: bool = False,
+    project_name: str | None = None,
+    phoenix_url: str | None = None,
 ):
     """Unified printing logic for stream summaries."""
     logger.info("─" * 60)
@@ -635,6 +561,34 @@ def _print_header_footer(
 
     if trace_url:
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
+
+        # Only attempt export if we have project details
+        if project_name and phoenix_url:
+            current_span = otel_trace.get_current_span()
+            if current_span.is_recording():
+                trace_id = current_span.get_span_context().trace_id
+                trace_id_hex = format(trace_id, "032x")
+
+                api_url = get_spans_api_url(
+                    phoenix_url, project_name, trace_id=trace_id_hex
+                )
+                console.print(f"🔗 Inspect API : [link={api_url}]{api_url}[/link]")
+
+                try:
+                    jsonl_path = export_spans_to_jsonl(
+                        project_name=project_name,  # Passed as project_identifier internally
+                        trace_id=trace_id_hex,
+                        output_path=f"traces/{trace_id_hex}.jsonl",
+                        phoenix_base_url=phoenix_url,
+                        wait_for_flush=True,
+                        max_retries=3,  # Handle BatchSpanProcessor lag
+                    )
+                    if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
+                        console.print(
+                            f"📥 Exported JSONL: [link=file://{jsonl_path.resolve()}]{jsonl_path.name}[/link]"
+                        )
+                except Exception as e:
+                    console.print(f"⚠️ Export failed: {e}")
 
     logger.info("─" * 60)
     logger.info("📊 Summary")
@@ -653,7 +607,6 @@ def _print_header_footer(
         logger.info(f"   Duration         : {total_secs:.2f}s")
         if ttft is not None:
             logger.info(f"   Time to first token: {ttft:.2f}s")
-
     if result.structured:
         status = "✅" if result.structured.success else "⚠️"
         logger.info(
@@ -668,7 +621,7 @@ def run_chat_stream(
     model: str = MODEL,
     *,
     project_name: str = "chat-stream-obs",
-    phoenix_url: str = PHOENIX_URL,
+    phoenix_url: str = PHOENIX_BASE_URL,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -690,17 +643,15 @@ def run_chat_stream(
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
+    system_message: str | None = None,
 ) -> StreamCompletionResult:
     """Traced synchronous chat streaming using jet_telemetry decorators."""
     _ensure_telemetry(project_name, phoenix_url)
-
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
     on_chunk, chunk_state = _make_chat_chunk_handler()
-
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
     t_start = time.perf_counter()
-
     common_kwargs = {
         "model": model,
         "enable_thinking": enable_thinking,
@@ -720,8 +671,8 @@ def run_chat_stream(
         "max_tool_rounds": max_tool_rounds,
         "extra_body_params": extra_body_params,
         "image_source": image_source,
+        "system_message": system_message,
     }
-
     if is_agentic:
         result = run_agentic_chat(
             prompt_or_messages=prompt_or_messages,
@@ -739,16 +690,21 @@ def run_chat_stream(
             client=client,
             **common_kwargs,
         )
-
     total_secs = time.perf_counter() - t_start
     ttft = chunk_state.get("first_token_at")
     if ttft is not None:
         ttft = ttft - t_start
-
-    # Now inside the @chain scope, so get_trace_url will find the active span
     trace_url = get_trace_url(phoenix_url) if project_name else None
-
-    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic)
+    _print_header_footer(
+        result,
+        total_secs,
+        ttft,
+        model,
+        trace_url,
+        is_agentic,
+        project_name,
+        phoenix_url,
+    )
     return result
 
 
@@ -758,7 +714,7 @@ async def run_chat_stream_async(
     model: str = MODEL,
     *,
     project_name: str = "achat-stream-obs",
-    phoenix_url: str = PHOENIX_URL,
+    phoenix_url: str = PHOENIX_BASE_URL,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
     enable_thinking: bool = False,
@@ -780,17 +736,15 @@ async def run_chat_stream_async(
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
+    system_message: str | None = None,
 ) -> StreamCompletionResult:
     """Traced asynchronous chat streaming using jet_telemetry decorators."""
     _ensure_telemetry(project_name, phoenix_url)
-
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
     on_chunk, chunk_state = _make_chat_chunk_handler()
-
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
     t_start = time.perf_counter()
-
     common_kwargs = {
         "model": model,
         "enable_thinking": enable_thinking,
@@ -810,8 +764,8 @@ async def run_chat_stream_async(
         "max_tool_rounds": max_tool_rounds,
         "extra_body_params": extra_body_params,
         "image_source": image_source,
+        "system_message": system_message,
     }
-
     if is_agentic:
         result = await run_agentic_chat_async(
             prompt_or_messages=prompt_or_messages,
@@ -829,16 +783,21 @@ async def run_chat_stream_async(
             client=client,
             **common_kwargs,
         )
-
     total_secs = time.perf_counter() - t_start
     ttft = chunk_state.get("first_token_at")
     if ttft is not None:
         ttft = ttft - t_start
-
-    # Now inside the @chain scope, so get_trace_url will find the active span
     trace_url = get_trace_url(phoenix_url) if project_name else None
-
-    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic)
+    _print_header_footer(
+        result,
+        total_secs,
+        ttft,
+        model,
+        trace_url,
+        is_agentic,
+        project_name,
+        phoenix_url,
+    )
     return result
 
 
@@ -848,7 +807,7 @@ def run_generate_stream(
     model: str = MODEL,
     *,
     project_name: str = "generate-stream-obs",
-    phoenix_url: str = PHOENIX_URL,
+    phoenix_url: str = PHOENIX_BASE_URL,
     client: OpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -865,12 +824,9 @@ def run_generate_stream(
 ) -> StreamCompletionResult:
     """Traced synchronous raw text completion."""
     _ensure_telemetry(project_name, phoenix_url)
-
     on_chunk, chunk_state = _make_chat_chunk_handler()
-
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
     t_start = time.perf_counter()
-
     result = observe_generate_stream(
         prompt=prompt,
         model=model,
@@ -889,16 +845,21 @@ def run_generate_stream(
         stop=stop,
         extra_body_params=extra_body_params,
     )
-
     total_secs = time.perf_counter() - t_start
     ttft = chunk_state.get("first_token_at")
     if ttft is not None:
         ttft = ttft - t_start
-
-    # Now inside the @chain scope, so get_trace_url will find the active span
     trace_url = get_trace_url(phoenix_url) if project_name else None
-
-    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic=False)
+    _print_header_footer(
+        result,
+        total_secs,
+        ttft,
+        model,
+        trace_url,
+        is_agentic=False,
+        project_name=project_name,
+        phoenix_url=phoenix_url,
+    )
     return result
 
 
@@ -908,7 +869,7 @@ async def run_generate_stream_async(
     model: str = MODEL,
     *,
     project_name: str = "agenerate-stream-obs",
-    phoenix_url: str = PHOENIX_URL,
+    phoenix_url: str = PHOENIX_BASE_URL,
     client: AsyncOpenAI | None = None,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -925,12 +886,9 @@ async def run_generate_stream_async(
 ) -> StreamCompletionResult:
     """Traced asynchronous raw text completion."""
     _ensure_telemetry(project_name, phoenix_url)
-
     on_chunk, chunk_state = _make_chat_chunk_handler()
-
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
     t_start = time.perf_counter()
-
     result = await observe_generate_stream_async(
         prompt=prompt,
         model=model,
@@ -949,16 +907,21 @@ async def run_generate_stream_async(
         stop=stop,
         extra_body_params=extra_body_params,
     )
-
     total_secs = time.perf_counter() - t_start
     ttft = chunk_state.get("first_token_at")
     if ttft is not None:
         ttft = ttft - t_start
-
-    # Now inside the @chain scope, so get_trace_url will find the active span
     trace_url = get_trace_url(phoenix_url) if project_name else None
-
-    _print_header_footer(result, total_secs, ttft, model, trace_url, is_agentic=False)
+    _print_header_footer(
+        result,
+        total_secs,
+        ttft,
+        model,
+        trace_url,
+        is_agentic=False,
+        project_name=project_name,
+        phoenix_url=phoenix_url,
+    )
     return result
 
 
@@ -974,7 +937,7 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument("-i", "--image-source", type=str, default=None)
     parser.add_argument("--project", type=str, default="chat-stream-obs")
-    parser.add_argument("--phoenix-url", type=str, default=PHOENIX_URL)
+    parser.add_argument("--phoenix-url", type=str, default=PHOENIX_BASE_URL)
     parser.add_argument(
         "--base-url",
         type=str,
@@ -999,6 +962,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--response-format", type=str, default=None)
     parser.add_argument("--session-id", type=str, default=None)
     parser.add_argument("--generate", action="store_true")
+    parser.add_argument(
+        "--system-message",
+        type=str,
+        default="You are a helpful assistant.",
+        help="System message to guide the model's behavior.",
+    )
     return parser.parse_args()
 
 
@@ -1006,7 +975,6 @@ if __name__ == "__main__":
     from jet.adapters.llama_cpp.factory import get_llm_client
 
     args = get_args()
-
     parsed_logit_bias: dict[str, int] | None = None
     if args.logit_bias:
         try:
@@ -1014,7 +982,6 @@ if __name__ == "__main__":
         except json.JSONDecodeError as e:
             logger.error(f"❌ Invalid logit_bias JSON: {e}")
             raise SystemExit(1)
-
     parsed_tools: list[dict[str, Any]] | None = None
     if args.tools_json:
         try:
@@ -1022,14 +989,12 @@ if __name__ == "__main__":
         except json.JSONDecodeError as e:
             logger.error(f"❌ Invalid tools JSON: {e}")
             raise SystemExit(1)
-
     parsed_tool_choice: str | dict[str, Any] | None = args.tool_choice
     if parsed_tool_choice and parsed_tool_choice.startswith("{"):
         try:
             parsed_tool_choice = json.loads(parsed_tool_choice)
         except json.JSONDecodeError:
             pass
-
     parsed_response_format: dict[str, Any] | None = None
     if args.response_format:
         try:
@@ -1037,9 +1002,7 @@ if __name__ == "__main__":
         except json.JSONDecodeError as e:
             logger.error(f"❌ Invalid response_format JSON: {e}")
             raise SystemExit(1)
-
     client = get_llm_client(base_url=args.base_url, timeout=args.timeout)
-
     if args.generate:
         result = run_generate_stream(
             args.prompt,
@@ -1084,8 +1047,8 @@ if __name__ == "__main__":
             response_format=parsed_response_format,
             tool_registry=None,
             session_id=args.session_id,
+            system_message=args.system_message,
         )
-
     if result.has_tool_calls:
         logger.info(
             f"📋 Result: {len(result.tool_calls)} tool call(s), "
