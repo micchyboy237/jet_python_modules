@@ -29,7 +29,18 @@ def _redact(text: str) -> str:
 
 
 def _get_tracer():
-    """Lazily get the global tracer."""
+    """Lazily get the global tracer from Phoenix TracerProvider."""
+    try:
+        from .setup import get_tracer_provider
+
+        provider = get_tracer_provider()
+        if provider:
+            # This returns a Phoenix-enhanced tracer with .tool(), .llm(), etc.
+            return provider.get_tracer(__name__)
+    except ImportError:
+        pass
+
+    # Fallback to standard OTEL tracer (won't have Phoenix extensions)
     return otel_trace.get_tracer(__name__)
 
 
@@ -132,12 +143,10 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
         def wrapper(*args, **kwargs):
             span = otel_trace.get_current_span()
             if span.is_recording():
-                # Set tool metadata if provided via decorator
                 if name:
                     span.set_attribute(SpanAttributes.TOOL_NAME, name)
                 if description:
                     span.set_attribute(SpanAttributes.TOOL_DESCRIPTION, description)
-                # Set tool parameters from function call
                 if kwargs:
                     safe_params = {k: _redact(str(v)) for k, v in kwargs.items()}
                     span.set_attribute(
@@ -151,12 +160,10 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
             async def async_wrapper(*args, **kwargs):
                 span = otel_trace.get_current_span()
                 if span.is_recording():
-                    # Set tool metadata if provided via decorator
                     if name:
                         span.set_attribute(SpanAttributes.TOOL_NAME, name)
                     if description:
                         span.set_attribute(SpanAttributes.TOOL_DESCRIPTION, description)
-                    # Set tool parameters from function call
                     if kwargs:
                         safe_params = {k: _redact(str(v)) for k, v in kwargs.items()}
                         span.set_attribute(
@@ -223,26 +230,21 @@ def retriever(
                     span_name, openinference_span_kind="retriever"
                 ) as span:
                     if span.is_recording():
-                        # Note: There's no RETRIEVER_MODEL_NAME in SpanAttributes
-                        # Use custom attribute instead
                         if model_name:
                             span.set_attribute("retriever.model_name", model_name)
                         if args:
                             span.set_attribute("retrieval.query", _redact(str(args[0])))
                     result = await f(*args, **kwargs)
-                    # Capture retrieval documents metadata only (no vectors/large content)
                     if span.is_recording() and result:
                         if isinstance(result, list) and len(result) > 0:
-                            # Only capture count and scores, not full content
                             doc_metadata = []
-                            for i, doc in enumerate(result[:10]):  # Limit to 10 docs
+                            for i, doc in enumerate(result[:10]):
                                 meta = {"index": i}
                                 if isinstance(doc, dict):
                                     if "score" in doc:
                                         meta["score"] = doc["score"]
                                     if "id" in doc:
                                         meta["id"] = doc["id"]
-                                    # Skip 'content' and 'embedding' fields to avoid large spans
                                 doc_metadata.append(meta)
                             span.set_attribute("retrieval.document_count", len(result))
                             span.set_attribute(
@@ -259,26 +261,21 @@ def retriever(
                     span_name, openinference_span_kind="retriever"
                 ) as span:
                     if span.is_recording():
-                        # Note: There's no RETRIEVER_MODEL_NAME in SpanAttributes
-                        # Use custom attribute instead
                         if model_name:
                             span.set_attribute("retriever.model_name", model_name)
                         if args:
                             span.set_attribute("retrieval.query", _redact(str(args[0])))
                     result = f(*args, **kwargs)
-                    # Capture retrieval documents metadata only (no vectors/large content)
                     if span.is_recording() and result:
                         if isinstance(result, list) and len(result) > 0:
-                            # Only capture count and scores, not full content
                             doc_metadata = []
-                            for i, doc in enumerate(result[:10]):  # Limit to 10 docs
+                            for i, doc in enumerate(result[:10]):
                                 meta = {"index": i}
                                 if isinstance(doc, dict):
                                     if "score" in doc:
                                         meta["score"] = doc["score"]
                                     if "id" in doc:
                                         meta["id"] = doc["id"]
-                                    # Skip 'content' and 'embedding' fields to avoid large spans
                                 doc_metadata.append(meta)
                             span.set_attribute("retrieval.document_count", len(result))
                             span.set_attribute(
@@ -316,18 +313,14 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                             SpanAttributes.EMBEDDING_MODEL_NAME, model_name
                         )
                         if args:
-                            # Capture text input (redacted if sensitive)
                             span.set_attribute(
                                 EmbeddingAttributes.EMBEDDING_TEXT,
                                 _redact(str(args[0])),
                             )
-                            # Capture text length for monitoring
                             span.set_attribute(
                                 "embedding.text_length", len(str(args[0]))
                             )
                     result = await f(*args, **kwargs)
-                    # DO NOT capture embedding vector - it's too large
-                    # Instead capture vector dimension if available
                     if span.is_recording() and result:
                         if isinstance(result, list):
                             span.set_attribute(
@@ -348,18 +341,14 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                             SpanAttributes.EMBEDDING_MODEL_NAME, model_name
                         )
                         if args:
-                            # Capture text input (redacted if sensitive)
                             span.set_attribute(
                                 EmbeddingAttributes.EMBEDDING_TEXT,
                                 _redact(str(args[0])),
                             )
-                            # Capture text length for monitoring
                             span.set_attribute(
                                 "embedding.text_length", len(str(args[0]))
                             )
                     result = f(*args, **kwargs)
-                    # DO NOT capture embedding vector - it's too large
-                    # Instead capture vector dimension if available
                     if span.is_recording() and result:
                         if isinstance(result, list):
                             span.set_attribute(
@@ -396,26 +385,22 @@ def reranker(
                     span_name, openinference_span_kind="reranker"
                 ) as span:
                     if span.is_recording():
-                        # Use RerankerAttributes.RERANKER_MODEL_NAME
                         if model_name:
                             span.set_attribute(
                                 RerankerAttributes.RERANKER_MODEL_NAME, model_name
                             )
-                        # Capture query if present
                         if args and len(args) > 0:
                             span.set_attribute(
                                 RerankerAttributes.RERANKER_QUERY, _redact(str(args[0]))
                             )
                     result = await f(*args, **kwargs)
-                    # Capture reranked documents metadata only (no full content)
                     if span.is_recording() and result:
                         if isinstance(result, list):
                             span.set_attribute(
                                 "reranker.output_document_count", len(result)
                             )
-                            # Only capture scores, not full content
                             scores = []
-                            for doc in result[:10]:  # Limit to 10 docs
+                            for doc in result[:10]:
                                 if isinstance(doc, dict) and "score" in doc:
                                     scores.append(doc["score"])
                             if scores:
@@ -433,26 +418,22 @@ def reranker(
                     span_name, openinference_span_kind="reranker"
                 ) as span:
                     if span.is_recording():
-                        # Use RerankerAttributes.RERANKER_MODEL_NAME
                         if model_name:
                             span.set_attribute(
                                 RerankerAttributes.RERANKER_MODEL_NAME, model_name
                             )
-                        # Capture query if present
                         if args and len(args) > 0:
                             span.set_attribute(
                                 RerankerAttributes.RERANKER_QUERY, _redact(str(args[0]))
                             )
                     result = f(*args, **kwargs)
-                    # Capture reranked documents metadata only (no full content)
                     if span.is_recording() and result:
                         if isinstance(result, list):
                             span.set_attribute(
                                 "reranker.output_document_count", len(result)
                             )
-                            # Only capture scores, not full content
                             scores = []
-                            for doc in result[:10]:  # Limit to 10 docs
+                            for doc in result[:10]:
                                 if isinstance(doc, dict) and "score" in doc:
                                     scores.append(doc["score"])
                             if scores:
@@ -595,6 +576,7 @@ def trace(func=None, *, name: Optional[str] = None, kind: str = "CHAIN"):
         tracer = _get_tracer()
         span_name = name or f.__name__
         kind_upper = kind.upper()
+
         if kind_upper == "CHAIN":
             return tracer.chain(name=span_name)(f)
         elif kind_upper == "TOOL":
