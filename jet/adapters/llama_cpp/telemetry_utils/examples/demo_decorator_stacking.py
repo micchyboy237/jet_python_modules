@@ -1,8 +1,8 @@
 """
 Demo: Custom Decorator Stacking & Composition
 Covers: Stacking multiple custom decorators, combining jet-telemetry with
-        application-specific decorators, decorator order matters, and
-        building reusable decorator chains.
+application-specific decorators, decorator order matters, and
+building reusable decorator chains.
 Span Hierarchy:
 📦 decorator-stacking-demo (CHAIN)
 │
@@ -30,11 +30,11 @@ Span Hierarchy:
 │       └── 🤖 generate_with_tracking (LLM) [Nested]
 │
 └── 📦 Example 4: Composite Decorator (CHAIN)
-    │
-    └── 🤖 smart_generate (LLM)
-        ├── attr: llm.model_name = "llama-3.2-3b-instruct"
-        ├── attr: cache.hit = False
-        └── attr: perf.smart_generate.duration_ms = 900.1
+│
+└── 🤖 smart_generate (LLM)
+├── attr: llm.model_name = "llama-3.2-3b-instruct"
+├── attr: cache.hit = False
+└── attr: perf.smart_generate.duration_ms = 900.1
 """
 
 import asyncio
@@ -60,28 +60,31 @@ initialize_telemetry(service_name="decorator-stacking-demo", endpoint=PHOENIX_BA
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 
 
-def get_spans_jsonl_download_url(
-    phoenix_base_url: str,
-    project_name: str,
-    span_ids: list[str] | None = None,
-    limit: int = 1000,
-) -> str:
-    """
-    Generates a Phoenix REST API URL to download spans as JSONL.
-    Args:
-        phoenix_base_url: Base URL of the Phoenix instance (e.g., "http://localhost:6006").
-        project_name: Name of the Phoenix project.
-        span_ids: Optional list of span IDs to filter by.
-        limit: Maximum number of spans to return per request.
-    Returns:
-        A URL to download spans as JSONL.
-    """
-    base = phoenix_base_url.rstrip("/")
-    url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
-    if span_ids:
-        span_ids_str = ",".join(span_ids)
-        url += f"&span_id={span_ids_str}"
-    return url
+def log_trace_download(trace_url: str | None):
+    """Helper to log trace URL and trigger JSONL export if possible."""
+    if not trace_url:
+        return
+
+    print(f"🔍 View complete trace: {trace_url}")
+
+    try:
+        from jet_telemetry import export_spans_to_jsonl
+
+        if "/redirects/traces/" in trace_url:
+            trace_id = trace_url.split("/redirects/traces/")[-1]
+            project_name = "decorator-stacking-demo"
+
+            jsonl_path = export_spans_to_jsonl(
+                project_name=project_name,
+                trace_id=trace_id,
+                output_path=f"traces/{trace_id}.jsonl",
+                phoenix_base_url=PHOENIX_BASE_URL,
+                wait_for_flush=True,
+            )
+            if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
+                print(f"📥 Exported JSONL: {jsonl_path.resolve()}")
+    except Exception as e:
+        print(f"⚠️ Could not auto-export JSONL: {e}")
 
 
 def performance_monitor(func=None, *, threshold_ms: float = 500):
@@ -381,26 +384,12 @@ async def enhanced_rag_pipeline(query: str) -> dict:
         context=context,
     )
     trace_url = get_trace_url(PHOENIX_BASE_URL)
-
-    # Get the current trace ID for JSONL download
-    current_span = otel_trace.get_current_span()
-    trace_id_hex = None
-    if current_span.is_recording():
-        trace_id = current_span.get_span_context().trace_id
-        trace_id_hex = format(trace_id, "032x")
-
-    result_dict = {
+    return {
         "query": query,
         "answer": answer,
         "sources": len(results),
         "trace_url": trace_url,
     }
-    if trace_id_hex:
-        jsonl_download_url = get_spans_jsonl_download_url(
-            PHOENIX_BASE_URL, "decorator-stacking-demo", span_ids=[trace_id_hex]
-        )
-        result_dict["jsonl_download_url"] = jsonl_download_url
-    return result_dict
 
 
 def fully_observed_llm(
@@ -487,9 +476,7 @@ async def run_example_3():
     print(f"   Sources: {result3['sources']}")
     print(f"   Answer length: {len(result3['answer'])} chars")
     if url := result3.get("trace_url"):
-        print(f"🔍 View complete trace: {url}")
-    if jsonl_url := result3.get("jsonl_download_url"):
-        print(f"📥 Download spans as JSONL: {jsonl_url}")
+        log_trace_download(url)
 
 
 @chain(name="Example 4: Composite Decorator")
@@ -521,26 +508,14 @@ async def run_demo():
     await run_example_2()
     await run_example_3()
     await run_example_4()
-
-    # Get the current trace ID for JSONL download
-    current_span = otel_trace.get_current_span()
-    trace_id_hex = None
-    if current_span.is_recording():
-        trace_id = current_span.get_span_context().trace_id
-        trace_id_hex = format(trace_id, "032x")
-
     print("\n" + "=" * 80)
     print("✨ Demo complete! Check Phoenix UI for detailed traces.")
-    if trace_id_hex:
-        jsonl_download_url = get_spans_jsonl_download_url(
-            PHOENIX_BASE_URL, "decorator-stacking-demo", span_ids=[trace_id_hex]
-        )
-        print(f"📥 Download all spans as JSONL: {jsonl_download_url}")
     print("=" * 80)
-
     if span.is_recording():
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, "Demo Completed Successfully")
         span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
+
+    log_trace_download(get_trace_url(PHOENIX_BASE_URL))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """
 Demo: Comprehensive Span Kinds & Hybrid Search
 Covers: @retriever, @embedding, @reranker, @guardrail, @evaluator, @prompt,
-        and LLM-powered relevance evaluation as top-level siblings.
+and LLM-powered relevance evaluation as top-level siblings.
 Span Hierarchy:
 📦 custom-spans (CHAIN)
 │
@@ -31,9 +31,9 @@ Span Hierarchy:
 │   └── attr: reranker.output_document_count = 3
 │
 └── 🧠 llm-relevance-judge (EVALUATOR)
-    │
-    └── 📝 relevance-eval-template (PROMPT)
-        └── (Generates the prompt string for the LLM)
+│
+└── 📝 relevance-eval-template (PROMPT)
+└── (Generates the prompt string for the LLM)
 """
 
 import asyncio
@@ -71,34 +71,35 @@ except LookupError:
 initialize_telemetry(
     service_name="custom-spans-demo", endpoint=PHOENIX_BASE_URL, auto_instrument=False
 )
-
-
-def get_spans_jsonl_download_url(
-    phoenix_base_url: str,
-    project_name: str,
-    span_ids: list[str] | None = None,
-    limit: int = 1000,
-) -> str:
-    """
-    Generates a Phoenix REST API URL to download spans as JSONL.
-    Args:
-        phoenix_base_url: Base URL of the Phoenix instance (e.g., "http://localhost:6006").
-        project_name: Name of the Phoenix project.
-        span_ids: Optional list of span IDs to filter by.
-        limit: Maximum number of spans to return per request.
-    Returns:
-        A URL to download spans as JSONL.
-    """
-    base = phoenix_base_url.rstrip("/")
-    url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
-    if span_ids:
-        span_ids_str = ",".join(span_ids)
-        url += f"&span_id={span_ids_str}"
-    return url
-
-
 embed_client = OpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
+
+
+def log_trace_download(trace_url: str | None):
+    """Helper to log trace URL and trigger JSONL export if possible."""
+    if not trace_url:
+        return
+
+    print(f"🔍 View complete trace: {trace_url}")
+
+    try:
+        from jet_telemetry import export_spans_to_jsonl
+
+        if "/redirects/traces/" in trace_url:
+            trace_id = trace_url.split("/redirects/traces/")[-1]
+            project_name = "custom-spans-demo"
+
+            jsonl_path = export_spans_to_jsonl(
+                project_name=project_name,
+                trace_id=trace_id,
+                output_path=f"traces/{trace_id}.jsonl",
+                phoenix_base_url=PHOENIX_BASE_URL,
+                wait_for_flush=True,
+            )
+            if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
+                print(f"📥 Exported JSONL: {jsonl_path.resolve()}")
+    except Exception as e:
+        print(f"⚠️ Could not auto-export JSONL: {e}")
 
 
 def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
@@ -177,18 +178,18 @@ def build_relevance_prompt(query: str, documents: list[str]) -> str:
         [f"[Doc {i + 1}]: {doc}" for i, doc in enumerate(documents)]
     )
     return f"""
-    You are a relevance evaluator.
-    Query: "{query}"
-    Retrieved Documents:
-    {doc_context}
-    For each document, provide:
-    1. A relevance score from 0.0 (irrelevant) to 1.0 (perfectly relevant).
-    2. A one-sentence justification.
-    Return ONLY a valid JSON array of objects:
-    [
-      {{"doc_index": 0, "score": 0.9, "justification": "..."}}
-    ]
-    """
+You are a relevance evaluator.
+Query: "{query}"
+Retrieved Documents:
+{doc_context}
+For each document, provide:
+1. A relevance score from 0.0 (irrelevant) to 1.0 (perfectly relevant).
+2. A one-sentence justification.
+Return ONLY a valid JSON array of objects:
+[
+{{"doc_index": 0, "score": 0.9, "justification": "..."}}
+]
+"""
 
 
 @evaluator(name="llm-relevance-judge")
@@ -231,7 +232,6 @@ async def run_search_demo():
     if not is_safe:
         print("❌ Input failed safety check.")
         return
-
     print(f"\n🔍 Starting hybrid search for: '{query}'")
     retrieval_result = vector_search(query, docs, top_k=3)
     print(f"\n📊 Running BM25 reranking...")
@@ -245,26 +245,11 @@ async def run_search_demo():
         score_info = next((s for s in relevance_scores if s.get("doc_index") == i), {})
         llm_score = score_info.get("score", "N/A")
         justification = score_info.get("justification", "No justification provided.")
-        print(f"\n   {i + 1}. [Hybrid: {res['hybrid_score']}] [LLM: {llm_score}]")
+        print(f"\n{i + 1}. [Hybrid: {res['hybrid_score']}] [LLM: {llm_score}]")
         print(f"       Content: {res['content'][:60]}...")
         print(f"       LLM Justification: {justification}")
 
-    # Get the current trace ID for JSONL download
-    from opentelemetry import trace as otel_trace
-
-    current_span = otel_trace.get_current_span()
-    trace_id_hex = None
-    if current_span.is_recording():
-        trace_id = current_span.get_span_context().trace_id
-        trace_id_hex = format(trace_id, "032x")
-
-    if url := get_trace_url(PHOENIX_BASE_URL):
-        print(f"\n🔍 View complete trace: {url}")
-    if trace_id_hex:
-        jsonl_download_url = get_spans_jsonl_download_url(
-            PHOENIX_BASE_URL, "custom-spans-demo", span_ids=[trace_id_hex]
-        )
-        print(f"📥 Download spans as JSONL: {jsonl_download_url}")
+    log_trace_download(get_trace_url(PHOENIX_BASE_URL))
 
 
 if __name__ == "__main__":

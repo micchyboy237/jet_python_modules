@@ -30,28 +30,33 @@ initialize_telemetry(service_name="agent-demo", endpoint=PHOENIX_BASE_URL)
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 
 
-def get_spans_jsonl_download_url(
-    phoenix_base_url: str,
-    project_name: str,
-    span_ids: list[str] | None = None,
-    limit: int = 1000,
-) -> str:
-    """
-    Generates a Phoenix REST API URL to download spans as JSONL.
-    Args:
-        phoenix_base_url: Base URL of the Phoenix instance (e.g., "http://localhost:6006").
-        project_name: Name of the Phoenix project.
-        span_ids: Optional list of span IDs to filter by.
-        limit: Maximum number of spans to return per request.
-    Returns:
-        A URL to download spans as JSONL.
-    """
-    base = phoenix_base_url.rstrip("/")
-    url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
-    if span_ids:
-        span_ids_str = ",".join(span_ids)
-        url += f"&span_id={span_ids_str}"
-    return url
+def log_trace_download(trace_url: str | None):
+    """Helper to log trace URL and trigger JSONL export if possible."""
+    if not trace_url:
+        return
+
+    print(f"🔍 View complete trace: {trace_url}")
+
+    # Attempt to export JSONL using the helper from jet_telemetry if available
+    try:
+        from jet_telemetry import export_spans_to_jsonl
+
+        # Extract trace_id from URL for filtering
+        if "/redirects/traces/" in trace_url:
+            trace_id = trace_url.split("/redirects/traces/")[-1]
+            project_name = "agent-demo"  # Match service_name
+
+            jsonl_path = export_spans_to_jsonl(
+                project_name=project_name,
+                trace_id=trace_id,
+                output_path=f"traces/{trace_id}.jsonl",
+                phoenix_base_url=PHOENIX_BASE_URL,
+                wait_for_flush=True,
+            )
+            if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
+                print(f"📥 Exported JSONL: {jsonl_path.resolve()}")
+    except Exception as e:
+        print(f"⚠️ Could not auto-export JSONL: {e}")
 
 
 @tool(description="Get current weather for a city. Args: city (str)")
@@ -75,16 +80,16 @@ async def search_docs(query: str) -> list[str]:
 async def plan_next_step(task: str, history: list[dict]) -> dict:
     """Streaming LLM call for agent planning."""
     tools_description = """
-    Available Tools:
-    1. get_weather(city: str): Get current weather.
-    2. search_docs(query: str): Search technical documentation.
-    Respond with ONLY valid JSON:
-    {
-      "action": "tool_name" or "final_answer",
-      "args": {"arg_name": "value"},
-      "reasoning": "Why you chose this action"
-    }
-    """
+Available Tools:
+1. get_weather(city: str): Get current weather.
+2. search_docs(query: str): Search technical documentation.
+Respond with ONLY valid JSON:
+{
+"action": "tool_name" or "final_answer",
+"args": {"arg_name": "value"},
+"reasoning": "Why you chose this action"
+}
+"""
     messages = [
         {
             "role": "system",
@@ -92,7 +97,7 @@ async def plan_next_step(task: str, history: list[dict]) -> dict:
         },
         {
             "role": "user",
-            "content": f"Task: {task}\n\nHistory:\n{json.dumps(history[-2:], indent=2)}",
+            "content": f"Task: {task}\nHistory:\n{json.dumps(history[-2:], indent=2)}",
         },
     ]
     print("\n🧠 Agent Thinking: ", end="", flush=True)
@@ -140,25 +145,10 @@ async def research_agent(task: str, max_steps: int = 5) -> dict:
         plan = await plan_next_step(task, history)
         action = plan.get("action", "")
         if action == "final_answer" or action == "done":
-            # Get the current trace ID for JSONL download
-            from opentelemetry import trace as otel_trace
-
-            current_span = otel_trace.get_current_span()
-            trace_id_hex = None
-            if current_span.is_recording():
-                trace_id = current_span.get_span_context().trace_id
-                trace_id_hex = format(trace_id, "032x")
-
-            result_dict = {
+            return {
                 "result": plan.get("reasoning", "Task completed."),
                 "trace_url": get_trace_url(PHOENIX_BASE_URL),
             }
-            if trace_id_hex:
-                jsonl_download_url = get_spans_jsonl_download_url(
-                    PHOENIX_BASE_URL, "agent-demo", span_ids=[trace_id_hex]
-                )
-                result_dict["jsonl_download_url"] = jsonl_download_url
-            return result_dict
         selected_tool = tool_map.get(action)
         if selected_tool:
             try:
@@ -173,34 +163,16 @@ async def research_agent(task: str, max_steps: int = 5) -> dict:
         else:
             history.append({"step": step, "error": f"Unknown action: {action}"})
             print(f"❌ Unknown action: {action}", flush=True)
-    # Get the current trace ID for JSONL download
-    from opentelemetry import trace as otel_trace
-
-    current_span = otel_trace.get_current_span()
-    trace_id_hex = None
-    if current_span.is_recording():
-        trace_id = current_span.get_span_context().trace_id
-        trace_id_hex = format(trace_id, "032x")
-
-    result_dict = {
+    return {
         "result": "Max steps reached. See history for details.",
         "trace_url": get_trace_url(PHOENIX_BASE_URL),
     }
-    if trace_id_hex:
-        jsonl_download_url = get_spans_jsonl_download_url(
-            PHOENIX_BASE_URL, "agent-demo", span_ids=[trace_id_hex]
-        )
-        result_dict["jsonl_download_url"] = jsonl_download_url
-    return result_dict
 
 
 async def main():
     result_dict = await research_agent("What's the weather in Tokyo?")
     print(f"\n🤖 Final Result: {result_dict['result']}")
-    if url := result_dict.get("trace_url"):
-        print(f"🔍 View complete trace: {url}")
-    if jsonl_url := result_dict.get("jsonl_download_url"):
-        print(f"📥 Download spans as JSONL: {jsonl_url}")
+    log_trace_download(result_dict.get("trace_url"))
 
 
 if __name__ == "__main__":

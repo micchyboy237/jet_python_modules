@@ -19,9 +19,9 @@ Span Hierarchy:
 │   └── attr: reranker.output_document_count = 3
 │
 └── 🤖 generate_answer (LLM)
-    ├── attr: llm.model_name = "llama-3.2-3b-instruct"
-    ├── attr: llm.provider = "llama_cpp"
-    └── attr: llm.input_messages = [...]
+├── attr: llm.model_name = "llama-3.2-3b-instruct"
+├── attr: llm.provider = "llama_cpp"
+└── attr: llm.input_messages = [...]
 """
 
 import asyncio
@@ -55,34 +55,35 @@ initialize_telemetry(
     auto_instrument=True,
     batch=True,
 )
-
-
-def get_spans_jsonl_download_url(
-    phoenix_base_url: str,
-    project_name: str,
-    span_ids: list[str] | None = None,
-    limit: int = 1000,
-) -> str:
-    """
-    Generates a Phoenix REST API URL to download spans as JSONL.
-    Args:
-        phoenix_base_url: Base URL of the Phoenix instance (e.g., "http://localhost:6006").
-        project_name: Name of the Phoenix project.
-        span_ids: Optional list of span IDs to filter by.
-        limit: Maximum number of spans to return per request.
-    Returns:
-        A URL to download spans as JSONL.
-    """
-    base = phoenix_base_url.rstrip("/")
-    url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
-    if span_ids:
-        span_ids_str = ",".join(span_ids)
-        url += f"&span_id={span_ids_str}"
-    return url
-
-
 llm_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="sk-local")
 embed_client = AsyncOpenAI(base_url=EMBED_BASE_URL, api_key="sk-local")
+
+
+def log_trace_download(trace_url: str | None):
+    """Helper to log trace URL and trigger JSONL export if possible."""
+    if not trace_url:
+        return
+
+    print(f"🔍 View complete trace: {trace_url}")
+
+    try:
+        from jet_telemetry import export_spans_to_jsonl
+
+        if "/redirects/traces/" in trace_url:
+            trace_id = trace_url.split("/redirects/traces/")[-1]
+            project_name = "rag-pipeline-demo"
+
+            jsonl_path = export_spans_to_jsonl(
+                project_name=project_name,
+                trace_id=trace_id,
+                output_path=f"traces/{trace_id}.jsonl",
+                phoenix_base_url=PHOENIX_BASE_URL,
+                wait_for_flush=True,
+            )
+            if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
+                print(f"📥 Exported JSONL: {jsonl_path.resolve()}")
+    except Exception as e:
+        print(f"⚠️ Could not auto-export JSONL: {e}")
 
 
 @embedding(model_name=EMBED_MODEL)
@@ -143,7 +144,7 @@ async def generate_answer(query: str, context: list[str]) -> str:
         {"role": "system", "content": "Answer based ONLY on the provided context."},
         {
             "role": "user",
-            "content": f"Context:\n{''.join(context)}\n\nQuestion: {query}",
+            "content": f"Context:\n{''.join(context)}\nQuestion: {query}",
         },
     ]
     print("\n🤖 LLM Response: ", end="", flush=True)
@@ -177,37 +178,18 @@ async def rag_pipeline(query: str) -> dict:
     context = [d["content"] for d in ranked_docs]
     answer = await generate_answer(query, context)
     trace_url = get_trace_url(PHOENIX_BASE_URL)
-
-    # Get the current trace ID for JSONL download
-    from opentelemetry import trace as otel_trace
-
-    current_span = otel_trace.get_current_span()
-    trace_id_hex = None
-    if current_span.is_recording():
-        trace_id = current_span.get_span_context().trace_id
-        trace_id_hex = format(trace_id, "032x")
-
-    result_dict = {
+    return {
         "query": query,
         "answer": answer,
         "sources": len(ranked_docs),
         "trace_url": trace_url,
     }
-    if trace_id_hex:
-        jsonl_download_url = get_spans_jsonl_download_url(
-            PHOENIX_BASE_URL, "rag-pipeline-demo", span_ids=[trace_id_hex]
-        )
-        result_dict["jsonl_download_url"] = jsonl_download_url
-    return result_dict
 
 
 async def main():
     result = await rag_pipeline("What are the key principles of AI alignment?")
     print(f"\n✅ Sources used: {result['sources']}")
-    if url := result.get("trace_url"):
-        print(f"🔍 View complete trace: {url}")
-    if jsonl_url := result.get("jsonl_download_url"):
-        print(f"📥 Download spans as JSONL: {jsonl_url}")
+    log_trace_download(result.get("trace_url"))
 
 
 if __name__ == "__main__":

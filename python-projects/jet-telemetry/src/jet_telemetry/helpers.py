@@ -4,6 +4,7 @@ Jet Telemetry: Helper utilities for tracing and observability.
 """
 
 import hashlib
+import json
 import time
 from pathlib import Path
 
@@ -87,13 +88,11 @@ def export_spans_to_jsonl(
     max_retries: int = 3,
 ) -> Path:
     """
-    Export spans from Phoenix to JSONL using arize-phoenix-client SDK.
-    Handles race conditions with BatchSpanProcessor via retries.
+    Export spans as RAW JSON objects (preserving nesting, events, and all attributes).
+    This matches the format of the manual 'Download Trace' feature.
     """
     if not PHOENIX_CLIENT_AVAILABLE:
-        raise ImportError(
-            "arize-phoenix-client is required. Install with: pip install arize-phoenix-client"
-        )
+        raise ImportError("arize-phoenix-client is required.")
 
     from datetime import datetime, timedelta
 
@@ -105,56 +104,20 @@ def export_spans_to_jsonl(
 
     client = Client(base_url=phoenix_base_url)
 
-    # Build query using SpanQuery DSL
-    # Note: In phoenix-client 3.3.0, DataFrame columns are often flattened.
-    # We use the standard OpenInference attribute names which usually map directly.
-    query = SpanQuery().select(
-        "name",
-        "span_kind",
-        "parent_id",
-        "start_time",
-        "end_time",
-        "status_code",
-        "status_message",
-        "events",
-        "context.span_id",
-        "context.trace_id",
-        # Flattened attribute names commonly used in the Client DataFrame
-        "llm.model_name",
-        "llm.provider",
-        "llm.token_count.total",
-        "llm.token_count.prompt",
-        "llm.token_count.completion",
-        "llm.input_messages",
-        "llm.output_messages",
-        "llm.invocation_parameters",
-        "llm.system",
-        "llm.finish_reason",
-        "input.value",
-        "output.value",
-        "input.mime_type",
-        "output.mime_type",
-        "tool.name",
-        "tool.parameters",
-        "tool.result",
-        "retrieval.documents",
-        "embedding.embeddings",
-    )
-
-    if trace_id:
-        query = query.where(f"trace_id == '{trace_id}'")
-
     last_error = None
     for attempt in range(max_retries):
         try:
-            spans_df = client.spans.get_spans_dataframe(
+            # Use trace_ids parameter instead of query for get_spans()
+            trace_ids = [trace_id] if trace_id else None
+
+            spans_list = client.spans.get_spans(
                 project_identifier=project_name,
-                query=query,
+                trace_ids=trace_ids,
                 limit=limit,
                 start_time=datetime.now() - timedelta(days=7),
             )
 
-            if spans_df.empty:
+            if not spans_list:
                 if attempt < max_retries - 1:
                     print(
                         f"⏳ No spans found yet (attempt {attempt + 1}/{max_retries}), retrying..."
@@ -167,21 +130,15 @@ def export_spans_to_jsonl(
                 output_path.write_text("")
                 return output_path
 
-            # Convert NaN to None for cleaner JSON
-            spans_df = spans_df.where(spans_df.notna(), None)
+            with open(output_path, "w") as f:
+                for span in spans_list:
+                    # The SDK returns pydantic models; ensure we serialize correctly
+                    if hasattr(span, "model_dump"):
+                        f.write(json.dumps(span.model_dump()) + "\n")
+                    else:
+                        f.write(json.dumps(span) + "\n")
 
-            # Check if we got mostly nulls (indicating wrong column names)
-            # If so, we might want to log a warning or try a broader select
-            non_null_counts = spans_df.count()
-            if (
-                non_null_counts.sum() < len(spans_df) * 2
-            ):  # Heuristic: if very few non-nulls
-                print(
-                    "⚠️ Warning: Exported data contains many nulls. Column names may have changed in this Phoenix version."
-                )
-
-            spans_df.to_json(str(output_path), orient="records", lines=True)
-            print(f"✅ Exported {len(spans_df)} spans to {output_path}")
+            print(f"✅ Exported {len(spans_list)} raw spans to {output_path}")
             return output_path
 
         except Exception as e:
@@ -192,7 +149,7 @@ def export_spans_to_jsonl(
                 )
                 time.sleep(2.0)
             else:
-                print(f"❌ Failed to export spans after {max_retries} attempts: {e}")
+                print(f"❌ Failed to export raw spans: {e}")
                 output_path.write_text("")
                 return output_path
 
@@ -209,15 +166,6 @@ def export_spans_to_csv(
 ) -> Path:
     """
     Export spans from Phoenix to CSV format using arize-phoenix-client SDK.
-    Args:
-        project_name: Name of the Phoenix project.
-        trace_id: Optional trace ID to filter spans by.
-        output_path: File path to save CSV output.
-        phoenix_base_url: Base URL of the Phoenix instance.
-        limit: Maximum number of spans to retrieve.
-        wait_for_flush: If True, forces a flush of pending spans before exporting.
-    Returns:
-        Path to the exported CSV file.
     """
     if not PHOENIX_CLIENT_AVAILABLE:
         raise ImportError(
@@ -232,9 +180,14 @@ def export_spans_to_csv(
     try:
         client = Client(base_url=phoenix_base_url)
 
+        # For DataFrame export, we can still use SpanQuery if needed,
+        # but get_spans_dataframe handles filtering differently.
+        # We'll stick to the previous working logic for CSV if it was working,
+        # or use the same trace_ids approach if the SDK supports it for DF.
+        # Note: get_spans_dataframe typically requires a SpanQuery for complex filtering.
         query = None
         if trace_id:
-            query = SpanQuery().where(f"trace_id = '{trace_id}'")
+            query = SpanQuery().where(f"trace_id == '{trace_id}'")
 
         spans_df = client.spans.get_spans_dataframe(
             project_identifier=project_name,
