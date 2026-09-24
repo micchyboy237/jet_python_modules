@@ -1,6 +1,6 @@
 """Observability Wrapper for chat_stream.py using jet_telemetry.
 Refactored to use granular decorators (@agent, @llm, @tool, @evaluator)
-instead of manual span management. Aligns with telemetry_utils/examples.
+and manual tool loop instrumentation for full visibility.
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ from jet_telemetry import (
 from openai import AsyncOpenAI, OpenAI
 from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace as otel_trace
+from opentelemetry.trace import SpanKind
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -199,6 +200,65 @@ async def observe_generate_stream_async(
     )
 
 
+def _execute_tool_with_span(
+    func_name: str,
+    func: Callable,
+    arguments: dict | str,
+    tracer: Any,
+) -> Any:
+    """
+    Manually executes a tool function within a dedicated TOOL span.
+    Uses SpanKind.INTERNAL but sets OPENINFERENCE_SPAN_KIND to "TOOL".
+    """
+    # Handle arguments whether they are a string or already a dict
+    if isinstance(arguments, str):
+        try:
+            args = json.loads(arguments) if arguments else {}
+        except json.JSONDecodeError:
+            args = {}
+    elif isinstance(arguments, dict):
+        args = arguments
+    else:
+        args = {}
+
+    # Use INTERNAL kind as SpanKind.TOOL does not exist in standard OTel
+    with tracer.start_as_current_span(
+        f"tool_execution.{func_name}", kind=SpanKind.INTERNAL
+    ) as tool_span:
+        # Set OpenInference semantic convention for Tool spans
+        tool_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, "TOOL")
+        tool_span.set_attribute(SpanAttributes.TOOL_NAME, func_name)
+
+        # Ensure parameters are stored as a string for tracing
+        params_str = arguments if isinstance(arguments, str) else json.dumps(arguments)
+        tool_span.set_attribute("tool.parameters", redact(params_str))
+
+        try:
+            # Execute the tool
+            if isinstance(args, dict):
+                result = func(**args)
+            else:
+                result = func(args)
+
+            # Record result (be careful with size limits in OTLP)
+            result_str = str(result)
+            if len(result_str) > 1000:
+                result_str = result_str[:1000] + "... [truncated]"
+
+            tool_span.set_attribute("tool.result", redact(result_str))
+            tool_span.set_status(
+                otel_trace.status.Status(otel_trace.status.StatusCode.OK)
+            )
+            return result
+
+        except Exception as e:
+            tool_span.record_exception(e)
+            tool_span.set_status(
+                otel_trace.status.Status(otel_trace.status.StatusCode.ERROR, str(e))
+            )
+            return {"error": str(e)}
+
+
 @agent(name="agent.chat_loop")
 def run_agentic_chat(
     prompt_or_messages: str | list[dict[str, Any]],
@@ -207,31 +267,109 @@ def run_agentic_chat(
     resolved_fmt: Any,
     on_chunk: Callable,
     client: OpenAI | None = None,
+    max_tool_rounds: int = 10,
     **kwargs,
 ) -> StreamCompletionResult:
     """
     Top-level AGENT span for agentic loops.
-    Handles image encoding, tool execution loops, and structured parsing.
+    Implements manual tool loop to ensure TOOL spans are created.
     """
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
 
-    result = observe_llm_chat_stream(
-        prompt_or_messages=prompt_or_messages,
-        model=model,
-        tool_registry=tool_registry,
-        on_chunk=on_chunk,
-        client=client,
-        **kwargs,
-    )
+    # Prepare messages
+    if isinstance(prompt_or_messages, str):
+        messages = [{"role": "user", "content": prompt_or_messages}]
+    else:
+        messages = list(prompt_or_messages)
 
-    if result.content:
-        structured_result = observe_structured_parsing(result.content, resolved_fmt)
+    current_messages = messages
+    final_result = None
+    tracer = otel_trace.get_tracer(__name__)
+
+    for round_idx in range(max_tool_rounds):
+        # Call LLM
+        result = observe_llm_chat_stream(
+            prompt_or_messages=current_messages,
+            model=model,
+            on_chunk=on_chunk
+            if round_idx == max_tool_rounds - 1
+            else lambda x: None,  # Only show final chunk stream
+            client=client,
+            **{k: v for k, v in kwargs.items() if k not in ["image_source"]},
+        )
+
+        final_result = result
+
+        # Check for tool calls
+        if not result.tool_calls:
+            break
+
+        # Execute tools
+        new_messages = list(current_messages)
+        # Add assistant message with tool calls
+        assistant_msg = {
+            "role": "assistant",
+            "content": result.content,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.name,
+                        # Ensure arguments are stored as string for LLM history
+                        "arguments": tc.arguments
+                        if isinstance(tc.arguments, str)
+                        else json.dumps(tc.arguments),
+                    },
+                }
+                for tc in result.tool_calls
+            ],
+        }
+        new_messages.append(assistant_msg)
+
+        for tc in result.tool_calls:
+            func_name = tc.name
+            func = tool_registry.get(func_name)
+
+            if func:
+                tool_result = _execute_tool_with_span(
+                    func_name=func_name,
+                    func=func,
+                    arguments=tc.arguments,  # Pass as-is; helper handles str/dict
+                    tracer=tracer,
+                )
+
+                # Add tool result message
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(tool_result)
+                    if not isinstance(tool_result, str)
+                    else tool_result,
+                }
+                new_messages.append(tool_msg)
+            else:
+                logger.warning(f"Tool '{func_name}' not found in registry.")
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps({"error": f"Tool '{func_name}' not found"}),
+                }
+                new_messages.append(tool_msg)
+
+        current_messages = new_messages
+
+    # Final structured parsing
+    if final_result and final_result.content:
+        structured_result = observe_structured_parsing(
+            final_result.content, resolved_fmt
+        )
         if structured_result:
-            result.structured = structured_result
+            final_result.structured = structured_result
 
-    return result
+    return final_result
 
 
 @agent(name="agent.chat_loop.async")
@@ -242,6 +380,7 @@ async def run_agentic_chat_async(
     resolved_fmt: Any,
     on_chunk: Callable,
     client: AsyncOpenAI | None = None,
+    max_tool_rounds: int = 10,
     **kwargs,
 ) -> StreamCompletionResult:
     """Async top-level AGENT span for agentic loops."""
@@ -249,21 +388,131 @@ async def run_agentic_chat_async(
     if image_source:
         observe_image_encoding(image_source)
 
-    result = await observe_llm_chat_stream_async(
-        prompt_or_messages=prompt_or_messages,
-        model=model,
-        tool_registry=tool_registry,
-        on_chunk=on_chunk,
-        client=client,
-        **kwargs,
-    )
+    if isinstance(prompt_or_messages, str):
+        messages = [{"role": "user", "content": prompt_or_messages}]
+    else:
+        messages = list(prompt_or_messages)
 
-    if result.content:
-        structured_result = observe_structured_parsing(result.content, resolved_fmt)
+    current_messages = messages
+    final_result = None
+    tracer = otel_trace.get_tracer(__name__)
+
+    for round_idx in range(max_tool_rounds):
+        result = await observe_llm_chat_stream_async(
+            prompt_or_messages=current_messages,
+            model=model,
+            on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
+            client=client,
+            **{k: v for k, v in kwargs.items() if k not in ["image_source"]},
+        )
+
+        final_result = result
+
+        if not result.tool_calls:
+            break
+
+        new_messages = list(current_messages)
+        assistant_msg = {
+            "role": "assistant",
+            "content": result.content,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.name,
+                        "arguments": tc.arguments
+                        if isinstance(tc.arguments, str)
+                        else json.dumps(tc.arguments),
+                    },
+                }
+                for tc in result.tool_calls
+            ],
+        }
+        new_messages.append(assistant_msg)
+
+        for tc in result.tool_calls:
+            func_name = tc.name
+            func = tool_registry.get(func_name)
+
+            if func:
+                # Use INTERNAL kind as SpanKind.TOOL does not exist in standard OTel
+                with tracer.start_as_current_span(
+                    f"tool_execution.{func_name}", kind=SpanKind.INTERNAL
+                ) as tool_span:
+                    # Set OpenInference semantic convention for Tool spans
+                    tool_span.set_attribute(
+                        SpanAttributes.OPENINFERENCE_SPAN_KIND, "TOOL"
+                    )
+                    tool_span.set_attribute(SpanAttributes.TOOL_NAME, func_name)
+
+                    params_str = (
+                        tc.arguments
+                        if isinstance(tc.arguments, str)
+                        else json.dumps(tc.arguments)
+                    )
+                    tool_span.set_attribute("tool.parameters", redact(params_str))
+
+                    try:
+                        # Handle arguments whether they are a string or already a dict
+                        if isinstance(tc.arguments, str):
+                            try:
+                                args = json.loads(tc.arguments) if tc.arguments else {}
+                            except json.JSONDecodeError:
+                                args = {}
+                        elif isinstance(tc.arguments, dict):
+                            args = tc.arguments
+                        else:
+                            args = {}
+
+                        if isinstance(args, dict):
+                            tool_result = func(**args)
+                        else:
+                            tool_result = func(args)
+
+                        result_str = str(tool_result)
+                        if len(result_str) > 1000:
+                            result_str = result_str[:1000] + "... [truncated]"
+                        tool_span.set_attribute("tool.result", redact(result_str))
+                        tool_span.set_status(
+                            otel_trace.status.Status(otel_trace.status.StatusCode.OK)
+                        )
+                    except Exception as e:
+                        tool_span.record_exception(e)
+                        tool_span.set_status(
+                            otel_trace.status.Status(
+                                otel_trace.status.StatusCode.ERROR, str(e)
+                            )
+                        )
+                        tool_result = {"error": str(e)}
+
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(tool_result)
+                    if not isinstance(tool_result, str)
+                    else tool_result,
+                }
+                new_messages.append(tool_msg)
+            else:
+                logger.warning(f"Tool '{func_name}' not found in registry.")
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps({"error": f"Tool '{func_name}' not found"}),
+                }
+                new_messages.append(tool_msg)
+
+        current_messages = new_messages
+
+    if final_result and final_result.content:
+        structured_result = observe_structured_parsing(
+            final_result.content, resolved_fmt
+        )
         if structured_result:
-            result.structured = structured_result
+            final_result.structured = structured_result
 
-    return result
+    return final_result
 
 
 @chain(name="llm.chat_session")
