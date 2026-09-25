@@ -1,13 +1,14 @@
 """
 Summary: Streamlined tracing decorators for AI/LLM applications.
-Uses arize-phoenix-otel 0.17.1+ built-in decorators with automatic
-input/output capture and OpenInference semantic conventions.
-Includes redaction and rich attribute setting similar to jet/observability.
-Prevents large vector data from being captured in spans.
+Organized by instrumentation style:
+1. Core Utilities (Performance, Redaction)
+2. High-Level Wrappers (arize-phoenix-otel built-ins)
+3. Semantic Manual Spans (Custom OpenInference attributes)
 """
 
 import inspect
 import json
+import time
 from functools import wraps
 from typing import Optional
 
@@ -18,8 +19,11 @@ from openinference.semconv.trace import (
 )
 from opentelemetry import trace as otel_trace
 
+# ─── 1. CORE UTILITIES ───────────────────────────────────────────────────────
+
 
 def _redact(text: str) -> str:
+    """Redact sensitive content from text before tracing."""
     sensitive = ["ssn", "password", "api_key", "secret", "token"]
     lower = text.lower()
     for pattern in sensitive:
@@ -35,13 +39,66 @@ def _get_tracer():
 
         provider = get_tracer_provider()
         if provider:
-            # This returns a Phoenix-enhanced tracer with .tool(), .llm(), etc.
             return provider.get_tracer(__name__)
     except ImportError:
         pass
-
-    # Fallback to standard OTEL tracer (won't have Phoenix extensions)
     return otel_trace.get_tracer(__name__)
+
+
+def performance_monitor(func=None, *, threshold_ms: float = 500):
+    """
+    Attaches performance metrics (duration_ms, slow) to the CURRENT active span.
+    Useful for stacking with @llm, @tool, or @chain to track latency explicitly.
+
+    Args:
+        threshold_ms: If duration exceeds this, sets 'perf.slow' to True.
+    """
+
+    def decorator(f):
+        is_async = inspect.iscoroutinefunction(f)
+
+        if is_async:
+
+            @wraps(f)
+            async def async_wrapper(*args, **kwargs):
+                start_time = time.perf_counter()
+                try:
+                    result = await f(*args, **kwargs)
+                    return result
+                finally:
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    _attach_perf_metrics(elapsed_ms, threshold_ms, f.__name__)
+
+            return async_wrapper
+        else:
+
+            @wraps(f)
+            def sync_wrapper(*args, **kwargs):
+                start_time = time.perf_counter()
+                try:
+                    result = f(*args, **kwargs)
+                    return result
+                finally:
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    _attach_perf_metrics(elapsed_ms, threshold_ms, f.__name__)
+
+            return sync_wrapper
+
+    if func is not None:
+        return decorator(func)
+    return decorator
+
+
+def _attach_perf_metrics(elapsed_ms: float, threshold_ms: float, name: str):
+    """Helper to attach metrics to the current active span."""
+    span = otel_trace.get_current_span()
+    if span.is_recording():
+        # Use a standard prefix for easy querying in Phoenix
+        span.set_attribute(f"perf.{name}.duration_ms", round(elapsed_ms, 2))
+        span.set_attribute(f"perf.{name}.slow", elapsed_ms > threshold_ms)
+
+
+# ─── 2. HIGH-LEVEL WRAPPERS (arize-phoenix-otel) ─────────────────────────────
 
 
 def llm(
@@ -52,7 +109,7 @@ def llm(
     provider: str = "llama_cpp",
 ):
     """
-    Decorator for LLM calls.
+    Decorator for LLM calls using built-in Phoenix tracer.
     Captures input messages and invocation parameters.
     """
 
@@ -67,6 +124,8 @@ def llm(
             if span.is_recording():
                 span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model_name)
                 span.set_attribute(SpanAttributes.LLM_PROVIDER, provider)
+
+                # Capture input messages if available
                 sig = inspect.signature(f)
                 bound_args = sig.bind(*args, **kwargs)
                 bound_args.apply_defaults()
@@ -83,12 +142,6 @@ def llm(
                         span.set_attribute(
                             SpanAttributes.LLM_INPUT_MESSAGES, json.dumps(safe_msgs)
                         )
-                if "invocation_params" in bound_args.arguments:
-                    params = bound_args.arguments["invocation_params"]
-                    if isinstance(params, dict):
-                        span.set_attribute(
-                            SpanAttributes.LLM_INVOCATION_PARAMETERS, json.dumps(params)
-                        )
             return decorated(*args, **kwargs)
 
         if inspect.iscoroutinefunction(f):
@@ -99,6 +152,7 @@ def llm(
                 if span.is_recording():
                     span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model_name)
                     span.set_attribute(SpanAttributes.LLM_PROVIDER, provider)
+
                     sig = inspect.signature(f)
                     bound_args = sig.bind(*args, **kwargs)
                     bound_args.apply_defaults()
@@ -118,6 +172,7 @@ def llm(
                 return await decorated(*args, **kwargs)
 
             return async_wrapper
+
         return wrapper
 
     if func is not None:
@@ -172,6 +227,7 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
                 return await decorated(*args, **kwargs)
 
             return async_wrapper
+
         return wrapper
 
     if func is not None:
@@ -207,6 +263,9 @@ def agent(func=None, *, name: Optional[str] = None):
     if func is not None:
         return decorator(func)
     return decorator
+
+
+# ─── 3. SEMANTIC MANUAL SPANS (Custom OpenInference) ─────────────────────────
 
 
 def retriever(

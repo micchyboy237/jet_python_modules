@@ -51,6 +51,7 @@ from jet_telemetry import (
     hash_prompt,
     initialize_telemetry,
     llm,
+    performance_monitor,
     redact,
     tool,
 )
@@ -58,7 +59,6 @@ from openai import AsyncOpenAI
 from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace as otel_trace
 
-# Setup Output Directory
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -71,16 +71,13 @@ def log_trace_download(trace_url: str | None):
     """Helper to log trace URL and trigger JSONL export if possible."""
     if not trace_url:
         return
-
     print(f"🔍 View complete trace: {trace_url}")
-
     try:
         from jet_telemetry import export_spans_to_jsonl
 
         if "/redirects/traces/" in trace_url:
             trace_id = trace_url.split("/redirects/traces/")[-1]
             project_name = "decorator-stacking-demo"
-
             jsonl_path = export_spans_to_jsonl(
                 project_name=project_name,
                 trace_id=trace_id,
@@ -92,65 +89,6 @@ def log_trace_download(trace_url: str | None):
                 print(f"📥 Exported JSONL: {jsonl_path.resolve()}")
     except Exception as e:
         print(f"⚠️ Could not auto-export JSONL: {e}")
-
-
-def performance_monitor(func=None, *, threshold_ms: float = 500):
-    """
-    Attaches performance metrics to the CURRENT active span instead of creating a new one.
-    """
-
-    def decorator(f):
-        is_async = asyncio.iscoroutinefunction(f)
-        if is_async:
-
-            @wraps(f)
-            async def async_wrapper(*args, **kwargs):
-                start_time = time.time()
-                try:
-                    result = await f(*args, **kwargs)
-                    elapsed_ms = (time.time() - start_time) * 1000
-                    _attach_perf_metrics(elapsed_ms, threshold_ms, f.__name__)
-                    return result
-                except Exception as e:
-                    elapsed_ms = (time.time() - start_time) * 1000
-                    _attach_perf_metrics(elapsed_ms, threshold_ms, f.__name__, error=e)
-                    raise
-
-            return async_wrapper
-        else:
-
-            @wraps(f)
-            def sync_wrapper(*args, **kwargs):
-                start_time = time.time()
-                try:
-                    result = f(*args, **kwargs)
-                    elapsed_ms = (time.time() - start_time) * 1000
-                    _attach_perf_metrics(elapsed_ms, threshold_ms, f.__name__)
-                    return result
-                except Exception as e:
-                    elapsed_ms = (time.time() - start_time) * 1000
-                    _attach_perf_metrics(elapsed_ms, threshold_ms, f.__name__, error=e)
-                    raise
-
-            return sync_wrapper
-
-    if func is not None:
-        return decorator(func)
-    return decorator
-
-
-def _attach_perf_metrics(
-    elapsed_ms: float, threshold_ms: float, name: str, error: Exception = None
-):
-    """Helper to attach metrics to the current active span."""
-    span = otel_trace.get_current_span()
-    if span.is_recording():
-        span.set_attribute(f"perf.{name}.duration_ms", round(elapsed_ms, 2))
-        span.set_attribute(f"perf.{name}.slow", elapsed_ms > threshold_ms)
-        if elapsed_ms > threshold_ms:
-            print(f"⚠️  Slow operation '{name}': {elapsed_ms:.0f}ms")
-        if error:
-            span.record_exception(error)
 
 
 def prompt_tracker(func=None):
@@ -508,6 +446,7 @@ async def run_demo():
     if span.is_recording():
         span.set_attribute(SpanAttributes.INPUT_VALUE, "Demo Execution Start")
         span.set_attribute(SpanAttributes.INPUT_MIME_TYPE, "text/plain")
+
     print("=" * 80)
     print("🎯 Demo: Custom Decorator Stacking & Composition")
     print("=" * 80)
@@ -521,7 +460,6 @@ async def run_demo():
     if span.is_recording():
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, "Demo Completed Successfully")
         span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
-
     log_trace_download(get_trace_url(PHOENIX_BASE_URL))
 
 

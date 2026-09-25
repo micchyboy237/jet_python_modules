@@ -7,21 +7,25 @@ Span Hierarchy:
 ├── 🧬 embed_text (EMBEDDING)
 │   ├── attr: embedding.model_name = "nomic-embed:2-moe"
 │   ├── attr: embedding.text = "What are the key principles..."
-│   └── attr: embedding.vector_dimension = 768
+│   ├── attr: embedding.vector_dimension = 768
+│   └── attr: perf.embed_text.duration_ms = ...
 │
 ├── 🔍 vector-store-retrieval (RETRIEVER)
 │   ├── attr: retriever.model_name = "cosine-similarity"
-│   └── attr: retrieval.document_count = 10
+│   ├── attr: retrieval.document_count = 10
+│   └── attr: perf.retrieve_documents.duration_ms = ...
 │
 ├── 📊 cross-encoder-reranker (RERANKER)
 │   ├── attr: reranker.model_name = "bge-reranker-v2-m3" (or configured model)
 │   ├── attr: reranker.query = "What are the key principles..."
-│   └── attr: reranker.output_document_count = 3
+│   ├── attr: reranker.output_document_count = 3
+│   └── attr: perf.rerank_documents.duration_ms = ...
 │
 └── 🤖 generate_answer (LLM)
-├── attr: llm.model_name = "llama-3.2-3b-instruct"
-├── attr: llm.provider = "llama_cpp"
-└── attr: llm.input_messages = [...]
+    ├── attr: llm.model_name = "llama-3.2-3b-instruct"
+    ├── attr: llm.provider = "llama_cpp"
+    ├── attr: llm.input_messages = [...]
+    └── attr: perf.generate_answer.duration_ms = ...
 """
 
 import asyncio
@@ -46,12 +50,12 @@ from jet_telemetry import (
     get_trace_url,
     initialize_telemetry,
     llm,
+    performance_monitor,
     reranker,
     retriever,
 )
 from openai import AsyncOpenAI
 
-# Setup Output Directory
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -70,16 +74,13 @@ def log_trace_download(trace_url: str | None):
     """Helper to log trace URL and trigger JSONL export if possible."""
     if not trace_url:
         return
-
     print(f"🔍 View complete trace: {trace_url}")
-
     try:
         from jet_telemetry import export_spans_to_jsonl
 
         if "/redirects/traces/" in trace_url:
             trace_id = trace_url.split("/redirects/traces/")[-1]
             project_name = "rag-pipeline-demo"
-
             jsonl_path = export_spans_to_jsonl(
                 project_name=project_name,
                 trace_id=trace_id,
@@ -94,6 +95,7 @@ def log_trace_download(trace_url: str | None):
 
 
 @embedding(model_name=EMBED_MODEL)
+@performance_monitor(threshold_ms=200)
 async def embed_text(text: str, is_query: bool = False) -> list[float]:
     """Embeds text using local nomic-embed model."""
     prefix = EMBED_QUERY_PREFIX if is_query else EMBED_DOC_PREFIX
@@ -104,6 +106,7 @@ async def embed_text(text: str, is_query: bool = False) -> list[float]:
 
 
 @retriever(name="vector-store-retrieval", model_name="cosine-similarity")
+@performance_monitor(threshold_ms=100)
 async def retrieve_documents(
     query_embedding: list[float], top_k: int = 5
 ) -> list[dict]:
@@ -120,6 +123,7 @@ async def retrieve_documents(
 
 
 @reranker(name="cross-encoder-reranker", model_name=RERANK_MODEL or "unknown")
+@performance_monitor(threshold_ms=300)
 async def rerank_documents(
     query: str, documents: list[dict], top_n: int = 3
 ) -> list[dict]:
@@ -145,6 +149,7 @@ async def rerank_documents(
 
 
 @llm(model_name=LLM_MODEL)
+@performance_monitor(threshold_ms=1000)
 async def generate_answer(query: str, context: list[str]) -> str:
     """Streaming LLM call with natural output flushing."""
     messages = [
@@ -177,6 +182,7 @@ async def generate_answer(query: str, context: list[str]) -> str:
 
 
 @chain(name="full-rag-pipeline")
+@performance_monitor(threshold_ms=2000)
 async def rag_pipeline(query: str) -> dict:
     """End-to-end RAG: Embed → Retrieve → Rerank → Generate"""
     query_emb = await embed_text(query, is_query=True)
