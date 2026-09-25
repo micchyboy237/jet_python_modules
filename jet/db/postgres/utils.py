@@ -1,19 +1,27 @@
-import psycopg
-from pgvector.psycopg import register_vector
-import numpy as np
 import uuid
-from typing import List, Dict, Optional, Tuple, TypedDict
-from psycopg.rows import dict_row
+
+import psycopg
+
 from .config import (
     DEFAULT_DB,
-    DEFAULT_USER,
-    DEFAULT_PASSWORD,
     DEFAULT_HOST,
+    DEFAULT_PASSWORD,
     DEFAULT_PORT,
+    DEFAULT_USER,
 )
 
 
-def connect_db(dbname: str, user: str = DEFAULT_USER, password: str = DEFAULT_PASSWORD, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> "psycopg.Connection":
+def generate_unique_hash() -> str:
+    return str(uuid.uuid4())
+
+
+def connect_db(
+    dbname: str,
+    user: str = DEFAULT_USER,
+    password: str = DEFAULT_PASSWORD,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+) -> "psycopg.Connection":
     """Create a new database."""
     conn = psycopg.connect(
         dbname=dbname,  # Connect to a default DB to execute drop command
@@ -21,7 +29,7 @@ def connect_db(dbname: str, user: str = DEFAULT_USER, password: str = DEFAULT_PA
         password=password,
         host=host,
         port=port,
-        autocommit=True
+        autocommit=True,
     )
     return conn
 
@@ -58,6 +66,8 @@ def delete_db(dbname: str) -> None:
 
 
 __all__ = [
+    "connect_db",
+    "connect_default_db",
     "create_db",
     "delete_db",
 ]

@@ -1,16 +1,7 @@
-import json
-import uuid
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
-from pgvector.psycopg import register_vector
-from psycopg import connect, errors, sql
-from psycopg.rows import dict_row
-
-from jet.db.postgres.scoring import calculate_vector_scores
-from jet.logger import logger
-from jet.transformers.object import make_serializable
 
 from .config import (
     DEFAULT_DB,
@@ -19,6 +10,11 @@ from .config import (
     DEFAULT_PORT,
     DEFAULT_USER,
 )
+from .managers.connection import ConnectionManager
+from .managers.metadata import MetadataManager
+from .managers.query import QueryExecutor
+from .managers.schema import SchemaManager
+from .managers.vector import VectorEngine
 from .pg_types import (
     DatabaseMetadata,
     Embedding,
@@ -38,1469 +34,235 @@ class PgVectorClient:
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
         overwrite_db: bool = False,
-    ) -> None:
-        """Ensure database exists, then connect and initialize."""
-        self._ensure_database_exists(dbname, user, password, host, port, overwrite_db)
-        self.conn = connect(
-            dbname=dbname,
-            user=user,
-            password=password,
-            host=host,
-            port=port,
-            autocommit=True,
-            row_factory=dict_row,
+    ):
+        self.connection = ConnectionManager(
+            dbname, user, password, host, port, overwrite_db
         )
-        self._initialize_extension()
-        register_vector(self.conn)
+        self.schema = SchemaManager(self.connection.conn)
+        self.query = QueryExecutor(self.connection.conn)
+        self.metadata = MetadataManager(self.connection.conn)
+        self.vector = VectorEngine(self.connection.conn)
 
-    def _to_list(self, embedding: EmbeddingInput) -> list[float]:
-        """Convert embedding input to list of floats."""
-        if isinstance(embedding, np.ndarray):
-            return embedding.tolist()
-        return embedding
+        # Backward compatibility
+        self.conn = self.connection.conn
 
-    def _ensure_database_exists(
-        self,
-        dbname: str,
-        user: str,
-        password: str,
-        host: str,
-        port: int,
-        overwrite_db: bool,
-    ) -> None:
-        """Drop the target database if it exists and overwrite_db is True, then create a new one."""
-        with connect(
-            dbname="postgres",
-            user=user,
-            password=password,
-            host=host,
-            port=port,
-            autocommit=True,
-        ) as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM pg_database WHERE datname = %s;", (dbname,))
-                exists = cur.fetchone()
-                if exists and overwrite_db:
-                    cur.execute(
-                        sql.SQL(
-                            "SELECT pg_terminate_backend(pg_stat_activity.pid) "
-                            "FROM pg_stat_activity "
-                            "WHERE pg_stat_activity.datname = %s AND pid <> pg_backend_pid();"
-                        ),
-                        (dbname,),
-                    )
-                    cur.execute(
-                        sql.SQL("DROP DATABASE IF EXISTS {}").format(
-                            sql.Identifier(dbname)
-                        )
-                    )
-                if not exists or overwrite_db:
-                    cur.execute(
-                        sql.SQL("CREATE DATABASE {}").format(sql.Identifier(dbname))
-                    )
-
-    def _initialize_extension(self) -> None:
-        """Ensure the pgvector extension is enabled only if not already present."""
-        with self.conn.cursor() as cur:
-            try:
-                cur.execute("SHOW dynamic_library_path;")
-                libdir = cur.fetchone()["dynamic_library_path"]
-                cur.execute("SELECT 1 FROM pg_extension WHERE extname = 'vector';")
-                exists = cur.fetchone()
-                if not exists:
-                    cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-            except errors.UndefinedFile as e:
-                raise RuntimeError(
-                    f"pgvector extension is not installed on the PostgreSQL server. "
-                    f"Dynamic library path: {libdir}. "
-                    f"Ensure vector.dylib is in /opt/homebrew/opt/postgresql@16/lib/postgresql. "
-                    "Please install it using 'brew install pgvector' or compile from source: "
-                    "https://github.com/pgvector/pgvector. "
-                    f"Error: {str(e)}"
-                ) from e
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to initialize pgvector extension: {str(e)}"
-                ) from e
-
-    def _ensure_table_exists(self, table_name: str, dimension: int) -> None:
-        """Check if table exists, create it with the specified dimension if it doesn't."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = %s;",
-                (table_name,),
-            )
-            table_exists = cur.fetchone()
-            if not table_exists:
-                self.create_table(table_name, dimension)
-
-    def _ensure_columns_exist(self, table_name: str, row_data: dict[str, Any]) -> None:
-        """Ensure all columns present in row_data exist in the table (except id & embedding).
-
-        Also guarantees timestamp columns are present by calling _ensure_timestamp_columns().
-        """
-        with self.conn.cursor() as cur:
-            # First, guarantee the standard timestamp columns
-            self._ensure_timestamp_columns(table_name)
-
-            # Now handle dynamic columns from the incoming data
-            cur.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = %s;
-                """,
-                (table_name,),
-            )
-            existing_columns = {row["column_name"] for row in cur.fetchall()}
-
-            for column, value in row_data.items():
-                if (
-                    column in existing_columns
-                    or column == "id"
-                    or column == "embedding"
-                    or column in {"created_at", "updated_at"}  # already handled
-                ):
-                    continue
-
-                # Determine appropriate column type
-                if isinstance(value, (dict, list)):
-                    col_type = "jsonb"
-                elif isinstance(value, bool):
-                    col_type = "boolean"
-                elif isinstance(value, (int, float)):
-                    col_type = "numeric"
-                else:
-                    col_type = "text"
-
-                query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {};").format(
-                    sql.Identifier(table_name),
-                    sql.Identifier(column),
-                    sql.SQL(col_type),
-                )
-
-                try:
-                    cur.execute(query)
-                    logger.success(
-                        "Successfully created column %s in table %s",
-                        column,
-                        table_name,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "Failed to create column %s in table %s: %s",
-                        column,
-                        table_name,
-                        str(e),
-                    )
-                    raise
-
-    def _ensure_timestamp_columns(self, table_name: str) -> None:
-        """Ensure 'created_at' and 'updated_at' columns exist with proper defaults.
-
-        This is idempotent — safe to call even if columns already exist.
-        """
-        timestamp_cols = {
-            "created_at": "TIMESTAMPTZ DEFAULT NOW()",
-            "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
-        }
-
-        with self.conn.cursor() as cur:
-            # Get current columns (just names for existence check)
-            cur.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = %s;
-                """,
-                (table_name,),
-            )
-            existing_columns = {row["column_name"] for row in cur.fetchall()}
-
-            for col_name, col_def in timestamp_cols.items():
-                if col_name not in existing_columns:
-                    try:
-                        query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {}").format(
-                            sql.Identifier(table_name),
-                            sql.Identifier(col_name),
-                            sql.SQL(col_def),
-                        )
-                        cur.execute(query)
-                        logger.success(
-                            "Added timestamp column %s to table %s",
-                            col_name,
-                            table_name,
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "Failed to add timestamp column %s to %s: %s",
-                            col_name,
-                            table_name,
-                            str(e),
-                        )
-                        raise
-
-    def __enter__(self):
-        """Begin transaction when entering 'with' block."""
-        self.conn.execute("BEGIN;")
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Handle commit or rollback when exiting 'with' block."""
-        if self.conn is None or self.conn.closed:
-            return
-        if exc_type is None:
-            self.conn.execute("COMMIT;")
-        else:
-            self.conn.execute("ROLLBACK;")
-
-    def close(self) -> None:
-        """Close the database connection."""
-        self.conn.close()
-
-    def begin_transaction(self) -> None:
-        """Explicitly begin a new transaction."""
-        self.conn.execute("BEGIN;")
-
-    def commit(self) -> None:
-        """Commit the current transaction."""
-        self.conn.execute("COMMIT;")
-
-    def rollback(self) -> None:
-        """Rollback the current transaction."""
-        self.conn.execute("ROLLBACK;")
-
-    def create_table(self, table_name: str, dimension: int) -> None:
-        """Create a table with an embedding column using hash-based IDs and default timestamp columns."""
-        query = sql.SQL(
-            "CREATE TABLE IF NOT EXISTS {} ("
-            "id TEXT PRIMARY KEY, "
-            "embedding vector({}), "
-            "created_at TIMESTAMPTZ DEFAULT NOW(), "
-            "updated_at TIMESTAMPTZ DEFAULT NOW()"
-            ");"
-        ).format(sql.Identifier(table_name), sql.Literal(dimension))
-        with self.conn.cursor() as cur:
-            try:
-                cur.execute(query)
-                logger.success(
-                    f"Created table '{table_name}' with embedding dimension {dimension} and timestamp columns"
-                )
-            except Exception as e:
-                logger.error(f"Failed to create table '{table_name}': {str(e)}")
-                raise
-
-    def generate_unique_hash(self) -> str:
-        """Generate a unique UUID v4 string."""
-        return str(uuid.uuid4())
-
+    # --- Vector Table Wrappers ---
     def create_vector_table(
         self,
         table_name: str,
         dimension: int,
         additional_columns: Optional[Dict[str, str]] = None,
         include_timestamps: bool = True,
-    ) -> None:
-        """Create a table with vector embedding and optional custom columns.
-
-        Args:
-            table_name: Name of the table to create
-            dimension: Dimension of the vector embeddings
-            additional_columns: Optional dict of column_name -> SQL_type mappings
-                            e.g., {"status": "mood", "title": "TEXT"}
-            include_timestamps: Whether to add created_at/updated_at columns
-        """
-        col_defs = [
-            sql.SQL("id TEXT PRIMARY KEY"),
-            sql.SQL("embedding vector({})").format(sql.Literal(dimension)),
-        ]
-
-        # Add custom columns
+    ):
+        cols = {"id": "TEXT PRIMARY KEY", "embedding": f"vector({dimension})"}
         if additional_columns:
-            for col_name, col_type in additional_columns.items():
-                col_defs.append(
-                    sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
-                )
+            cols.update(additional_columns)
+        self.schema.create_table(table_name, cols, include_timestamps)
 
-        # Add timestamp columns
-        if include_timestamps:
-            col_defs.append(sql.SQL("created_at TIMESTAMPTZ DEFAULT NOW()"))
-            col_defs.append(sql.SQL("updated_at TIMESTAMPTZ DEFAULT NOW()"))
+    def create_table(self, table_name: str, dimension: int):
+        self.create_vector_table(table_name, dimension)
 
-        columns_sql = sql.SQL(", ").join(col_defs)
-        query = sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
-            sql.Identifier(table_name), columns_sql
-        )
-
-        with self.conn.cursor() as cur:
-            cur.execute(query)
-
-        logger.success(
-            "Created vector table '%s' with dimension %d and columns: %s",
-            table_name,
-            dimension,
-            list(additional_columns.keys()) if additional_columns else [],
-        )
-
-    def create_table_with_enum(conn, table_name, columns):
-        with conn.cursor() as cur:
-            col_defs = []
-            for col_name, col_type in columns.items():
-                col_defs.append(
-                    sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
-                )
-            columns_sql = sql.SQL(", ").join(col_defs)
-            query = sql.SQL("CREATE TABLE {} ({})").format(
-                sql.Identifier(table_name), columns_sql
-            )
-            cur.execute(query)
-
-    def create_enum_type(self, type_name: str, values: List[str]) -> None:
-        """Create a new ENUM type in the database.
-
-        Args:
-            type_name: Name of the enum type to create
-            values: List of allowed values for the enum
-        """
-        with self.conn.cursor() as cur:
-            values_sql = ", ".join([f"'{v}'" for v in values])
-            query = sql.SQL("CREATE TYPE {} AS ENUM ({})").format(
-                sql.Identifier(type_name), sql.SQL(values_sql)
-            )
-            cur.execute(query)
-        logger.success("Created enum type '%s' with values: %s", type_name, values)
-
-    def add_enum_value(
-        self,
-        type_name: str,
-        new_value: str,
-        before: Optional[str] = None,
-        after: Optional[str] = None,
-    ) -> None:
-        """Add a new value to an existing ENUM type.
-
-        Args:
-            type_name: Name of the enum type
-            new_value: The new value to add
-            before: Insert before this existing value (optional)
-            after: Insert after this existing value (optional)
-        """
-        with self.conn.cursor() as cur:
-            if before:
-                query = sql.SQL("ALTER TYPE {} ADD VALUE {} BEFORE {}").format(
-                    sql.Identifier(type_name),
-                    sql.Literal(new_value),
-                    sql.Literal(before),
-                )
-            elif after:
-                query = sql.SQL("ALTER TYPE {} ADD VALUE {} AFTER {}").format(
-                    sql.Identifier(type_name),
-                    sql.Literal(new_value),
-                    sql.Literal(after),
-                )
-            else:
-                query = sql.SQL("ALTER TYPE {} ADD VALUE {}").format(
-                    sql.Identifier(type_name), sql.Literal(new_value)
-                )
-            cur.execute(query)
-        logger.success("Added value '%s' to enum type '%s'", new_value, type_name)
-
-    def rename_enum_value(self, type_name: str, old_value: str, new_value: str) -> None:
-        """Rename a value in an existing ENUM type.
-
-        Args:
-            type_name: Name of the enum type
-            old_value: Current value name
-            new_value: New value name
-        """
-        with self.conn.cursor() as cur:
-            query = sql.SQL("ALTER TYPE {} RENAME VALUE {} TO {}").format(
-                sql.Identifier(type_name),
-                sql.Literal(old_value),
-                sql.Literal(new_value),
-            )
-            cur.execute(query)
-        logger.success(
-            "Renamed enum value '%s' to '%s' in type '%s'",
-            old_value,
-            new_value,
-            type_name,
-        )
-
-    def get_enum_values(self, type_name: str) -> List[str]:
-        """Get all values for an ENUM type in declaration order.
-
-        Args:
-            type_name: Name of the enum type
-
-        Returns:
-            List of enum values in their declared order
-        """
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT e.enumlabel 
-                FROM pg_type t 
-                JOIN pg_enum e ON t.oid = e.enumtypid 
-                WHERE t.typname = %s 
-                ORDER BY e.enumsortorder
-            """,
-                (type_name,),
-            )
-            return [row["enumlabel"] for row in cur.fetchall()]
-
-    def validate_enum_value(self, type_name: str, value: str) -> bool:
-        """Check if a value is valid for a given ENUM type.
-
-        Args:
-            type_name: Name of the enum type
-            value: Value to validate
-
-        Returns:
-            True if value is valid, False otherwise
-        """
-        valid_values = self.get_enum_values(type_name)
-        return value in valid_values
-
-    def drop_enum_type(self, type_name: str, cascade: bool = True) -> None:
-        """Drop an ENUM type from the database.
-
-        Args:
-            type_name: Name of the enum type to drop
-            cascade: If True, drop dependent objects too
-        """
-        with self.conn.cursor() as cur:
-            cascade_clause = " CASCADE" if cascade else ""
-            query = sql.SQL("DROP TYPE IF EXISTS {}{}").format(
-                sql.Identifier(type_name), sql.SQL(cascade_clause)
-            )
-            cur.execute(query)
-        logger.success("Dropped enum type '%s'", type_name)
-
+    # --- CRUD Wrappers with Vector Casting ---
     def create_row(
-        self, table_name: str, row_data: dict[str, Any], dimension: int | None = None
+        self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None
     ) -> TableRow:
-        """Insert a single row into the specified table with arbitrary column values, creating the table and columns if needed.
-
-        Args:
-            table_name: Name of the table to insert into
-            row_data: Dictionary of column names and their values, including nested dicts
-            dimension: Dimension of the embedding if applicable
-
-        Returns:
-            TableRow dictionary containing the inserted row data including the generated or provided ID
-        """
-        if not row_data:
-            raise ValueError("Cannot insert empty row data")
-
         if "embedding" in row_data and dimension is None:
-            dimension = len(self._to_list(row_data["embedding"]))
-        # Default dimension if not specified
-        self._ensure_table_exists(table_name, dimension or 1536)
-        self._ensure_columns_exist(table_name, row_data)
-
-        # Get column data types
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT column_name, data_type FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,),
-            )
-            column_types = {
-                row["column_name"]: row["data_type"] for row in cur.fetchall()
-            }
-
-        row_id = row_data.get("id", self.generate_unique_hash())
-        columns = ["id"] + [col for col in row_data.keys() if col != "id"]
-        values = []
-        placeholders = []
-
-        # Always include id in values and placeholders
-        values.append(row_id)
-        placeholders.append("%s")
-
-        for col in columns[1:]:  # Skip id, already handled
-            value = row_data[col]
-            if col == "embedding":
-                values.append(self._to_list(value))
-                placeholders.append("%s::vector")
-            elif isinstance(value, (dict, list)):
-                values.append(json.dumps(make_serializable(value)))
-                placeholders.append("%s::jsonb")
-            else:
-                values.append(value)
-                placeholders.append("%s")
-
-        query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
-            sql.Identifier(table_name),
-            sql.SQL(", ").join(map(sql.Identifier, columns)),
-            sql.SQL(", ").join(map(sql.SQL, placeholders)),
-        )
-
-        with self.conn.cursor() as cur:
-            try:
-                cur.execute(query, values)
-                result = cur.fetchone()
-                return {
-                    col: result[col].tolist()
-                    if col == "embedding" and isinstance(result[col], np.ndarray)
-                    else json.loads(result[col])
-                    if column_types.get(col) == "jsonb"
-                    and isinstance(result[col], str)
-                    and result[col]
-                    else result[col]
-                    for col in result.keys()
-                }
-            except Exception as e:
-                logger.error("Failed to insert row into %s: %s", table_name, str(e))
-                raise
+            emb = row_data["embedding"]
+            dimension = len(emb) if not isinstance(emb, np.ndarray) else emb.shape[0]
+        self.schema.ensure_columns_exist(table_name, row_data)
+        casts = {"embedding": "::vector"} if "embedding" in row_data else None
+        return self.query.insert_row(table_name, row_data, type_casts=casts)
 
     def create_rows(
         self,
         table_name: str,
-        rows_data: list[dict[str, Any]],
-        dimension: int | None = None,
-    ) -> list[TableRow]:
-        """Insert multiple rows into the specified table with arbitrary column values, creating the table and columns if needed.
-
-        Args:
-            table_name: Name of the table to insert into
-            rows_data: List of dictionaries containing column names and their values, including nested dicts
-            dimension: Dimension of the embedding if applicable
-
-        Returns:
-            List of TableRow dictionaries containing the inserted row data including generated or provided IDs
-        """
-        if not rows_data:
-            raise ValueError("Cannot insert empty rows data")
-        if any("embedding" in row for row in rows_data) and dimension is None:
-            dimension = len(
-                self._to_list(
-                    next(row["embedding"] for row in rows_data if "embedding" in row)
-                )
-            )
-        self._ensure_table_exists(table_name, dimension or 1536)
-        self._ensure_columns_exist(table_name, rows_data[0])
-        if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
-            raise ValueError("All rows must have the same columns")
-        row_results = []
-        for row in rows_data:
-            try:
-                row_result = self.create_row(table_name, row, dimension)
-                row_results.append(row_result)
-            except Exception as e:
-                logger.error("Failed to insert row into %s: %s", table_name, str(e))
-                raise
-        return row_results
-
-    def create_or_update_row(
-        self, table_name: str, row_data: dict[str, Any], dimension: int | None = None
-    ) -> TableRow:
-        """Create a new row or update an existing one in the specified table based on the provided ID.
-
-        Args:
-            table_name: Name of the table to insert into or update
-            row_data: Dictionary of column names and their values, including nested dicts and optional embedding. Must include 'id' field.
-            dimension: Dimension of the embedding if applicable
-
-        Returns:
-            TableRow dictionary containing the inserted or updated row data
-
-        Raises:
-            ValueError: If row_data is empty or lacks an 'id' field
-        """
-        if not row_data:
-            raise ValueError("Cannot create or update with empty row data")
-        if "id" not in row_data:
-            raise ValueError("Row data must include an 'id' field")
-
-        if "embedding" in row_data and dimension is None:
-            dimension = len(self._to_list(row_data["embedding"]))
-        self._ensure_table_exists(table_name, dimension or 1536)
-        self._ensure_columns_exist(table_name, row_data)
-
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT column_name, data_type FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,),
-            )
-            column_types = {
-                row["column_name"]: row["data_type"] for row in cur.fetchall()
-            }
-
-            # Check if row exists
-            cur.execute(
-                sql.SQL("SELECT 1 FROM {} WHERE id = %s").format(
-                    sql.Identifier(table_name)
-                ),
-                (row_data["id"],),
-            )
-            exists = cur.fetchone()
-
-            if exists:
-                # Update existing row
-                columns = [col for col in row_data.keys() if col != "id"]
-                values = []
-                set_clauses = []
-
-                for col in columns:
-                    value = row_data[col]
-                    if col == "embedding":
-                        values.append(self._to_list(value))
-                        set_clauses.append(f"{col} = %s::vector")
-                    elif isinstance(value, (dict, list)):
-                        values.append(json.dumps(value))
-                        set_clauses.append(f"{col} = %s::jsonb")
-                    else:
-                        values.append(value)
-                        set_clauses.append(f"{col} = %s")
-
-                values.append(row_data["id"])
-                query = sql.SQL(
-                    "UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;"
-                ).format(
-                    sql.Identifier(table_name),
-                    sql.SQL(", ").join(map(sql.SQL, set_clauses)),
-                )
-            else:
-                # Insert new row
-                columns = ["id"] + [col for col in row_data.keys() if col != "id"]
-                values = [row_data["id"]]
-                placeholders = ["%s"]
-
-                for col in columns[1:]:
-                    value = row_data[col]
-                    if col == "embedding":
-                        values.append(self._to_list(value))
-                        placeholders.append("%s::vector")
-                    elif isinstance(value, (dict, list)):
-                        values.append(json.dumps(value))
-                        placeholders.append("%s::jsonb")
-                    else:
-                        values.append(value)
-                        placeholders.append("%s")
-
-                query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
-                    sql.Identifier(table_name),
-                    sql.SQL(", ").join(map(sql.Identifier, columns)),
-                    sql.SQL(", ").join(map(sql.SQL, placeholders)),
-                )
-
-            try:
-                cur.execute(query, values)
-                result = cur.fetchone()
-                if not result:
-                    raise ValueError(
-                        f"Failed to create or update row with id {row_data['id']} in table {table_name}"
-                    )
-                return {
-                    col: result[col].tolist()
-                    if col == "embedding" and isinstance(result[col], np.ndarray)
-                    else json.loads(result[col])
-                    if column_types.get(col) == "jsonb"
-                    and isinstance(result[col], str)
-                    and result[col]
-                    else result[col]
-                    for col in result.keys()
-                }
-            except Exception as e:
-                logger.error(
-                    "Failed to create or update row %s in %s: %s",
-                    row_data["id"],
-                    table_name,
-                    str(e),
-                )
-                raise
-
-    def create_or_update_rows(
-        self,
-        table_name: str,
-        rows_data: list[dict[str, Any]],
-        dimension: int | None = None,
-    ) -> list[TableRow]:
-        """Create or update multiple rows in the specified table based on ID existence.
-
-        Args:
-            table_name: Name of the table to insert or update
-            rows_data: List of dictionaries containing 'id' and column names with their values
-            dimension: Dimension of the embedding if applicable
-
-        Returns:
-            List of TableRow dictionaries containing the created or updated row data
-
-        Raises:
-            ValueError: If rows_data is empty, any row lacks an 'id', or rows have inconsistent columns
-        """
-        if not rows_data:
-            raise ValueError("Cannot process empty rows data")
-        if not all("id" in row for row in rows_data):
-            raise ValueError("All rows must include an 'id' field")
-        if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
-            raise ValueError("All rows must have the same columns")
-
-        if any("embedding" in row for row in rows_data) and dimension is None:
-            dimension = len(
-                self._to_list(
-                    next(row["embedding"] for row in rows_data if "embedding" in row)
-                )
-            )
-
-        self._ensure_table_exists(table_name, dimension or 1536)
-        self._ensure_columns_exist(table_name, rows_data[0])
-
-        # Get existing IDs
-        with self.conn.cursor() as cur:
-            cur.execute(
-                sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
-                    sql.Identifier(table_name)
-                ),
-                ([row["id"] for row in rows_data],),
-            )
-            existing_ids = {row["id"] for row in cur.fetchall()}
-
-        create_rows = [row for row in rows_data if row["id"] not in existing_ids]
-        update_rows = [row for row in rows_data if row["id"] in existing_ids]
-
-        results = []
-        if create_rows:
-            results.extend(self.create_rows(table_name, create_rows, dimension))
-        if update_rows:
-            results.extend(self.update_rows(table_name, update_rows, dimension))
-
-        return results
+        rows_data: List[Dict[str, Any]],
+        dimension: Optional[int] = None,
+    ) -> List[TableRow]:
+        return [self.create_row(table_name, r, dimension) for r in rows_data]
 
     def update_row(
         self,
         table_name: str,
         row_id: str,
-        row_data: dict[str, Any],
-        dimension: int | None = None,
+        row_data: Dict[str, Any],
+        dimension: Optional[int] = None,
     ) -> TableRow:
-        """Update a single row in the specified table with new column values, creating new columns if needed.
-
-        Args:
-            table_name: Name of the table to update
-            row_id: ID of the row to update
-            row_data: Dictionary of column names and their new values, including nested dicts
-            dimension: Dimension of the embedding if applicable
-
-        Returns:
-            TableRow dictionary containing the updated row data
-
-        Raises:
-            ValueError: If row_data is empty or row_id does not exist
-        """
-        if not row_data:
-            raise ValueError("Cannot update with empty row data")
-
-        if "embedding" in row_data and dimension is None:
-            dimension = len(self._to_list(row_data["embedding"]))
-        self._ensure_table_exists(table_name, dimension or 1536)
-        self._ensure_columns_exist(table_name, row_data)
-
-        # Get column data types
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT column_name, data_type FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,),
-            )
-            column_types = {
-                row["column_name"]: row["data_type"] for row in cur.fetchall()
-            }
-
-            columns = [col for col in row_data.keys()]
-            values = []
-            set_clauses = []
-
-            for col in columns:
-                value = row_data[col]
-                if col == "embedding":
-                    values.append(self._to_list(value))
-                    set_clauses.append(f"{col} = %s::vector")
-                elif isinstance(value, (dict, list)):
-                    values.append(json.dumps(value))
-                    set_clauses.append(f"{col} = %s::jsonb")
-                else:
-                    values.append(value)
-                    set_clauses.append(f"{col} = %s")
-
-            values.append(row_id)  # For WHERE clause
-            # Modified query to include updated_at = NOW()
-            query = sql.SQL(
-                "UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;"
-            ).format(
-                sql.Identifier(table_name),
-                sql.SQL(", ").join(map(sql.SQL, set_clauses)),
-            )
-
-            try:
-                cur.execute(query, values)
-                result = cur.fetchone()
-                if not result:
-                    raise ValueError(
-                        f"No row found with id {row_id} in table {table_name}"
-                    )
-                return {
-                    col: result[col].tolist()
-                    if col == "embedding" and isinstance(result[col], np.ndarray)
-                    else json.loads(result[col])
-                    if column_types.get(col) == "jsonb"
-                    and isinstance(result[col], str)
-                    and result[col]
-                    else result[col]
-                    for col in result.keys()
-                }
-            except Exception as e:
-                logger.error(
-                    "Failed to update row %s in %s: %s", row_id, table_name, str(e)
-                )
-                raise
+        casts = {"embedding": "::vector"} if "embedding" in row_data else None
+        return self.query.update_row(table_name, row_id, row_data, type_casts=casts)
 
     def update_rows(
         self,
         table_name: str,
-        rows_data: list[dict[str, Any]],
-        dimension: int | None = None,
-    ) -> list[TableRow]:
-        """Update multiple rows in the specified table with new column values, creating new columns if needed.
+        rows_data: List[Dict[str, Any]],
+        dimension: Optional[int] = None,
+    ) -> List[TableRow]:
+        return [self.update_row(table_name, r["id"], r, dimension) for r in rows_data]
 
-        Args:
-            table_name: Name of the table to update
-            rows_data: List of dictionaries containing 'id' and column names with their new values
-            dimension: Dimension of the embedding if applicable
-
-        Returns:
-            List of TableRow dictionaries containing the updated row data
-
-        Raises:
-            ValueError: If rows_data is empty, any row lacks an 'id', or rows have inconsistent columns
-        """
-        if not rows_data:
-            raise ValueError("Cannot update empty rows data")
-        if not all("id" in row for row in rows_data):
-            raise ValueError("All rows must include an 'id' field")
-        if any("embedding" in row for row in rows_data) and dimension is None:
-            dimension = len(
-                self._to_list(
-                    next(row["embedding"] for row in rows_data if "embedding" in row)
-                )
-            )
-        self._ensure_table_exists(table_name, dimension or 1536)
-        self._ensure_columns_exist(table_name, rows_data[0])
-        if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
-            raise ValueError("All rows must have the same columns")
-
-        updated_rows = []
-        for row in rows_data:
-            try:
-                updated_row = self.update_row(table_name, row["id"], row, dimension)
-                updated_rows.append(updated_row)
-            except Exception as e:
-                logger.error(
-                    "Failed to update row %s in %s: %s", row["id"], table_name, str(e)
-                )
-                raise
-        return updated_rows
-
-    def get_row(self, table_name: str, row_id: str) -> TableRow | None:
-        """Retrieve a single row by ID from the specified table, excluding embedding column."""
+    def create_or_update_row(
+        self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None
+    ) -> TableRow:
+        self.schema.ensure_columns_exist(table_name, row_data)
         with self.conn.cursor() as cur:
-            # Get column types first
             cur.execute(
-                "SELECT column_name, data_type FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,),
+                "SELECT 1 FROM {} WHERE id = %s".format(table_name), (row_data["id"],)
             )
-            column_info = {
-                row["column_name"]: row["data_type"] for row in cur.fetchall()
-            }
+            if cur.fetchone():
+                return self.update_row(table_name, row_data["id"], row_data, dimension)
+            else:
+                return self.create_row(table_name, row_data, dimension)
 
-            columns = list(column_info.keys())
-            if not columns:
-                raise ValueError(f"No columns found for table {table_name}")
+    def create_or_update_rows(
+        self,
+        table_name: str,
+        rows_data: List[Dict[str, Any]],
+        dimension: Optional[int] = None,
+    ) -> List[TableRow]:
+        return [self.create_or_update_row(table_name, r, dimension) for r in rows_data]
 
-            # Build query with dynamic columns
-            query = sql.SQL("SELECT {} FROM {} WHERE id = %s").format(
-                sql.SQL(", ").join(map(sql.Identifier, columns)),
-                sql.Identifier(table_name),
-            )
-            cur.execute(query, (row_id,))
-            result = cur.fetchone()
-            if not result:
-                return None
-
-            # Parse based on actual column type, not hardcoded name
-            parsed = {}
-            for col in columns:
-                value = result[col]
-                if value is None:
-                    parsed[col] = None
-                elif column_info.get(col) == "jsonb" and isinstance(value, str):
-                    try:
-                        parsed[col] = json.loads(value)
-                    except json.JSONDecodeError:
-                        logger.warning(
-                            f"Failed to parse JSONB column '{col}': {value[:100]}"
-                        )
-                        parsed[col] = value
-                else:
-                    parsed[col] = value
-
-            return parsed
+    def get_row(self, table_name: str, row_id: str) -> Optional[TableRow]:
+        rows = self.query.get_rows(table_name, where_conditions={"id": row_id})
+        return rows[0] if rows else None
 
     def get_rows(
         self,
         table_name: str,
-        ids: list[str] | None = None,
+        ids: Optional[List[str]] = None,
         id_column: str = "id",
-        where_conditions: dict[str, Any] | None = None,
-        limit: int | None = None,
-        order_by: tuple[str, Literal["ASC", "DESC"]] | None = None,
-        group_by: list[str] | None = None,
-        aggregates: dict[str, tuple[str, Literal["COUNT", "SUM", "AVG", "MIN", "MAX"]]]
-        | None = None,
-    ) -> list[TableRow]:
-        """Retrieve rows from the specified table, optionally filtered by IDs, where conditions, limited, ordered, and grouped, excluding embedding column.
+        where_conditions: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
+        order_by: Optional[Tuple[str, Literal["ASC", "DESC"]]] = None,
+        group_by: Optional[List[str]] = None,
+        aggregates: Optional[
+            Dict[str, Tuple[str, Literal["COUNT", "SUM", "AVG", "MIN", "MAX"]]]
+        ] = None,
+    ) -> List[TableRow]:
+        return self.query.get_rows(
+            table_name,
+            ids,
+            id_column,
+            where_conditions,
+            limit,
+            order_by,
+            group_by,
+            aggregates,
+        )
 
-        Args:
-            table_name: Name of the table to query
-            ids: Optional list of IDs to filter results
-            id_column: Column name to filter IDs on (default: 'id')
-            where_conditions: Optional dictionary of column names and values for WHERE clause
-            limit: Optional maximum number of rows to return
-            order_by: Optional tuple of (column_name, 'ASC' or 'DESC') for ORDER BY clause
-            group_by: Optional list of column names to group by
-            aggregates: Optional dictionary of column aliases to (column_name, aggregate_function) tuples
-
-        Returns:
-            List of dictionaries containing selected columns and aggregates for each row or group, excluding embedding
-
-        Raises:
-            ValueError: If table has no columns, invalid limit, invalid order_by, invalid group_by, or invalid aggregates
-        """
-        with self.conn.cursor() as cur:
-            # Get all column names and their types except embedding
-            cur.execute(
-                "SELECT column_name, data_type FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,),
-            )
-            column_info = {
-                row["column_name"]: row["data_type"] for row in cur.fetchall()
-            }
-            if not column_info:
-                raise ValueError(
-                    f"No columns found for table {table_name} (excluding embedding)"
-                )
-
-            columns = list(column_info.keys())
-            # Build select clause
-            formatted_columns = []
-            select_columns = []
-
-            # Handle group_by columns
-            if group_by:
-                for col in group_by:
-                    if col not in columns:
-                        raise ValueError(
-                            f"Group by column {col} not found in table {table_name}"
-                        )
-                    formatted_columns.append(sql.SQL("{}").format(sql.Identifier(col)))
-                    select_columns.append(col)
-
-            # Handle aggregate functions
-            if aggregates:
-                if not group_by:
-                    raise ValueError("Aggregates require at least one group_by column")
-                for alias, (col, agg_func) in aggregates.items():
-                    if col not in columns:
-                        raise ValueError(
-                            f"Aggregate column {col} not found in table {table_name}"
-                        )
-                    if agg_func not in ("COUNT", "SUM", "AVG", "MIN", "MAX"):
-                        raise ValueError(f"Unsupported aggregate function {agg_func}")
-                    formatted_columns.append(
-                        sql.SQL("{}({}) AS {}").format(
-                            sql.SQL(agg_func),
-                            sql.Identifier(col),
-                            sql.Identifier(alias),
-                        )
-                    )
-                    select_columns.append(alias)
-            else:
-                # If no aggregates, select all columns (or group_by columns if specified)
-                if not group_by:
-                    formatted_columns = [
-                        sql.SQL(
-                            "TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}"
-                        ).format(sql.Identifier(col), sql.Identifier(col))
-                        if column_info[col] == "timestamp with time zone"
-                        else sql.Identifier(col)
-                        for col in columns
-                    ]
-                    select_columns = columns
-
-            query = sql.SQL("SELECT {} FROM {}").format(
-                sql.SQL(", ").join(formatted_columns), sql.Identifier(table_name)
-            )
-            params = []
-
-            # Handle WHERE clause
-            where_clauses = []
-            if ids is not None:
-                where_clauses.append(
-                    sql.SQL("{} = ANY(%s)").format(sql.Identifier(id_column))
-                )
-                params.append(ids)
-            if where_conditions:
-                for col, value in where_conditions.items():
-                    if col not in columns:
-                        raise ValueError(
-                            f"Column {col} not found in table {table_name}"
-                        )
-                    where_clauses.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
-                    params.append(value)
-
-            if where_clauses:
-                query = sql.SQL("{} WHERE {}").format(
-                    query, sql.SQL(" AND ").join(where_clauses)
-                )
-
-            # Handle GROUP BY clause
-            if group_by:
-                query = sql.SQL("{} GROUP BY {}").format(
-                    query, sql.SQL(", ").join(map(sql.Identifier, group_by))
-                )
-
-            # Handle ORDER BY clause
-            if order_by:
-                if not isinstance(order_by, tuple) or len(order_by) != 2:
-                    raise ValueError(
-                        "order_by must be a tuple of (column_name, 'ASC' or 'DESC')"
-                    )
-                order_col, direction = order_by
-                if order_col not in (
-                    columns + list(aggregates.keys()) if aggregates else columns
-                ):
-                    raise ValueError(
-                        f"Column {order_col} not found in table {table_name} or aggregates"
-                    )
-                if direction not in ("ASC", "DESC"):
-                    raise ValueError("order_by direction must be 'ASC' or 'DESC'")
-                query = sql.SQL("{} ORDER BY {} {}").format(
-                    query, sql.Identifier(order_col), sql.SQL(direction)
-                )
-
-            # Handle LIMIT clause
-            if limit is not None:
-                if not isinstance(limit, int) or limit <= 0:
-                    raise ValueError("limit must be a positive integer")
-                query = sql.SQL("{} LIMIT %s").format(query)
-                params.append(limit)
-
-            cur.execute(query, params)
-            results = cur.fetchall()
-            return [
-                {
-                    col: row[col]
-                    if not (
-                        column_info.get(col) == "jsonb" and isinstance(row[col], str)
-                    )
-                    else json.loads(row[col])
-                    if row[col]
-                    else None
-                    for col in select_columns
-                }
-                for row in results
-            ]
+    # --- Vector Search & Helpers ---
+    def search(
+        self,
+        table_name: str,
+        query_embedding: EmbeddingInput,
+        top_k: int = 5,
+        threshold: Optional[float] = None,
+    ) -> List[SearchResult]:
+        return self.vector.search_similar(table_name, query_embedding, top_k, threshold)
 
     def get_embeddings(
-        self, table_name: str, ids: list[str] | None = None
-    ) -> dict[str, Embedding]:
-        """Retrieve embeddings with their IDs from the specified table, optionally filtered by IDs.
+        self, table_name: str, ids: List[str] = None
+    ) -> Dict[str, Embedding]:
+        return self.vector.get_embeddings(table_name, ids)
 
-        Args:
-            table_name: Name of the table to query
-            ids: Optional list of IDs to filter results
-
-        Returns:
-            Dictionary mapping embedding IDs to their corresponding embeddings
-        """
-        query = f"SELECT id, embedding FROM {table_name}"
-        params = ()
-        if ids is not None:
-            query += " WHERE id = ANY(%s)"
-            params = (ids,)
-
-        with self.conn.cursor() as cur:
-            cur.execute(query, params)
-            results = cur.fetchall()
-            return {row["id"]: np.array(row["embedding"]) for row in results}
-
-    def count_embeddings(self, table_name: str) -> int | None:
-        """Count the total number of embeddings in the table."""
-        query = f"SELECT COUNT(*) FROM {table_name};"
-        with self.conn.cursor() as cur:
-            cur.execute(query)
-            result = cur.fetchone()
-            return result["count"] if result else None
+    def count_embeddings(self, table_name: str) -> int:
+        return self.vector.count_embeddings(table_name)
 
     def get_embedding_by_id(
         self, table_name: str, embedding_id: str
-    ) -> NDArray[np.float64] | None:
-        """Retrieve an embedding by its hash ID."""
-        query = f"SELECT embedding FROM {table_name} WHERE id = %s;"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (embedding_id,))
-            result = cur.fetchone()
-            return np.array(result["embedding"]) if result else None
+    ) -> Optional[NDArray[np.float64]]:
+        return self.vector.get_embedding_by_id(table_name, embedding_id)
 
     def insert_embedding(
-        self, table_name: str, embedding: EmbeddingInput, dimension: int | None = None
+        self,
+        table_name: str,
+        embedding: EmbeddingInput,
+        dimension: Optional[int] = None,
     ) -> str:
-        """Insert an embedding into the table with a hash-based ID, creating the table if needed."""
-        if dimension is None:
-            dimension = len(self._to_list(embedding))
-        self._ensure_table_exists(table_name, dimension)
-        embedding_id = self.generate_unique_hash()
-        embedding_list = self._to_list(embedding)
-        query = f"INSERT INTO {table_name} (id, embedding) VALUES (%s, %s);"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (embedding_id, embedding_list))
-        return embedding_id
+        return self.vector.insert_embedding(table_name, embedding, dimension)
 
     def insert_embeddings(
         self,
         table_name: str,
-        embeddings: list[EmbeddingInput],
-        dimension: int | None = None,
-    ) -> list[str]:
-        """Insert multiple embeddings into the table and return their generated hash-based IDs, creating the table if needed."""
-        if not embeddings:
-            raise ValueError("Cannot insert empty embedding list")
-        if dimension is None:
-            dimension = len(self._to_list(embeddings[0]))
-        self._ensure_table_exists(table_name, dimension)
-        embedding_ids = [self.generate_unique_hash() for _ in embeddings]
-        formatted_embeddings = [
-            f"[{', '.join(map(str, self._to_list(v)))}]" for v in embeddings
-        ]
-        query = f"INSERT INTO {table_name} (id, embedding) SELECT UNNEST(%s::text[]), UNNEST(%s::vector[]);"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (embedding_ids, formatted_embeddings))
-        return embedding_ids
+        embeddings: List[EmbeddingInput],
+        dimension: Optional[int] = None,
+    ) -> List[str]:
+        return self.vector.insert_embeddings(table_name, embeddings, dimension)
 
     def insert_embedding_by_id(
         self,
         table_name: str,
         embedding_id: str,
         embedding: EmbeddingInput,
-        dimension: int | None = None,
-    ) -> None:
-        """Insert an embedding with a specific ID, creating the table if limited to one change per filetable if needed."""
-        if dimension is None:
-            dimension = len(self._to_list(embedding))
-        self._ensure_table_exists(table_name, dimension)
-        formatted_embedding = f"[{', '.join(map(str, self._to_list(embedding)))}]"
-        query = f"INSERT INTO {table_name} (id, embedding) VALUES (%s, %s::vector);"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (embedding_id, formatted_embedding))
+        dimension: Optional[int] = None,
+    ):
+        self.vector.insert_embedding_by_id(
+            table_name, embedding_id, embedding, dimension
+        )
 
     def insert_embeddings_by_ids(
         self,
         table_name: str,
-        embedding_data: dict[str, EmbeddingInput],
-        dimension: int | None = None,
-    ) -> None:
-        """Insert multiple embeddings with specific IDs, creating the table if needed."""
-        if not embedding_data:
-            raise ValueError("Cannot insert empty embedding data")
-        if dimension is None:
-            dimension = len(self._to_list(next(iter(embedding_data.values()))))
-        self._ensure_table_exists(table_name, dimension)
-        ids = list(embedding_data.keys())
-        formatted_embeddings = [
-            f"[{', '.join(map(str, self._to_list(v)))}]"
-            for v in embedding_data.values()
-        ]
-        query = f"INSERT INTO {table_name} (id, embedding) SELECT UNNEST(%s::text[]), UNNEST(%s::vector[]);"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (ids, formatted_embeddings))
+        embedding_data: Dict[str, EmbeddingInput],
+        dimension: Optional[int] = None,
+    ):
+        self.vector.insert_embeddings_by_ids(table_name, embedding_data, dimension)
 
     def update_embedding_by_id(
         self, table_name: str, embedding_id: str, new_embedding: EmbeddingInput
-    ) -> None:
-        """Update an embedding by its hash ID."""
-        query = f"UPDATE {table_name} SET embedding = %s WHERE id = %s;"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (self._to_list(new_embedding), embedding_id))
+    ):
+        self.vector.update_embedding_by_id(table_name, embedding_id, new_embedding)
 
     def update_embedding_by_ids(
-        self, table_name: str, updates: dict[str, EmbeddingInput]
-    ) -> None:
-        """Update multiple embeddings by their hash-based IDs."""
-        ids = list(updates.keys())
-        embeddings = [
-            f"[{', '.join(map(str, self._to_list(v)))}]" for v in updates.values()
-        ]
-        query = f"UPDATE {table_name} SET embedding = data.embedding FROM (SELECT UNNEST(%s::text[]) AS id, UNNEST(%s::vector[]) AS embedding) AS data WHERE {table_name}.id = data.id;"
-        with self.conn.cursor() as cur:
-            cur.execute(query, (ids, embeddings))
+        self, table_name: str, updates: Dict[str, EmbeddingInput]
+    ):
+        self.vector.update_embedding_by_ids(table_name, updates)
 
-    def search(
-        self,
-        table_name: str,
-        query_embedding: EmbeddingInput,
-        top_k: int | None = None,
-        threshold: float | None = None,
-    ) -> list[SearchResult]:
-        with self.conn.cursor() as cur:
-            # Get all column names except embedding
-            cur.execute(
-                "SELECT column_name, data_type FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
-                (table_name,),
-            )
-            column_info = {
-                row["column_name"]: row["data_type"] for row in cur.fetchall()
-            }
-            if not column_info:
-                raise ValueError(
-                    f"No columns found for table {table_name} (excluding embedding)"
-                )
+    # --- Enum & Metadata Wrappers ---
+    def create_enum_type(self, type_name: str, values: List[str]):
+        self.schema.create_enum_type(type_name, values)
 
-            columns = list(column_info.keys())
-            # Build query with dynamic columns and distance calculation
-            query_template = (
-                "SELECT {}, embedding <=> %s::vector as distance "
-                "FROM {} ORDER BY distance"
-            )
-            if top_k is not None:
-                query_template += " LIMIT %s"
-            query = sql.SQL(query_template).format(
-                sql.SQL(", ").join(map(sql.Identifier, columns + ["id"])),
-                sql.Identifier(table_name),
-            )
-            formatted_embedding = (
-                f"[{', '.join(map(str, self._to_list(query_embedding)))}]"
-            )
-            params = (
-                (formatted_embedding,)
-                if top_k is None
-                else (formatted_embedding, top_k)
-            )
-            cur.execute(query, params)
-            db_results = cur.fetchall()
-
-            # Process results
-            results = [
-                {
-                    "id": row["id"],
-                    "distance": row["distance"],
-                    **{
-                        col: row[col]
-                        if not (
-                            column_info[col] == "jsonb" and isinstance(row[col], str)
-                        )
-                        else json.loads(row[col])
-                        if row[col]
-                        else None
-                        for col in columns
-                    },
-                }
-                for row in db_results
-            ]
-            distances = [res["distance"] for res in results]
-            scores = calculate_vector_scores(distances)
-
-            # Build final results with rank and score, applying threshold if specified
-            final_results: list[SearchResult] = []
-            for rank, (res, score) in enumerate(zip(results, scores), start=1):
-                if threshold is not None and score < threshold:
-                    continue
-                # Ensure 'rank' and 'score' are the first keys in the result dict
-                ordered_entry = {"id": res["id"], "rank": rank, "score": score}
-                for col in columns:
-                    if col != "id":
-                        ordered_entry[col] = res[col]
-                final_results.append(ordered_entry)
-            return final_results
-
-    def drop_all_rows(self, table_name: str | None = None) -> None:
-        """Delete all rows from a specific table or all tables if no table is provided."""
-        with self.conn.cursor() as cur:
-            if table_name:
-                query = f"DELETE FROM {table_name};"
-                cur.execute(query)
-            else:
-                cur.execute(
-                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public';"
-                )
-                tables = [row["tablename"] for row in cur.fetchall()]
-                for table in tables:
-                    cur.execute(f"DELETE FROM {table};")
-
-    def delete_all_tables(self) -> None:
-        """Drop all tables in the database."""
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public';")
-            tables = [row["tablename"] for row in cur.fetchall()]
-            for table in tables:
-                cur.execute(
-                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE;").format(
-                        sql.Identifier(table)
-                    )
-                )
-
-    def delete_db(self, confirm: bool = False) -> None:
-        if not confirm:
-            raise ValueError(
-                "Database deletion requires explicit confirmation by setting confirm=True"
-            )
-        dbname = self.conn.info.dbname
-        user = self.conn.info.user
-        password = self.conn.info.password
-        host = self.conn.info.host
-        port = self.conn.info.port
-        if not self.conn.closed:
-            self.close()
-        try:
-            with connect(
-                dbname="postgres",
-                user=user,
-                password=password,
-                host=host,
-                port=port,
-                autocommit=True,
-            ) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        sql.SQL(
-                            "SELECT pg_terminate_backend(pg_stat_activity.pid) "
-                            "FROM pg_stat_activity "
-                            "WHERE pg_stat_activity.datname = %s AND pid <> pg_backend_pid();"
-                        ),
-                        (dbname,),
-                    )
-                    cur.execute(
-                        sql.SQL("DROP DATABASE IF EXISTS {}").format(
-                            sql.Identifier(dbname)
-                        )
-                    )
-        except Exception as e:
-            raise RuntimeError(f"Failed to delete database {dbname}: {str(e)}") from e
-        self.conn = None
+    def drop_enum_type(self, type_name: str, cascade: bool = True):
+        self.schema.drop_enum_type(type_name, cascade)
 
     def get_database_metadata(self) -> DatabaseMetadata:
-        """Retrieve metadata for the current database."""
-        with self.conn.cursor() as cur:
-            query = (
-                "SELECT d.datname AS dbname, d.datdba::regrole::text AS owner, "
-                "pg_encoding_to_char(d.encoding) AS encoding, d.datcollate AS collation, "
-                "d.datctype AS ctype, "
-                "pg_database_size(d.datname)::float / 1024 / 1024 AS size_mb "
-                "FROM pg_database d WHERE d.datname = %s;"
-            )
-            cur.execute(query, (self.conn.info.dbname,))
-            result = cur.fetchone()
-            if not result:
-                raise RuntimeError(f"Database {self.conn.info.dbname} not found")
-            return {
-                "dbname": result["dbname"],
-                "owner": result["owner"],
-                "encoding": result["encoding"],
-                "collation": result["collation"],
-                "ctype": result["ctype"],
-                "size_mb": round(result["size_mb"], 2),
-            }
+        return self.metadata.get_database_metadata()
 
-    def get_all_tables(self) -> list[str]:
-        """Retrieve a list of all table names in the public schema."""
-        with self.conn.cursor() as cur:
-            query = (
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = 'public';"
-            )
-            cur.execute(query)
-            results = cur.fetchall()
-            return [row["table_name"] for row in results]
+    def get_all_tables(self) -> List[str]:
+        return self.metadata.get_all_tables()
 
     def get_table_metadata(self, table_name: str) -> TableMetadata:
-        """Retrieve detailed metadata for a specific table."""
-        with self.conn.cursor() as cur:
-            table_query = (
-                "SELECT t.table_name, t.table_type, t.table_schema AS schema_name, "
-                "COALESCE((SELECT reltuples::bigint FROM pg_class "
-                "WHERE relname = t.table_name), 0) AS row_count "
-                "FROM information_schema.tables t "
-                "WHERE t.table_schema = 'public' AND t.table_name = %s;"
-            )
-            formatted_table_query = sql.SQL(table_query).format(
-                table_name=sql.Identifier(table_name)
-            )
-            cur.execute(formatted_table_query, (table_name,))
-            table_result = cur.fetchone()
-            if not table_result:
-                raise RuntimeError(f"Table {table_name} not found in public schema")
-            column_query = (
-                "SELECT column_name, data_type, is_nullable, "
-                "character_maximum_length, numeric_precision, numeric_scale "
-                "FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s;"
-            )
-            cur.execute(column_query, (table_name,))
-            columns = [
-                {
-                    "column_name": row["column_name"],
-                    "data_type": row["data_type"],
-                    "is_nullable": row["is_nullable"],
-                    "character_maximum_length": row["character_maximum_length"],
-                    "numeric_precision": row["numeric_precision"],
-                    "numeric_scale": row["numeric_scale"],
-                }
-                for row in cur.fetchall()
-            ]
-            return {
-                "table_name": table_result["table_name"],
-                "table_type": table_result["table_type"],
-                "schema_name": table_result["schema_name"],
-                "row_count": table_result["row_count"],
-                "columns": columns,
-            }
+        return self.metadata.get_table_metadata(table_name)
 
-    def get_database_summary(self) -> dict[str, DatabaseMetadata | list[TableMetadata]]:
-        """Retrieve a comprehensive summary of the database including metadata and all tables."""
-        tables = self.get_all_tables()
-        table_metadata = [self.get_table_metadata(table) for table in tables]
-        return {
-            "database_metadata": self.get_database_metadata(),
-            "tables": table_metadata,
-        }
+    def get_database_summary(
+        self,
+    ) -> Dict[str, Union[DatabaseMetadata, List[TableMetadata]]]:
+        return self.metadata.get_database_summary()
 
     def execute_raw_query(
         self, query: str, params: tuple | list = (), fetch_all: bool = True
-    ) -> list[dict] | dict | None:
-        """Execute a raw SQL query and return results.
+    ):
+        return self.query.execute_raw_query(query, params, fetch_all)
 
-        Args:
-            query: Raw SQL query string with %s placeholders for parameters
-            params: Parameters to substitute in the query
-            fetch_all: If True, return all results; if False, return single row
+    def drop_all_rows(self, table_name: Optional[str] = None):
+        self.query.drop_all_rows(table_name)
 
-        Returns:
-            List of dictionaries for fetch_all=True, single dict or None for fetch_all=False
-        """
-        with self.conn.cursor() as cur:
-            cur.execute(query, params)
-            if fetch_all:
-                return cur.fetchall()
-            else:
-                return cur.fetchone()
+    def delete_all_tables(self):
+        self.schema.delete_all_tables()
+
+    def generate_unique_hash(self) -> str:
+        return self.query.generate_unique_hash()
+
+    def delete_db(self, confirm: bool = False):
+        if confirm:
+            self.connection.delete_db()
+
+    def close(self):
+        self.connection.close()
+
+    def __enter__(self):
+        return self.connection.__enter__()
+
+    def __exit__(self, *args):
+        return self.connection.__exit__(*args)
 
 
-__all__ = [
-    "SearchResult",
-    "PgVectorClient",
-]
+__all__ = ["PgVectorClient", "SearchResult"]
