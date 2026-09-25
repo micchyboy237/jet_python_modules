@@ -247,19 +247,26 @@ def build_schema_prompt(schema: dict[str, Any]) -> str:
     """Generate a system prompt section describing expected JSON structure.
 
     Improvements:
-    - Explicitly instructs to OMIT optional keys if no value exists (prevents nulls).
-    - Handles 'anyOf' types common in Pydantic Optional fields.
-    - Describes default values if present.
+    - Explicitly instructs to OMIT keys if the information is not in the context.
+    - Explicitly FORBIDS any fields not defined in the schema.
+    - Prevents hallucination of missing data.
     """
     props = schema.get("properties", {})
     required = schema.get("required", [])
 
-    lines = ["Return a JSON object with these exact fields:"]
+    lines = [
+        "Return a JSON object with these exact fields:",
+        "⚠️ STRICT RULES:",
+        "1. DO NOT include any fields not listed below.",
+        "2. If a field's value cannot be derived from the provided context, OMIT the key entirely.",
+        "3. Do NOT use null, empty strings, or 'unknown' for missing values—just omit the key.",
+        "4. Return ONLY valid JSON, no markdown, no explanation.",
+    ]
 
     # Handle prefixItems for fixed-length tuples if present
     if "prefixItems" in schema.get("items", {}):
         prefix_items = schema["items"]["prefixItems"]
-        lines.append("IMPORTANT: The 'items' field is a fixed-length tuple.")
+        lines.append(f"IMPORTANT: The 'items' field is a fixed-length tuple.")
         lines.append(
             f"Return an array with exactly {len(prefix_items)} elements in this order:"
         )
@@ -267,7 +274,6 @@ def build_schema_prompt(schema: dict[str, Any]) -> str:
             desc = item_schema.get("description", f"Item {i}")
             type_name = item_schema.get("type", "any")
             lines.append(f"  - Index {i}: {type_name} ({desc})")
-        lines.append("Do NOT return objects inside this array. Return raw values.")
         lines.append("")
 
     for name, prop in props.items():
@@ -281,7 +287,7 @@ def build_schema_prompt(schema: dict[str, Any]) -> str:
             for item in prop["anyOf"]:
                 t = item.get("type", "any")
                 if t == "null":
-                    continue  # We handle nullability via "optional" label
+                    continue
                 types_list.append(t)
             ptype = " | ".join(types_list) if types_list else "any"
 
@@ -289,12 +295,11 @@ def build_schema_prompt(schema: dict[str, Any]) -> str:
         if is_required:
             req_mark = " (REQUIRED)"
         else:
-            # Check for defaults to give better hints
             default_val = prop.get("default")
             if default_val is not None:
                 req_mark = f" (optional, default: {json.dumps(default_val)})"
             else:
-                req_mark = " (optional, OMIT key if no value)"
+                req_mark = " (optional)"
 
         line_prefix = f'  - "{name}": {ptype}{req_mark}'
 
@@ -306,7 +311,6 @@ def build_schema_prompt(schema: dict[str, Any]) -> str:
     if required:
         lines.append(f"\nRequired fields: {', '.join(required)}")
 
-    lines.append("\nReturn ONLY valid JSON, no markdown, no explanation.")
     return "\n".join(lines)
 
 
