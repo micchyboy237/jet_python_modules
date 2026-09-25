@@ -1,14 +1,22 @@
 import json
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 class ChromaDBContextGenerator:
     """Generate comprehensive RAG context from Chroma DB SQLite for LLM queries."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, tables_filter: Optional[List[str]] = None):
+        """
+        Initialize with database path and optional table filter.
+
+        Args:
+            db_path: Path to the Chroma DB SQLite file
+            tables_filter: Optional list of table names to include. If None, all tables are included.
+        """
         self.db_path = db_path
+        self.tables_filter = tables_filter
         self.conn = None
 
     def connect(self):
@@ -32,6 +40,23 @@ class ChromaDBContextGenerator:
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         return [row["name"] for row in cursor.fetchall()]
+
+    def get_filtered_tables(self) -> List[str]:
+        """Get list of tables based on filter or all tables if no filter."""
+        all_tables = self.get_all_tables()
+        if self.tables_filter:
+            # Filter to only include specified tables that exist
+            filtered = [t for t in self.tables_filter if t in all_tables]
+            missing = [t for t in self.tables_filter if t not in all_tables]
+            if missing:
+                print(f"⚠ Warning: Tables not found: {', '.join(missing)}")
+            if filtered:
+                print(f"✓ Using filtered tables: {', '.join(filtered)}")
+                return filtered
+            else:
+                print("⚠ No valid tables in filter, using all tables")
+                return all_tables
+        return all_tables
 
     def get_table_schema(self, table_name: str) -> str:
         """Get CREATE TABLE statement for a specific table."""
@@ -91,14 +116,12 @@ class ChromaDBContextGenerator:
                         config = json.loads(row["config_json_str"])
                     except json.JSONDecodeError:
                         config = {"raw": row["config_json_str"]}
-
                 schema = {}
                 if row["schema_str"]:
                     try:
                         schema = json.loads(row["schema_str"])
                     except json.JSONDecodeError:
                         schema = {"raw": row["schema_str"]}
-
                 metadata_cursor = self.conn.execute(
                     """
                     SELECT key, str_value, int_value, float_value, bool_value
@@ -117,7 +140,6 @@ class ChromaDBContextGenerator:
                     )
                     if value is not None:
                         metadata[meta_row["key"]] = value
-
                 segments_cursor = self.conn.execute(
                     """
                     SELECT id, type, scope
@@ -141,7 +163,6 @@ class ChromaDBContextGenerator:
                             "embedding_count": embedding_count,
                         }
                     )
-
                 collections.append(
                     {
                         "id": row["id"],
@@ -207,10 +228,8 @@ class ChromaDBContextGenerator:
                     WHERE c.name = ?
                 """
                 params.append(collection_name)
-
             query += f" ORDER BY e.id LIMIT {limit * 10}"
             cursor = self.conn.execute(query, params)
-
             current_doc = None
             doc_metadata = {}
             for row in cursor.fetchall():
@@ -226,12 +245,10 @@ class ChromaDBContextGenerator:
                         )
                     current_doc = doc_id
                     doc_metadata = {"segment_id": row["segment_id"], "metadata": {}}
-
                 if row["key"]:
                     value = self._get_metadata_value(row)
                     if value is not None:
                         doc_metadata["metadata"][row["key"]] = value
-
             if current_doc is not None and doc_metadata:
                 samples.append(
                     {
@@ -240,7 +257,6 @@ class ChromaDBContextGenerator:
                         "metadata": doc_metadata.get("metadata", {}),
                     }
                 )
-
             samples = samples[:limit]
         except sqlite3.OperationalError as e:
             print(f"⚠ Could not query embeddings: {e}")
@@ -286,10 +302,12 @@ class ChromaDBContextGenerator:
         context_parts.append("=" * 80)
         context_parts.append("")
 
-        tables = self.get_all_tables()
+        tables = self.get_filtered_tables()
         context_parts.append("## DATABASE OVERVIEW")
         context_parts.append(f"Total Tables: {len(tables)}")
         context_parts.append(f"Tables: {', '.join(tables)}")
+        if self.tables_filter:
+            context_parts.append(f"Filter Applied: {', '.join(self.tables_filter)}")
         context_parts.append("")
 
         context_parts.append("## TABLE SCHEMAS")
@@ -309,7 +327,6 @@ class ChromaDBContextGenerator:
                 )
 
         context_parts.append("")
-
         collections = self.get_collections_info()
         if collections:
             context_parts.append("## COLLECTIONS")
@@ -393,7 +410,6 @@ class ChromaDBContextGenerator:
                     t for t, count in info["value_types"].items() if count > 0
                 ]
                 available_fields.append(f"{key} ({', '.join(types_present)})")
-
         guidance_text = f"""
 When constructing Chroma DB queries based on user questions:
 1. **Identify Collection**: Use collection names above to determine which collection to query
@@ -433,21 +449,23 @@ Use string comparisons in filters unless you convert them in your application lo
 """
         context_parts.append(guidance_text)
         context_parts.append("=" * 80)
-
         self.disconnect()
         return "\n".join(context_parts)
 
 
-def generate_rag_context(db_path: str) -> str:
+def generate_rag_context(
+    db_path: str, tables_filter: Optional[List[str]] = None
+) -> str:
     """Standalone function to generate RAG context from Chroma DB.
 
     Args:
         db_path: Path to the Chroma DB SQLite file
+        tables_filter: Optional list of table names to include. If None, all tables are included.
 
     Returns:
         Comprehensive RAG context string for LLM queries
     """
-    generator = ChromaDBContextGenerator(db_path)
+    generator = ChromaDBContextGenerator(db_path, tables_filter=tables_filter)
     return generator.generate_rag_context()
 
 
@@ -461,8 +479,11 @@ if __name__ == "__main__":
 
     DB_PATH = "/Users/jethroestrada/.cache/chrome_db/missav/chroma_data/chroma.sqlite3"
 
-    context = generate_rag_context(DB_PATH)
+    # Example: Filter to specific tables
+    TABLES_FILTER = ["collections", "embeddings", "segments"]
+    # TABLES_FILTER = None  # Set to None to include all tables
 
+    context = generate_rag_context(DB_PATH, tables_filter=TABLES_FILTER)
     output_file = OUTPUT_DIR / "chroma_db_context.txt"
     with open(output_file, "w") as f:
         f.write(context)

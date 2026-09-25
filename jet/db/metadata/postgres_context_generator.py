@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -8,14 +8,19 @@ from psycopg2.extras import RealDictCursor
 class PostgresContextGenerator:
     """Generate comprehensive RAG context from PostgreSQL database for LLM queries."""
 
-    def __init__(self, connection_string: str):
+    def __init__(
+        self, connection_string: str, tables_filter: Optional[List[str]] = None
+    ):
         """
-        Initialize with PostgreSQL connection string.
+        Initialize with PostgreSQL connection string and optional table filter.
+
         Args:
             connection_string: PostgreSQL connection URI
                               (e.g., "postgresql://user:pass@localhost:5432/dbname")
+            tables_filter: Optional list of table names to include. If None, all tables are included.
         """
         self.connection_string = connection_string
+        self.tables_filter = tables_filter
         self.conn = None
 
     def connect(self):
@@ -48,6 +53,23 @@ class PostgresContextGenerator:
                 (schema,),
             )
             return [row["table_name"] for row in cursor.fetchall()]
+
+    def get_filtered_tables(self, schema: str = "public") -> List[str]:
+        """Get list of tables based on filter or all tables if no filter."""
+        all_tables = self.get_all_tables(schema)
+        if self.tables_filter:
+            # Filter to only include specified tables that exist
+            filtered = [t for t in self.tables_filter if t in all_tables]
+            missing = [t for t in self.tables_filter if t not in all_tables]
+            if missing:
+                print(f"⚠ Warning: Tables not found: {', '.join(missing)}")
+            if filtered:
+                print(f"✓ Using filtered tables: {', '.join(filtered)}")
+                return filtered
+            else:
+                print("⚠ No valid tables in filter, using all tables")
+                return all_tables
+        return all_tables
 
     def get_all_schemas(self) -> List[str]:
         """Get list of all schemas in the database."""
@@ -84,7 +106,6 @@ class PostgresContextGenerator:
             columns = cursor.fetchall()
             if not columns:
                 return None
-
             lines = [f"CREATE TABLE {schema}.{table_name} ("]
             for i, col in enumerate(columns):
                 type_str = col["data_type"]
@@ -99,7 +120,6 @@ class PostgresContextGenerator:
                         )
                     else:
                         type_str += f"({col['numeric_precision']})"
-
                 nullable = "NOT NULL" if col["is_nullable"] == "NO" else "NULL"
                 default = (
                     f" DEFAULT {col['column_default']}" if col["column_default"] else ""
@@ -108,7 +128,6 @@ class PostgresContextGenerator:
                 lines.append(
                     f"    {col['column_name']} {type_str} {nullable}{default}{comma}"
                 )
-
             cursor.execute(
                 """
                 SELECT kcu.column_name
@@ -126,7 +145,6 @@ class PostgresContextGenerator:
                 lines[-1] = lines[-1].rstrip(",") + ","
                 pk_str = ", ".join(pk_columns)
                 lines.append(f"    PRIMARY KEY ({pk_str})")
-
             lines.append(");")
             return "\n".join(lines)
 
@@ -291,12 +309,14 @@ class PostgresContextGenerator:
         context_parts.append("")
 
         schemas = self.get_all_schemas()
-        tables = self.get_all_tables(schema)
+        tables = self.get_filtered_tables(schema)
         context_parts.append("## DATABASE OVERVIEW")
         context_parts.append(f"Available Schemas: {', '.join(schemas)}")
         context_parts.append(f"Target Schema: {schema}")
         context_parts.append(f"Total Tables: {len(tables)}")
         context_parts.append(f"Tables: {', '.join(tables)}")
+        if self.tables_filter:
+            context_parts.append(f"Filter Applied: {', '.join(self.tables_filter)}")
         context_parts.append("")
 
         context_parts.append("## TABLE SCHEMAS")
@@ -307,11 +327,9 @@ class PostgresContextGenerator:
             columns = self.get_table_columns(table, schema)
             foreign_keys = self.get_foreign_keys(table, schema)
             indexes = self.get_indexes(table, schema)
-
             context_parts.append(f"\n### Table: {schema}.{table} ({count} rows)")
             if schema_sql:
                 context_parts.append(f"```sql\n{schema_sql}\n```")
-
             context_parts.append("\n**Columns:**")
             for col in columns:
                 pk_marker = " [PK]" if col["pk"] else ""
@@ -327,7 +345,6 @@ class PostgresContextGenerator:
                 context_parts.append(
                     f"- `{col['name']}`: {type_detail}{pk_marker}{nullable}"
                 )
-
             if foreign_keys:
                 context_parts.append("\n**Foreign Keys:**")
                 for fk in foreign_keys:
@@ -335,7 +352,6 @@ class PostgresContextGenerator:
                         f"- `{fk['source_column']}` → "
                         f"`{fk['target_schema']}.{fk['target_table']}.{fk['target_column']}`"
                     )
-
             if indexes:
                 context_parts.append("\n**Indexes:**")
                 for idx in indexes:
@@ -347,7 +363,6 @@ class PostgresContextGenerator:
                     )
 
         context_parts.append("")
-
         context_parts.append("## COLUMN STATISTICS SUMMARY")
         context_parts.append("-" * 80)
         for table in tables[:5]:
@@ -363,7 +378,6 @@ class PostgresContextGenerator:
                     )
 
         context_parts.append("")
-
         context_parts.append("## SAMPLE DATA")
         context_parts.append("-" * 80)
         for table in tables[:3]:
@@ -380,7 +394,6 @@ class PostgresContextGenerator:
                     context_parts.append("| " + " | ".join(values) + " |")
 
         context_parts.append("")
-
         context_parts.append("## QUERY GUIDANCE FOR DYNAMIC POSTGRESQL QUERIES")
         context_parts.append("-" * 80)
         all_columns = {}
@@ -390,11 +403,9 @@ class PostgresContextGenerator:
                 if col["name"] not in all_columns:
                     all_columns[col["name"]] = []
                 all_columns[col["name"]].append(f"{table}.{col['type']}")
-
         common_cols = ", ".join(list(all_columns.keys())[:20])
         if len(all_columns) > 20:
             common_cols += "..."
-
         guidance_lines = [
             "",
             "When constructing PostgreSQL queries based on user questions:",
@@ -431,22 +442,26 @@ class PostgresContextGenerator:
         ]
         context_parts.extend(guidance_lines)
         context_parts.append("=" * 80)
-
         self.disconnect()
         return "\n".join(context_parts)
 
 
-def generate_rag_context(connection_string: str, schema: str = "public") -> str:
+def generate_rag_context(
+    connection_string: str,
+    schema: str = "public",
+    tables_filter: Optional[List[str]] = None,
+) -> str:
     """Standalone function to generate RAG context from PostgreSQL database.
 
     Args:
         connection_string: PostgreSQL connection URI
         schema: Database schema to analyze (default: "public")
+        tables_filter: Optional list of table names to include. If None, all tables are included.
 
     Returns:
         Comprehensive RAG context string for LLM queries
     """
-    generator = PostgresContextGenerator(connection_string)
+    generator = PostgresContextGenerator(connection_string, tables_filter=tables_filter)
     return generator.generate_rag_context(schema=schema)
 
 
@@ -460,8 +475,13 @@ if __name__ == "__main__":
 
     CONNECTION_STRING = "postgresql://jethroestrada:@localhost:5432/jobs_db3"
 
-    context = generate_rag_context(CONNECTION_STRING, schema="public")
+    # Example: Filter to specific tables
+    TABLES_FILTER = ["jobs_meta", "job_entities"]
+    # TABLES_FILTER = None  # Set to None to include all tables
 
+    context = generate_rag_context(
+        CONNECTION_STRING, schema="public", tables_filter=TABLES_FILTER
+    )
     output_file = OUTPUT_DIR / "postgres_db_context.txt"
     with open(output_file, "w") as f:
         f.write(context)
