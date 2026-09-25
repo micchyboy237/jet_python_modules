@@ -436,6 +436,13 @@ async def agenerate(
 
 
 def get_args() -> argparse.Namespace:
+    import shutil
+
+    # Setup default output directory
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     parser = argparse.ArgumentParser(
         description="Stream vision-model chat completions with Phoenix observability."
     )
@@ -473,8 +480,8 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        type=str,
-        default=None,
+        type=Path,
+        default=OUTPUT_DIR,
         help="Directory to save exported trace JSONL files.",
     )
     return parser.parse_args()
@@ -487,8 +494,6 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    resolved_output_dir = Path(args.output_dir) if args.output_dir else None
-
     result = asyncio.run(
         achat(
             args.prompt,
@@ -496,7 +501,7 @@ if __name__ == "__main__":
             image_source=args.image_source,
             project_name=args.project,
             seed=args.seed,
-            output_dir=resolved_output_dir,
+            output_dir=args.output_dir,
         )
     )
     logger.info(

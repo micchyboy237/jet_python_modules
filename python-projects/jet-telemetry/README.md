@@ -1,13 +1,18 @@
 # Jet Telemetry
 
-> **Summary:** A shared, production-ready instrumentation library for Python applications. Provides standardized OpenTelemetry tracing for Arize Phoenix with a focus on simplicity and semantic conventions.
+> **Summary:** A shared, production-ready instrumentation library for Python applications. Provides standardized OpenTelemetry tracing for Arize Phoenix with specialized support for LLMs, RAG pipelines, Agents, and Safety/Evaluation workflows.
 
 ## 🚀 Features
 
 - **Phoenix-Native:** Uses `arize-phoenix-otel` for automatic configuration and defaults.
-- **Semantic Conventions:** Follows OpenInference standards for LLM, Tool, and Chain spans.
-- **Minimalist API:** Only 4 decorators (`llm`, `tool`, `chain`, `trace`) to cover every use case.
+- **Comprehensive AI Semantics:** Specialized decorators for every layer of an AI stack:
+  - **Core:** `@llm`, `@tool`, `@chain`, `@agent`
+  - **RAG & Search:** `@embedding`, `@retriever`, `@reranker`
+  - **Safety & Eval:** `@guardrail`, `@evaluator`, `@prompt`
+- **Smart Attribute Capture:** Automatically captures model names, input messages, and retrieval metadata while redacting sensitive data (PII) and excluding large vectors.
+- **Minimalist API:** Easy-to-use decorators that support both synchronous and asynchronous workflows.
 - **Flexible Configuration:** Supports environment variables or direct code overrides for the collector endpoint.
+- **Trace Management:** Built-in helpers to generate shareable trace URLs and export spans to JSONL for offline analysis.
 
 ## 🛠️ Installation
 
@@ -16,42 +21,3 @@ Add this package to your project's `pyproject.toml` or install from your interna
 ```bash
 pip install jet-telemetry
 ```
-
-## 💡 Usage
-
-### 1. Initialize
-
-Call this once at the start of your application:
-
-```python
-from jet_telemetry import initialize_telemetry
-
-# Option A: Use environment variable (PHOENIX_ENDPOINT)
-initialize_telemetry(service_name="my-rag-app")
-
-# Option B: Override endpoint directly in code
-initialize_telemetry(service_name="my-rag-app", endpoint="http://prod-phoenix:6006")
-```
-
-### 2. Instrument Code
-
-Use the decorators to categorize your functions:
-
-```python
-from jet_telemetry import llm, tool, chain
-
-@tool
-async def search_db(query): ...
-
-@llm(model_name="gpt-4o")
-async def generate_answer(context): ...
-
-@chain
-async def rag_pipeline(question): ...
-```
-
-## ⚙️ Configuration
-
-| Env Variable       | Default                 | Description                                  |
-| :----------------- | :---------------------- | :------------------------------------------- |
-| `PHOENIX_ENDPOINT` | `http://localhost:6006` | The endpoint for the Phoenix OTLP collector. |

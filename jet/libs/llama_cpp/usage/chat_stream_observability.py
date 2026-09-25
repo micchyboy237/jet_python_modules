@@ -9,7 +9,6 @@ import argparse
 import json
 import logging
 import os
-import shutil
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -1049,6 +1048,13 @@ async def run_generate_stream_async(
 
 
 def get_args() -> argparse.Namespace:
+    import shutil
+
+    # Setup default output directory
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     parser = argparse.ArgumentParser(
         description="Stream chat completions with Phoenix observability."
     )
@@ -1093,8 +1099,8 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        type=str,
-        default=None,
+        type=Path,
+        default=OUTPUT_DIR,
         help="Directory to save exported trace JSONL files.",
     )
     return parser.parse_args()
@@ -1105,11 +1111,7 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    output_dir = Path(args.output_dir) if args.output_dir else None
-    if not output_dir:
-        output_dir = Path(__file__).parent / "generated" / Path(__file__).stem
-    shutil.rmtree(output_dir, ignore_errors=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = args.output_dir
 
     parsed_logit_bias: dict[str, int] | None = None
     if args.logit_bias:
