@@ -21,12 +21,9 @@ try:
     PYDANTIC_AVAILABLE = True
 except ImportError:
     PYDANTIC_AVAILABLE = False
-    BaseModel = object  # type: ignore[assignment,misc]
-    ValidationError = Exception  # type: ignore[assignment,misc]
+    BaseModel = object
+    ValidationError = Exception
 
-# --- JSON Schema Validator Backend Selection (PRIVATE) ---
-# Prefer jsonschema-rs (Rust, 84-2270x faster) over pure-Python jsonschema.
-# Both support Draft 2020-12. fastjsonschema is NOT used (Draft-07 only).
 _VALIDATOR_BACKEND: str | None = None
 _Draft202012Validator: Any = None
 
@@ -90,11 +87,14 @@ _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL
 def extract_json(raw: str) -> dict | list | None:
     """Robustly extract JSON from model output, handling markdown fences."""
     stripped = raw.strip()
+
+    # Try direct parse first
     try:
         return json.loads(stripped)
     except json.JSONDecodeError:
         pass
 
+    # Try fenced code blocks
     match = _JSON_FENCE_RE.search(stripped)
     if match:
         try:
@@ -102,6 +102,7 @@ def extract_json(raw: str) -> dict | list | None:
         except json.JSONDecodeError:
             pass
 
+    # Try finding loose objects/arrays
     for pattern in [_JSON_OBJECT_RE, _JSON_ARRAY_RE]:
         matches = pattern.findall(stripped)
         for candidate in reversed(matches):
@@ -111,6 +112,7 @@ def extract_json(raw: str) -> dict | list | None:
                     return parsed
             except json.JSONDecodeError:
                 continue
+
     return None
 
 
@@ -127,16 +129,14 @@ def resolve_response_format(
       - dict with 'type': 'json_object' → passthrough
       - dict with 'type': 'json_schema' → passthrough
       - dict with 'type': 'grammar' or 'grammar' key → grammar via extra_body
-        (NOT sent as response_format; caller must merge into extra_body_params)
 
     Returns:
         ResolvedFormat with api_format, schema, and optional system prompt.
-        For grammar mode, api_format is None and the grammar string is stored
-        in resolved_fmt.api_format under a special key for the caller to handle.
     """
     if response_format is None:
         return ResolvedFormat(api_format=None, output_format=OutputFormat.TEXT)
 
+    # Handle Pydantic Models
     if (
         PYDANTIC_AVAILABLE
         and isinstance(response_format, type)
@@ -163,9 +163,11 @@ def resolve_response_format(
             system_prompt_addition=prompt_addition,
         )
 
+    # Handle Dict formats
     if isinstance(response_format, dict):
         fmt_type = response_format.get("type", "")
 
+        # Grammar Mode
         if fmt_type == "grammar" or "grammar" in response_format:
             grammar_str = response_format.get("grammar", "")
             if not grammar_str:
@@ -178,6 +180,7 @@ def resolve_response_format(
                 output_format=OutputFormat.GRAMMAR,
             )
 
+        # JSON Schema Object
         if "properties" in response_format or "$schema" in response_format:
             name = response_format.get("title", "custom_schema")
             api_format = {
@@ -197,6 +200,7 @@ def resolve_response_format(
                 system_prompt_addition=prompt_addition,
             )
 
+        # JSON Schema Array
         if fmt_type == "array" and "items" in response_format:
             name = response_format.get("title", "array_schema")
             api_format = {
@@ -216,6 +220,7 @@ def resolve_response_format(
                 )
             else:
                 prompt_addition = "Return a JSON ARRAY. Each element should match the expected schema."
+
             logger.debug(f"📐 Resolved JSON Schema array → json_schema ({name})")
             return ResolvedFormat(
                 api_format=api_format,
@@ -224,6 +229,7 @@ def resolve_response_format(
                 system_prompt_addition=prompt_addition,
             )
 
+        # Passthrough formats
         if fmt_type in ("json_object", "json_schema"):
             logger.debug(f"📐 Resolved dict format: {fmt_type}")
             return ResolvedFormat(
@@ -238,12 +244,19 @@ def resolve_response_format(
 
 
 def build_schema_prompt(schema: dict[str, Any]) -> str:
-    """Generate a system prompt section describing expected JSON structure."""
+    """Generate a system prompt section describing expected JSON structure.
+
+    Improvements:
+    - Explicitly instructs to OMIT optional keys if no value exists (prevents nulls).
+    - Handles 'anyOf' types common in Pydantic Optional fields.
+    - Describes default values if present.
+    """
     props = schema.get("properties", {})
     required = schema.get("required", [])
+
     lines = ["Return a JSON object with these exact fields:"]
 
-    # Check for prefixItems (Tuple validation)
+    # Handle prefixItems for fixed-length tuples if present
     if "prefixItems" in schema.get("items", {}):
         prefix_items = schema["items"]["prefixItems"]
         lines.append("IMPORTANT: The 'items' field is a fixed-length tuple.")
@@ -258,19 +271,37 @@ def build_schema_prompt(schema: dict[str, Any]) -> str:
         lines.append("")
 
     for name, prop in props.items():
-        ptype = prop.get("type", "string")
+        is_required = name in required
+        ptype = prop.get("type", "any")
         desc = prop.get("description", "")
-        req_mark = " (required)" if name in required else " (optional)"
 
-        # Handle nested array descriptions if needed
-        if ptype == "array" and "items" in prop:
-            lines.append(f'  - "{name}": array{req_mark}')
-            if "description" in prop:
-                lines.append(f"    {prop['description']}")
+        # Handle anyOf (common for Optional[T] in Pydantic)
+        if "anyOf" in prop:
+            types_list = []
+            for item in prop["anyOf"]:
+                t = item.get("type", "any")
+                if t == "null":
+                    continue  # We handle nullability via "optional" label
+                types_list.append(t)
+            ptype = " | ".join(types_list) if types_list else "any"
+
+        # Build the field description line
+        if is_required:
+            req_mark = " (REQUIRED)"
         else:
-            lines.append(f'  - "{name}": {ptype}{req_mark}')
-            if desc:
-                lines.append(f"    {desc}")
+            # Check for defaults to give better hints
+            default_val = prop.get("default")
+            if default_val is not None:
+                req_mark = f" (optional, default: {json.dumps(default_val)})"
+            else:
+                req_mark = " (optional, OMIT key if no value)"
+
+        line_prefix = f'  - "{name}": {ptype}{req_mark}'
+
+        if desc:
+            lines.append(f"{line_prefix}\n    {desc}")
+        else:
+            lines.append(line_prefix)
 
     if required:
         lines.append(f"\nRequired fields: {', '.join(required)}")
@@ -290,8 +321,6 @@ def parse_structured_content(
       2. Modern JSON Schema validation (jsonschema-rs or jsonschema fallback)
       3. Grammar mode (trusted via GBNF constraints)
       4. Fallback: raw JSON extraction only
-
-    This is a pure function — no API calls, no streaming.
     """
     if resolved.output_format == OutputFormat.TEXT:
         return StructuredResult(
@@ -312,7 +341,7 @@ def parse_structured_content(
             validator_backend=_VALIDATOR_BACKEND,
         )
 
-    # 1. Pydantic validation takes priority when a model class is available
+    # 1. Pydantic Validation
     if resolved.model_type is not None and PYDANTIC_AVAILABLE:
         try:
             instance = resolved.model_type.model_validate(extracted)
@@ -339,7 +368,7 @@ def parse_structured_content(
                 validator_backend="pydantic",
             )
 
-    # 2. Modern JSON Schema validation (jsonschema-rs or jsonschema fallback)
+    # 2. JSON Schema Validation
     if resolved.schema is not None and _Draft202012Validator is not None:
         try:
             validator = _Draft202012Validator(resolved.schema)
@@ -385,7 +414,7 @@ def parse_structured_content(
                 validator_backend=_VALIDATOR_BACKEND,
             )
 
-    # 3. Grammar Mode: Trust the GBNF constraints
+    # 3. Grammar Mode (Trusted)
     if resolved.output_format == OutputFormat.GRAMMAR:
         logger.debug("✅ Grammar-constrained output accepted (GBNF validated)")
         return StructuredResult(
@@ -396,7 +425,7 @@ def parse_structured_content(
             validator_backend="gbnf",
         )
 
-    # 4. Fallback: valid JSON extracted but no schema validation performed
+    # 4. Fallback
     logger.debug(
         "⚠️ No JSON Schema validator installed; returning extracted JSON without validation"
     )

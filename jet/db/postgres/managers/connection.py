@@ -1,3 +1,4 @@
+from pgvector.psycopg import register_vector
 from psycopg import connect, sql
 from psycopg.rows import dict_row
 
@@ -22,7 +23,6 @@ class ConnectionManager:
         self.host = host
         self.port = port
         self.conn = None
-
         self._ensure_database_exists(overwrite_db)
         self._connect()
 
@@ -51,7 +51,6 @@ class ConnectionManager:
                     "SELECT 1 FROM pg_database WHERE datname = %s;", (self.dbname,)
                 )
                 exists = cur.fetchone()
-
                 if exists and overwrite_db:
                     logger.info(f"Overwriting database: {self.dbname}")
                     cur.execute(
@@ -65,7 +64,6 @@ class ConnectionManager:
                             sql.Identifier(self.dbname)
                         )
                     )
-
                 if not exists or overwrite_db:
                     cur.execute(
                         sql.SQL("CREATE DATABASE {}").format(
@@ -105,6 +103,21 @@ class ConnectionManager:
             raise RuntimeError(
                 f"Failed to delete database {self.dbname}: {str(e)}"
             ) from e
+
+    def begin_transaction(self) -> None:
+        """Explicitly begin a new transaction."""
+        if self.conn:
+            self.conn.execute("BEGIN;")
+
+    def commit(self) -> None:
+        """Commit the current transaction."""
+        if self.conn:
+            self.conn.execute("COMMIT;")
+
+    def rollback(self) -> None:
+        """Rollback the current transaction."""
+        if self.conn:
+            self.conn.execute("ROLLBACK;")
 
     def __enter__(self):
         if self.conn:

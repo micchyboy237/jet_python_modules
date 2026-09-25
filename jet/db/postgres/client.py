@@ -30,11 +30,8 @@ class PostgresClient:
         self.schema = SchemaManager(self.connection.conn)
         self.query = QueryExecutor(self.connection.conn)
         self.metadata = MetadataManager(self.connection.conn)
-
-        # Backward compatibility
         self.conn = self.connection.conn
 
-    # --- Schema & Enum Wrappers ---
     def create_table(self, table_name: str):
         self.schema.create_table(table_name, {"id": "TEXT PRIMARY KEY"})
 
@@ -69,7 +66,6 @@ class PostgresClient:
     def validate_enum_value(self, type_name: str, value: str) -> bool:
         return self.schema.validate_enum_value(type_name, value)
 
-    # --- CRUD Wrappers ---
     def create_row(self, table_name: str, row_data: Dict[str, Any]) -> TableRow:
         self.schema.ensure_columns_exist(table_name, row_data)
         return self.query.insert_row(table_name, row_data)
@@ -135,7 +131,6 @@ class PostgresClient:
             aggregates,
         )
 
-    # --- Metadata & Cleanup Wrappers ---
     def get_database_metadata(self) -> DatabaseMetadata:
         return self.metadata.get_database_metadata()
 
@@ -170,6 +165,15 @@ class PostgresClient:
 
     def close(self):
         self.connection.close()
+
+    def begin_transaction(self) -> None:
+        self.connection.begin_transaction()
+
+    def commit(self) -> None:
+        self.connection.commit()
+
+    def rollback(self) -> None:
+        self.connection.rollback()
 
     def __enter__(self):
         return self.connection.__enter__()

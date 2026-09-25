@@ -1,10 +1,10 @@
-# jet_python_modules/python-projects/jet-telemetry/src/jet_telemetry/helpers.py
 """
 Jet Telemetry: Helper utilities for tracing and observability.
 """
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -18,6 +18,28 @@ except ImportError:
     PHOENIX_CLIENT_AVAILABLE = False
 
 PII_PATTERNS = ["ssn", "password", "api_key", "secret", "token"]
+
+
+def get_service_name() -> str | None:
+    """
+    Retrieves the current service name from environment or tracer provider.
+    Returns:
+        The service name, or None if not initialized.
+    """
+    # First try environment variable (set during initialize_telemetry)
+    service_name = os.getenv("PHOENIX_PROJECT_NAME")
+    if service_name:
+        return service_name
+    # Fallback to tracer provider resource attributes
+    try:
+        from .setup import get_tracer_provider
+
+        provider = get_tracer_provider()
+        if provider:
+            return provider.resource.attributes.get("service.name")
+    except Exception:
+        pass
+    return None
 
 
 def redact(text: str) -> str:

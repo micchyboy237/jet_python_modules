@@ -1,8 +1,9 @@
+# jet/shared_modules/shared/data_types/job_analytics.py
 from datetime import date, datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EmploymentType(str, Enum):
@@ -27,81 +28,100 @@ class JobSourcePlatform(str, Enum):
 
 
 class JobAnalytics(BaseModel):
-    """Structured analytics-ready job record with normalized scope-of-work dimensions.
-    All fields are optional to allow partial entity extraction from incomplete job postings."""
+    """Structured analytics-ready job record with normalized scope-of-work dimensions."""
 
-    # --- Core Identifiers ---
-    company_name: Optional[str] = Field(None, description="Name of the hiring company")
+    model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
+
+    company_name: Optional[str] = Field(
+        None,
+        description="Name of the hiring company. e.g., 'TechNova Solutions', 'Google'",
+    )
     nature_of_business: Optional[str] = Field(
         None,
-        description="Industry sector. e.g., 'SaaS', 'Healthcare', 'E-commerce', 'FinTech'",
+        description="Industry sector. e.g., 'SaaS', 'HealthTech', 'E-commerce', 'FinTech'",
     )
-
-    # --- Geographic & Source Normalization ---
     country_code: Optional[str] = Field(
         None,
         pattern=r"^[A-Z]{2}$",
         description="ISO 3166-1 alpha-2 country code. e.g., 'US', 'GB', 'DE', 'IN'",
     )
     source_platform: Optional[JobSourcePlatform] = Field(
-        None, description="Normalized job board/platform where the listing was sourced"
+        None,
+        description="Normalized job board. MUST be one of: 'linkedin', 'jobstreet', 'onlinejobs', 'indeed', 'other'.",
     )
-
-    # --- Timeline Analytics ---
     posted_date: Optional[date] = Field(
         None,
-        description="Date the job was first posted. Enables trend analysis, hiring velocity, and stale-job detection.",
+        description="Date the job was first posted in ISO 8601 format (YYYY-MM-DD). e.g., '2024-05-15'",
     )
-
-    # --- Employment Metadata (Normalized Enums) ---
     employment_type: Optional[EmploymentType] = Field(
-        None, description="Standardized employment classification"
+        None,
+        description="Standardized employment type. MUST be one of: 'full_time', 'part_time', 'contract', 'internship'.",
     )
     work_mode: Optional[WorkMode] = Field(
-        None, description="Standardized remote/onsite/hybrid classification"
+        None,
+        description="Standardized work mode. MUST be one of: 'remote', 'onsite', 'hybrid'.",
     )
-
-    # --- Compensation (Structured Numeric Range) ---
     salary_min: Optional[int] = Field(
         None,
         ge=0,
-        description="Minimum annual/base salary in smallest currency unit or whole units",
+        description="Minimum annual/base salary as an integer. e.g., 120000",
     )
     salary_max: Optional[int] = Field(
         None,
         ge=0,
-        description="Maximum annual/base salary in smallest currency unit or whole units",
+        description="Maximum annual/base salary as an integer. e.g., 160000",
     )
     salary_currency: Optional[str] = Field(
         None,
         pattern=r"^[A-Z]{3}$",
-        description="ISO 4217 currency code, e.g., 'USD', 'EUR', 'GBP'",
+        description="ISO 4217 currency code. e.g., 'USD', 'EUR', 'GBP', 'PHP'",
     )
-
-    # --- Scope of Work Dimensions ---
     technology_stack: Optional[List[str]] = Field(
         None,
-        description="Specific technologies, tools, frameworks, APIs, and platforms. "
-        "e.g., ['PyTorch', 'LangChain', 'OpenAI API', 'Pinecone', 'CUDA']. "
-        "Do NOT include generic terms like 'AI' or 'ML' here.",
+        description="Specific technologies, tools, frameworks, and libraries. "
+        "e.g., ['Python', 'PyTorch', 'LangChain', 'AWS']. "
+        "Do NOT include generic terms like 'AI', 'ML', 'Cloud', or 'Software'.",
     )
     job_domain: Optional[List[str]] = Field(
         None,
-        description="Primary engineering domains. e.g., ['Frontend', 'Backend', 'Mobile', "
-        "'Cloud/DevOps', 'Data/AI', 'QA/Test', 'Security', 'Embedded/IoT']",
+        description="Primary engineering domains. e.g., ['Backend', 'Frontend', 'Data/AI', 'DevOps', 'Mobile']",
     )
     platform_targets: Optional[List[str]] = Field(
         None,
-        description="Target platforms/environments. e.g., ['Web', 'iOS', 'Android', 'AWS', "
-        "'Azure', 'GCP', 'Linux Server', 'Windows Desktop']",
+        description="Target deployment platforms or environments. e.g., ['Web', 'iOS', 'Android', 'AWS', 'Linux']",
     )
 
-    # --- Validators ---
+    @field_validator("source_platform", "employment_type", "work_mode", mode="before")
+    @classmethod
+    def normalize_enum_strings(cls, v):
+        """Normalize common LLM output variations to match Enum values."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            cleaned = v.lower().replace("-", "_").replace(" ", "_")
+            mappings = {
+                "full_time": "full_time",
+                "fulltime": "full_time",
+                "part_time": "part_time",
+                "parttime": "part_time",
+                "remote": "remote",
+                "on_site": "onsite",
+                "on-site": "onsite",
+                "onsite": "onsite",
+                "hybrid": "hybrid",
+                "linkedin": "linkedin",
+                "job_street": "jobstreet",
+                "jobstreet": "jobstreet",
+                "online_jobs": "onlinejobs",
+                "onlinejobs": "onlinejobs",
+                "indeed": "indeed",
+            }
+            return mappings.get(cleaned, cleaned)
+        return v
+
     @field_validator("posted_date", mode="before")
     @classmethod
     def coerce_posted_date(cls, v):
-        """Accept datetime strings, date strings, date/datetime objects.
-        Truncate any time component to produce a pure date."""
         if v is None:
             return None
         if isinstance(v, date) and not isinstance(v, datetime):
@@ -112,12 +132,10 @@ class JobAnalytics(BaseModel):
             v = v.strip()
             if not v:
                 return None
-            # Try ISO datetime first (handles '2026-09-08T15:55:20.528667')
             try:
                 return datetime.fromisoformat(v.replace("Z", "+00:00")).date()
             except ValueError:
                 pass
-            # Fall back to date-only parse
             try:
                 return date.fromisoformat(v)
             except ValueError:
@@ -127,7 +145,6 @@ class JobAnalytics(BaseModel):
     @field_validator("salary_max")
     @classmethod
     def validate_salary_range(cls, v, info):
-        """Ensure salary_max >= salary_min when both are present."""
         if v is not None and info.data.get("salary_min") is not None:
             if v < info.data["salary_min"]:
                 raise ValueError(
@@ -140,7 +157,6 @@ class JobAnalytics(BaseModel):
     )
     @classmethod
     def normalize_lists(cls, v):
-        """Strip whitespace, deduplicate, and filter empty strings from list fields."""
         if v is None:
             return None
         if isinstance(v, str):

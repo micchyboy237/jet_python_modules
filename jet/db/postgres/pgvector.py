@@ -42,11 +42,8 @@ class PgVectorClient:
         self.query = QueryExecutor(self.connection.conn)
         self.metadata = MetadataManager(self.connection.conn)
         self.vector = VectorEngine(self.connection.conn)
-
-        # Backward compatibility
         self.conn = self.connection.conn
 
-    # --- Vector Table Wrappers ---
     def create_vector_table(
         self,
         table_name: str,
@@ -62,7 +59,6 @@ class PgVectorClient:
     def create_table(self, table_name: str, dimension: int):
         self.create_vector_table(table_name, dimension)
 
-    # --- CRUD Wrappers with Vector Casting ---
     def create_row(
         self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None
     ) -> TableRow:
@@ -148,7 +144,6 @@ class PgVectorClient:
             aggregates,
         )
 
-    # --- Vector Search & Helpers ---
     def search(
         self,
         table_name: str,
@@ -216,7 +211,6 @@ class PgVectorClient:
     ):
         self.vector.update_embedding_by_ids(table_name, updates)
 
-    # --- Enum & Metadata Wrappers ---
     def create_enum_type(self, type_name: str, values: List[str]):
         self.schema.create_enum_type(type_name, values)
 
@@ -257,6 +251,15 @@ class PgVectorClient:
 
     def close(self):
         self.connection.close()
+
+    def begin_transaction(self) -> None:
+        self.connection.begin_transaction()
+
+    def commit(self) -> None:
+        self.connection.commit()
+
+    def rollback(self) -> None:
+        self.connection.rollback()
 
     def __enter__(self):
         return self.connection.__enter__()

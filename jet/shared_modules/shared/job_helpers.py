@@ -62,6 +62,29 @@ def _ensure_metadata_table(
         logger.debug(f"Ensured metadata table '{table_name}' exists.")
 
 
+def _ensure_entities_table(
+    db_client: PgVectorClient, table_name: str = DEFAULT_TABLE_ENTITIES
+) -> None:
+    """
+    Ensure the job_entities table exists with proper schema.
+    Stores extracted entities with provenance metadata.
+    """
+    query = sql.SQL("""
+        CREATE TABLE IF NOT EXISTS {} (
+            id              TEXT PRIMARY KEY,
+            model_name      TEXT,
+            temperature     NUMERIC,
+            extracted_at    TIMESTAMPTZ,
+            entities        JSONB,
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            updated_at      TIMESTAMPTZ DEFAULT NOW()
+        );
+    """).format(sql.Identifier(table_name))
+    with db_client.conn.cursor() as cur:
+        cur.execute(query)
+        logger.debug(f"Ensured entities table '{table_name}' exists.")
+
+
 def _save_metadata_to_table(
     db_client: PgVectorClient,
     job_id: str,
@@ -232,7 +255,6 @@ def load_jobs_list(
 ) -> list[JobData]:
     """
     Load all existing jobs from the metadata table with optional DB-level filtering.
-
     Args:
         db_client: Optional PgVectorClient instance.
         table_name: Metadata table name.
@@ -245,8 +267,11 @@ def load_jobs_list(
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
     try:
+        # NEW: Ensure entities table exists if we're joining it
+        if include_entities:
+            _ensure_entities_table(db_client)
+
         with db_client:
-            # Build base SELECT with optional entity join
             if include_entities:
                 base_query = sql.SQL("""
                     SELECT m.*, e.entities AS _joined_entities
