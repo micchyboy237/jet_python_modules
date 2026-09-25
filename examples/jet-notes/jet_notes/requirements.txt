@@ -1,0 +1,5 @@
+arize-phoenix-otel
+fastapi
+uvicorn
+python-dotenv
+opentelemetry-sdk

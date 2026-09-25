@@ -1,5 +1,10 @@
 [
     {
+        "name": "arize-phoenix-otel",
+        "version": "0.17.1",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-otel"
+    },
+    {
         "name": "audioflux",
         "version": "0.1.9",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux"
@@ -10,29 +15,19 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic"
     },
     {
+        "name": "chonkie",
+        "version": "1.7.0",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/chonkie"
+    },
+    {
         "name": "codependpy",
         "version": "0.1.1",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/Utils/codependpy"
     },
     {
-        "name": "Crawl4AI",
-        "version": "0.9.2",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai"
-    },
-    {
-        "name": "crawlee",
-        "version": "1.9.4",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawlee-python"
-    },
-    {
         "name": "datasketch",
         "version": "2.0.0",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/datasketch"
-    },
-    {
-        "name": "deepeval",
-        "version": "4.2.0",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/deepeval"
     },
     {
         "name": "faster-whisper",
@@ -50,6 +45,11 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/agents/InfoSeeker"
     },
     {
+        "name": "jet-telemetry",
+        "version": "1.0.0",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/python-projects/jet-telemetry"
+    },
+    {
         "name": "keybert",
         "version": "0.9.0",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/KeyBERT"
@@ -65,24 +65,9 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain"
     },
     {
-        "name": "langchain-core",
-        "version": "1.5.5",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core"
-    },
-    {
-        "name": "langchain-openai",
-        "version": "1.5.1",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/partners/openai"
-    },
-    {
         "name": "langchain-text-splitters",
         "version": "1.1.2",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters"
-    },
-    {
-        "name": "langgraph",
-        "version": "1.2.11",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/langgraph"
     },
     {
         "name": "langgraph-checkpoint",
@@ -93,21 +78,6 @@
         "name": "langgraph-prebuilt",
         "version": "1.1.0",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/prebuilt"
-    },
-    {
-        "name": "letta",
-        "version": "0.16.8",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta"
-    },
-    {
-        "name": "llama-index",
-        "version": "0.14.24",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index"
-    },
-    {
-        "name": "llama-index-core",
-        "version": "0.14.24",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core"
     },
     {
         "name": "llama-index-embeddings-openai-like",
@@ -130,6 +100,11 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/retrievers/llama-index-retrievers-bm25"
     },
     {
+        "name": "markdown-it-py",
+        "version": "4.2.0",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/markdown-it-py"
+    },
+    {
         "name": "nova-vad",
         "version": "1.0.0",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/nova-vad"
@@ -138,16 +113,6 @@
         "name": "searxng",
         "version": "2026.8.4+c63835bd2",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/apps/searxng"
-    },
-    {
-        "name": "semhash",
-        "version": "0.4.1",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/semhash"
-    },
-    {
-        "name": "unstructured",
-        "version": "0.27.5",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured"
     },
     {
         "name": "unstructured_inference",

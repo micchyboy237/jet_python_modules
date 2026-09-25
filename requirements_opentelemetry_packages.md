@@ -1,20 +1,22 @@
-arize-phoenix                            20.4.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix
-arize-phoenix-client                     3.3.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-client
-arize-phoenix-evals                      3.5.1              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-evals
+arize-phoenix                            20.16.0
+arize-phoenix-client                     3.5.0
+arize-phoenix-evals                      3.9.0
 arize-phoenix-otel                       0.17.1             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-otel
-arize-phoenix-sqlean                     0.1.0
-opentelemetry-api                        1.44.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/opentelemetry-api
-opentelemetry-exporter-otlp              1.44.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/exporter/opentelemetry-exporter-otlp
-opentelemetry-exporter-otlp-proto-common 1.44.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/exporter/opentelemetry-exporter-otlp-proto-common
-opentelemetry-exporter-otlp-proto-grpc   1.44.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/exporter/opentelemetry-exporter-otlp-proto-grpc
-opentelemetry-exporter-otlp-proto-http   1.44.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/exporter/opentelemetry-exporter-otlp-proto-http
+arize-phoenix-sqlean                     0.1.2
+opentelemetry-api                        1.45.0
+opentelemetry-exporter-http-transport    0.66b0
+opentelemetry-exporter-otlp              1.45.0
+opentelemetry-exporter-otlp-common       0.66b0
+opentelemetry-exporter-otlp-proto-common 1.45.0
+opentelemetry-exporter-otlp-proto-grpc   1.45.0
+opentelemetry-exporter-otlp-proto-http   1.45.0
 opentelemetry-instrumentation            0.65b0
 opentelemetry-instrumentation-httpx      0.65b0
 opentelemetry-instrumentation-openai-v2  2.4b0
 opentelemetry-instrumentation-requests   0.65b0
 opentelemetry-instrumentation-sqlalchemy 0.65b0
-opentelemetry-proto                      1.44.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/opentelemetry-proto
-opentelemetry-sdk                        1.44.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/opentelemetry-sdk
-opentelemetry-semantic-conventions       0.65b0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/opentelemetry-python/opentelemetry-semantic-conventions
+opentelemetry-proto                      1.45.0
+opentelemetry-sdk                        1.45.0
+opentelemetry-semantic-conventions       0.66b0
 opentelemetry-util-genai                 1.0b0
 opentelemetry-util-http                  0.65b0

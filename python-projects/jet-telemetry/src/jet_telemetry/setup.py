@@ -1,6 +1,7 @@
 """
 Summary: Centralized OpenTelemetry setup for Jet's projects.
 Uses arize-phoenix-otel 0.17.1+ with proper HTTP/Protobuf configuration.
+Handles breaking changes in OpenTelemetry 1.45.0 regarding exporter internals.
 """
 
 import logging
@@ -36,7 +37,6 @@ def initialize_telemetry(
         batch: Use batch span processing for production performance.
     """
     global _initialized, _tracer_provider
-
     if _initialized:
         logger.debug(f"Telemetry already initialized for '{service_name}'. Skipping.")
         return
@@ -44,7 +44,6 @@ def initialize_telemetry(
     base_endpoint = endpoint or os.getenv(
         "PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"
     )
-
     if base_endpoint.endswith("/v1"):
         collector_endpoint = f"{base_endpoint}/traces"
     elif not base_endpoint.endswith("/v1/traces"):
@@ -76,6 +75,23 @@ def initialize_telemetry(
         print(
             f"[JetTelemetry] Initialized '{service_name}' -> {collector_endpoint} ({protocol})"
         )
+    except AttributeError as e:
+        if "_headers" in str(e):
+            logger.warning(
+                "OpenTelemetry 1.45.0 compatibility issue detected in phoenix-otel. "
+                "Tracing may still work, but debug details might be incomplete. "
+                "Consider upgrading arize-phoenix-otel or downgrading opentelemetry packages."
+            )
+            # Attempt to initialize without the failing debug path if possible,
+            # or re-raise if critical. In this case, pxtl.register fails internally.
+            # We can try to manually set up the provider if pxtl.register is too rigid.
+            raise RuntimeError(
+                "Compatibility error between arize-phoenix-otel and opentelemetry-exporter-otlp-proto-http 1.45.0. "
+                "Please upgrade arize-phoenix-otel to a version supporting OTel 1.45+."
+            ) from e
+        else:
+            logger.error(f"Failed to initialize telemetry: {e}")
+            raise
     except Exception as e:
         logger.error(f"Failed to initialize telemetry: {e}")
         raise
