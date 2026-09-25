@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -293,6 +293,189 @@ class PgVectorClient:
     def generate_unique_hash(self) -> str:
         """Generate a unique UUID v4 string."""
         return str(uuid.uuid4())
+
+    def create_vector_table(
+        self,
+        table_name: str,
+        dimension: int,
+        additional_columns: Optional[Dict[str, str]] = None,
+        include_timestamps: bool = True,
+    ) -> None:
+        """Create a table with vector embedding and optional custom columns.
+
+        Args:
+            table_name: Name of the table to create
+            dimension: Dimension of the vector embeddings
+            additional_columns: Optional dict of column_name -> SQL_type mappings
+                            e.g., {"status": "mood", "title": "TEXT"}
+            include_timestamps: Whether to add created_at/updated_at columns
+        """
+        col_defs = [
+            sql.SQL("id TEXT PRIMARY KEY"),
+            sql.SQL("embedding vector({})").format(sql.Literal(dimension)),
+        ]
+
+        # Add custom columns
+        if additional_columns:
+            for col_name, col_type in additional_columns.items():
+                col_defs.append(
+                    sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
+                )
+
+        # Add timestamp columns
+        if include_timestamps:
+            col_defs.append(sql.SQL("created_at TIMESTAMPTZ DEFAULT NOW()"))
+            col_defs.append(sql.SQL("updated_at TIMESTAMPTZ DEFAULT NOW()"))
+
+        columns_sql = sql.SQL(", ").join(col_defs)
+        query = sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
+            sql.Identifier(table_name), columns_sql
+        )
+
+        with self.conn.cursor() as cur:
+            cur.execute(query)
+
+        logger.success(
+            "Created vector table '%s' with dimension %d and columns: %s",
+            table_name,
+            dimension,
+            list(additional_columns.keys()) if additional_columns else [],
+        )
+
+    def create_table_with_enum(conn, table_name, columns):
+        with conn.cursor() as cur:
+            col_defs = []
+            for col_name, col_type in columns.items():
+                col_defs.append(
+                    sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
+                )
+            columns_sql = sql.SQL(", ").join(col_defs)
+            query = sql.SQL("CREATE TABLE {} ({})").format(
+                sql.Identifier(table_name), columns_sql
+            )
+            cur.execute(query)
+
+    def create_enum_type(self, type_name: str, values: List[str]) -> None:
+        """Create a new ENUM type in the database.
+
+        Args:
+            type_name: Name of the enum type to create
+            values: List of allowed values for the enum
+        """
+        with self.conn.cursor() as cur:
+            values_sql = ", ".join([f"'{v}'" for v in values])
+            query = sql.SQL("CREATE TYPE {} AS ENUM ({})").format(
+                sql.Identifier(type_name), sql.SQL(values_sql)
+            )
+            cur.execute(query)
+        logger.success("Created enum type '%s' with values: %s", type_name, values)
+
+    def add_enum_value(
+        self,
+        type_name: str,
+        new_value: str,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+    ) -> None:
+        """Add a new value to an existing ENUM type.
+
+        Args:
+            type_name: Name of the enum type
+            new_value: The new value to add
+            before: Insert before this existing value (optional)
+            after: Insert after this existing value (optional)
+        """
+        with self.conn.cursor() as cur:
+            if before:
+                query = sql.SQL("ALTER TYPE {} ADD VALUE {} BEFORE {}").format(
+                    sql.Identifier(type_name),
+                    sql.Literal(new_value),
+                    sql.Literal(before),
+                )
+            elif after:
+                query = sql.SQL("ALTER TYPE {} ADD VALUE {} AFTER {}").format(
+                    sql.Identifier(type_name),
+                    sql.Literal(new_value),
+                    sql.Literal(after),
+                )
+            else:
+                query = sql.SQL("ALTER TYPE {} ADD VALUE {}").format(
+                    sql.Identifier(type_name), sql.Literal(new_value)
+                )
+            cur.execute(query)
+        logger.success("Added value '%s' to enum type '%s'", new_value, type_name)
+
+    def rename_enum_value(self, type_name: str, old_value: str, new_value: str) -> None:
+        """Rename a value in an existing ENUM type.
+
+        Args:
+            type_name: Name of the enum type
+            old_value: Current value name
+            new_value: New value name
+        """
+        with self.conn.cursor() as cur:
+            query = sql.SQL("ALTER TYPE {} RENAME VALUE {} TO {}").format(
+                sql.Identifier(type_name),
+                sql.Literal(old_value),
+                sql.Literal(new_value),
+            )
+            cur.execute(query)
+        logger.success(
+            "Renamed enum value '%s' to '%s' in type '%s'",
+            old_value,
+            new_value,
+            type_name,
+        )
+
+    def get_enum_values(self, type_name: str) -> List[str]:
+        """Get all values for an ENUM type in declaration order.
+
+        Args:
+            type_name: Name of the enum type
+
+        Returns:
+            List of enum values in their declared order
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e.enumlabel 
+                FROM pg_type t 
+                JOIN pg_enum e ON t.oid = e.enumtypid 
+                WHERE t.typname = %s 
+                ORDER BY e.enumsortorder
+            """,
+                (type_name,),
+            )
+            return [row["enumlabel"] for row in cur.fetchall()]
+
+    def validate_enum_value(self, type_name: str, value: str) -> bool:
+        """Check if a value is valid for a given ENUM type.
+
+        Args:
+            type_name: Name of the enum type
+            value: Value to validate
+
+        Returns:
+            True if value is valid, False otherwise
+        """
+        valid_values = self.get_enum_values(type_name)
+        return value in valid_values
+
+    def drop_enum_type(self, type_name: str, cascade: bool = True) -> None:
+        """Drop an ENUM type from the database.
+
+        Args:
+            type_name: Name of the enum type to drop
+            cascade: If True, drop dependent objects too
+        """
+        with self.conn.cursor() as cur:
+            cascade_clause = " CASCADE" if cascade else ""
+            query = sql.SQL("DROP TYPE IF EXISTS {}{}").format(
+                sql.Identifier(type_name), sql.SQL(cascade_clause)
+            )
+            cur.execute(query)
+        logger.success("Dropped enum type '%s'", type_name)
 
     def create_row(
         self, table_name: str, row_data: dict[str, Any], dimension: int | None = None

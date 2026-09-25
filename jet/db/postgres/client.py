@@ -1,21 +1,23 @@
 import json
 import uuid
-from psycopg import connect, sql, errors
-from typing import Any, List, Dict, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+
+from psycopg import connect, sql
 from psycopg.rows import dict_row
+
 from jet.logger import logger
-from .pg_types import (
-    DatabaseMetadata,
-    ColumnMetadata,
-    TableRow,
-    TableMetadata,
-)
+
 from .config import (
     DEFAULT_DB,
-    DEFAULT_USER,
-    DEFAULT_PASSWORD,
     DEFAULT_HOST,
+    DEFAULT_PASSWORD,
     DEFAULT_PORT,
+    DEFAULT_USER,
+)
+from .pg_types import (
+    DatabaseMetadata,
+    TableMetadata,
+    TableRow,
 )
 
 
@@ -27,11 +29,10 @@ class PostgresClient:
         password: str = DEFAULT_PASSWORD,
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
-        overwrite_db: bool = False
+        overwrite_db: bool = False,
     ) -> None:
         """Ensure database exists, then connect."""
-        self._ensure_database_exists(
-            dbname, user, password, host, port, overwrite_db)
+        self._ensure_database_exists(dbname, user, password, host, port, overwrite_db)
         self.conn = connect(
             dbname=dbname,
             user=user,
@@ -39,10 +40,18 @@ class PostgresClient:
             host=host,
             port=port,
             autocommit=True,
-            row_factory=dict_row
+            row_factory=dict_row,
         )
 
-    def _ensure_database_exists(self, dbname: str, user: str, password: str, host: str, port: int, overwrite_db: bool) -> None:
+    def _ensure_database_exists(
+        self,
+        dbname: str,
+        user: str,
+        password: str,
+        host: str,
+        port: int,
+        overwrite_db: bool,
+    ) -> None:
         """Drop the target database if it exists and overwrite_db is True, then create a new one."""
         with connect(
             dbname="postgres",
@@ -50,11 +59,10 @@ class PostgresClient:
             password=password,
             host=host,
             port=port,
-            autocommit=True
+            autocommit=True,
         ) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM pg_database WHERE datname = %s;", (dbname,))
+                cur.execute("SELECT 1 FROM pg_database WHERE datname = %s;", (dbname,))
                 exists = cur.fetchone()
                 if exists and overwrite_db:
                     cur.execute(
@@ -63,20 +71,24 @@ class PostgresClient:
                             "FROM pg_stat_activity "
                             "WHERE pg_stat_activity.datname = %s AND pid <> pg_backend_pid();"
                         ),
-                        (dbname,)
+                        (dbname,),
                     )
-                    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(
-                        sql.Identifier(dbname)))
+                    cur.execute(
+                        sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                            sql.Identifier(dbname)
+                        )
+                    )
                 if not exists or overwrite_db:
-                    cur.execute(sql.SQL("CREATE DATABASE {}").format(
-                        sql.Identifier(dbname)))
+                    cur.execute(
+                        sql.SQL("CREATE DATABASE {}").format(sql.Identifier(dbname))
+                    )
 
     def _ensure_table_exists(self, table_name: str) -> None:
         """Check if table exists, create it if it doesn't."""
         with self.conn.cursor() as cur:
             cur.execute(
                 "SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = %s;",
-                (table_name,)
+                (table_name,),
             )
             table_exists = cur.fetchone()
             if not table_exists:
@@ -88,7 +100,7 @@ class PostgresClient:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
             existing_columns = {row["column_name"] for row in cur.fetchall()}
 
@@ -105,15 +117,22 @@ class PostgresClient:
                     query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {};").format(
                         sql.Identifier(table_name),
                         sql.Identifier(column),
-                        sql.SQL(col_type)
+                        sql.SQL(col_type),
                     )
                     try:
                         cur.execute(query)
                         logger.success(
-                            "Successfully created column %s in table %s", column, table_name)
+                            "Successfully created column %s in table %s",
+                            column,
+                            table_name,
+                        )
                     except Exception as e:
                         logger.error(
-                            "Failed to create column %s in table %s: %s", column, table_name, str(e))
+                            "Failed to create column %s in table %s: %s",
+                            column,
+                            table_name,
+                            str(e),
+                        )
                         raise
 
     def __enter__(self):
@@ -162,6 +181,195 @@ class PostgresClient:
         """Generate a unique UUID v4 string."""
         return str(uuid.uuid4())
 
+    def create_custom_table(
+        self,
+        table_name: str,
+        columns: Dict[str, str],
+        primary_key: Optional[str] = "id",
+        include_timestamps: bool = True,
+    ) -> None:
+        """Create a table with custom column definitions.
+
+        Args:
+            table_name: Name of the table to create
+            columns: Dictionary mapping column names to SQL type definitions
+                    e.g., {"name": "TEXT NOT NULL", "status": "mood"}
+            primary_key: Column to use as primary key (default: "id")
+            include_timestamps: Whether to add created_at/updated_at columns
+        """
+        col_defs = []
+
+        # Add primary key if specified
+        if primary_key and primary_key in columns:
+            col_defs.append(
+                sql.SQL("{} {} PRIMARY KEY").format(
+                    sql.Identifier(primary_key),
+                    sql.SQL(columns[primary_key].replace(" PRIMARY KEY", "").strip()),
+                )
+            )
+        elif primary_key:
+            col_defs.append(sql.SQL("id TEXT PRIMARY KEY"))
+
+        # Add other columns
+        for col_name, col_type in columns.items():
+            if col_name == primary_key:
+                continue
+            col_defs.append(
+                sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
+            )
+
+        # Add timestamp columns
+        if include_timestamps:
+            col_defs.append(sql.SQL("created_at TIMESTAMPTZ DEFAULT NOW()"))
+            col_defs.append(sql.SQL("updated_at TIMESTAMPTZ DEFAULT NOW()"))
+
+        columns_sql = sql.SQL(", ").join(col_defs)
+        query = sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
+            sql.Identifier(table_name), columns_sql
+        )
+
+        with self.conn.cursor() as cur:
+            cur.execute(query)
+
+        logger.success(
+            "Created table '%s' with columns: %s", table_name, list(columns.keys())
+        )
+
+    def create_table_with_enum(conn, table_name, columns):
+        with conn.cursor() as cur:
+            col_defs = []
+            for col_name, col_type in columns.items():
+                col_defs.append(
+                    sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
+                )
+            columns_sql = sql.SQL(", ").join(col_defs)
+            query = sql.SQL("CREATE TABLE {} ({})").format(
+                sql.Identifier(table_name), columns_sql
+            )
+            cur.execute(query)
+
+    def create_enum_type(self, type_name: str, values: List[str]) -> None:
+        """Create a new ENUM type in the database.
+
+        Args:
+            type_name: Name of the enum type to create
+            values: List of allowed values for the enum
+        """
+        with self.conn.cursor() as cur:
+            values_sql = ", ".join([f"'{v}'" for v in values])
+            query = sql.SQL("CREATE TYPE {} AS ENUM ({})").format(
+                sql.Identifier(type_name), sql.SQL(values_sql)
+            )
+            cur.execute(query)
+        logger.success("Created enum type '%s' with values: %s", type_name, values)
+
+    def add_enum_value(
+        self,
+        type_name: str,
+        new_value: str,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+    ) -> None:
+        """Add a new value to an existing ENUM type.
+
+        Args:
+            type_name: Name of the enum type
+            new_value: The new value to add
+            before: Insert before this existing value (optional)
+            after: Insert after this existing value (optional)
+        """
+        with self.conn.cursor() as cur:
+            if before:
+                query = sql.SQL("ALTER TYPE {} ADD VALUE {} BEFORE {}").format(
+                    sql.Identifier(type_name),
+                    sql.Literal(new_value),
+                    sql.Literal(before),
+                )
+            elif after:
+                query = sql.SQL("ALTER TYPE {} ADD VALUE {} AFTER {}").format(
+                    sql.Identifier(type_name),
+                    sql.Literal(new_value),
+                    sql.Literal(after),
+                )
+            else:
+                query = sql.SQL("ALTER TYPE {} ADD VALUE {}").format(
+                    sql.Identifier(type_name), sql.Literal(new_value)
+                )
+            cur.execute(query)
+        logger.success("Added value '%s' to enum type '%s'", new_value, type_name)
+
+    def rename_enum_value(self, type_name: str, old_value: str, new_value: str) -> None:
+        """Rename a value in an existing ENUM type.
+
+        Args:
+            type_name: Name of the enum type
+            old_value: Current value name
+            new_value: New value name
+        """
+        with self.conn.cursor() as cur:
+            query = sql.SQL("ALTER TYPE {} RENAME VALUE {} TO {}").format(
+                sql.Identifier(type_name),
+                sql.Literal(old_value),
+                sql.Literal(new_value),
+            )
+            cur.execute(query)
+        logger.success(
+            "Renamed enum value '%s' to '%s' in type '%s'",
+            old_value,
+            new_value,
+            type_name,
+        )
+
+    def get_enum_values(self, type_name: str) -> List[str]:
+        """Get all values for an ENUM type in declaration order.
+
+        Args:
+            type_name: Name of the enum type
+
+        Returns:
+            List of enum values in their declared order
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT e.enumlabel 
+                FROM pg_type t 
+                JOIN pg_enum e ON t.oid = e.enumtypid 
+                WHERE t.typname = %s 
+                ORDER BY e.enumsortorder
+            """,
+                (type_name,),
+            )
+            return [row["enumlabel"] for row in cur.fetchall()]
+
+    def validate_enum_value(self, type_name: str, value: str) -> bool:
+        """Check if a value is valid for a given ENUM type.
+
+        Args:
+            type_name: Name of the enum type
+            value: Value to validate
+
+        Returns:
+            True if value is valid, False otherwise
+        """
+        valid_values = self.get_enum_values(type_name)
+        return value in valid_values
+
+    def drop_enum_type(self, type_name: str, cascade: bool = True) -> None:
+        """Drop an ENUM type from the database.
+
+        Args:
+            type_name: Name of the enum type to drop
+            cascade: If True, drop dependent objects too
+        """
+        with self.conn.cursor() as cur:
+            cascade_clause = " CASCADE" if cascade else ""
+            query = sql.SQL("DROP TYPE IF EXISTS {}{}").format(
+                sql.Identifier(type_name), sql.SQL(cascade_clause)
+            )
+            cur.execute(query)
+        logger.success("Dropped enum type '%s'", type_name)
+
     def create_row(self, table_name: str, row_data: Dict[str, Any]) -> TableRow:
         """Insert a single row into the specified table with arbitrary column values, creating the table and columns if needed.
 
@@ -182,10 +390,11 @@ class PostgresClient:
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
-            column_types = {row["column_name"]: row["data_type"]
-                            for row in cur.fetchall()}
+            column_types = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
 
         row_id = row_data.get("id", self.generate_unique_hash())
         columns = ["id"] + [col for col in row_data.keys() if col != "id"]
@@ -204,7 +413,7 @@ class PostgresClient:
         query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
             sql.Identifier(table_name),
             sql.SQL(", ").join(map(sql.Identifier, columns)),
-            sql.SQL(", ").join(map(sql.SQL, placeholders))
+            sql.SQL(", ").join(map(sql.SQL, placeholders)),
         )
 
         with self.conn.cursor() as cur:
@@ -212,16 +421,20 @@ class PostgresClient:
                 cur.execute(query, values)
                 result = cur.fetchone()
                 return {
-                    col: json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    col: json.loads(result[col])
+                    if column_types.get(col) == "jsonb"
+                    and isinstance(result[col], str)
+                    and result[col]
                     else result[col]
                     for col in result.keys()
                 }
             except Exception as e:
-                logger.error("Failed to insert row into %s: %s",
-                             table_name, str(e))
+                logger.error("Failed to insert row into %s: %s", table_name, str(e))
                 raise
 
-    def create_rows(self, table_name: str, rows_data: List[Dict[str, Any]]) -> List[TableRow]:
+    def create_rows(
+        self, table_name: str, rows_data: List[Dict[str, Any]]
+    ) -> List[TableRow]:
         """Insert multiple rows into the specified table with arbitrary column values, creating the table and columns if needed.
 
         Args:
@@ -243,12 +456,13 @@ class PostgresClient:
                 row_result = self.create_row(table_name, row)
                 row_results.append(row_result)
             except Exception as e:
-                logger.error("Failed to insert row into %s: %s",
-                             table_name, str(e))
+                logger.error("Failed to insert row into %s: %s", table_name, str(e))
                 raise
         return row_results
 
-    def update_row(self, table_name: str, row_id: str, row_data: Dict[str, Any]) -> TableRow:
+    def update_row(
+        self, table_name: str, row_id: str, row_data: Dict[str, Any]
+    ) -> TableRow:
         if not row_data:
             raise ValueError("Cannot update with empty row data")
 
@@ -259,10 +473,11 @@ class PostgresClient:
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
-            column_types = {row["column_name"]: row["data_type"]
-                            for row in cur.fetchall()}
+            column_types = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
 
             columns = [col for col in row_data.keys()]
             values = []
@@ -279,9 +494,11 @@ class PostgresClient:
 
             values.append(row_id)
             # Modified query to include updated_at = NOW()
-            query = sql.SQL("UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;").format(
+            query = sql.SQL(
+                "UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;"
+            ).format(
                 sql.Identifier(table_name),
-                sql.SQL(", ").join(map(sql.SQL, set_clauses))
+                sql.SQL(", ").join(map(sql.SQL, set_clauses)),
             )
 
             with self.conn.cursor() as cur:
@@ -290,18 +507,25 @@ class PostgresClient:
                     result = cur.fetchone()
                     if not result:
                         raise ValueError(
-                            f"No row found with id {row_id} in table {table_name}")
+                            f"No row found with id {row_id} in table {table_name}"
+                        )
                     return {
-                        col: json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                        col: json.loads(result[col])
+                        if column_types.get(col) == "jsonb"
+                        and isinstance(result[col], str)
+                        and result[col]
                         else result[col]
                         for col in result.keys()
                     }
                 except Exception as e:
-                    logger.error("Failed to update row %s in %s: %s",
-                                 row_id, table_name, str(e))
+                    logger.error(
+                        "Failed to update row %s in %s: %s", row_id, table_name, str(e)
+                    )
                     raise
 
-    def update_rows(self, table_name: str, rows_data: List[Dict[str, Any]]) -> List[TableRow]:
+    def update_rows(
+        self, table_name: str, rows_data: List[Dict[str, Any]]
+    ) -> List[TableRow]:
         """Update multiple rows in the specified table with new column values, creating new columns if needed.
 
         Args:
@@ -326,16 +550,18 @@ class PostgresClient:
         updated_rows = []
         for row in rows_data:
             try:
-                updated_row = self.update_row(
-                    table_name, row["id"], row)
+                updated_row = self.update_row(table_name, row["id"], row)
                 updated_rows.append(updated_row)
             except Exception as e:
-                logger.error("Failed to update row %s in %s: %s",
-                             row["id"], table_name, str(e))
+                logger.error(
+                    "Failed to update row %s in %s: %s", row["id"], table_name, str(e)
+                )
                 raise
         return updated_rows
 
-    def create_or_update_row(self, table_name: str, row_data: Dict[str, Any]) -> TableRow:
+    def create_or_update_row(
+        self, table_name: str, row_data: Dict[str, Any]
+    ) -> TableRow:
         """Create a new row or update an existing one in the specified table based on the provided ID.
 
         Args:
@@ -360,16 +586,18 @@ class PostgresClient:
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
-            column_types = {row["column_name"]: row["data_type"]
-                            for row in cur.fetchall()}
+            column_types = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
 
             # Check if row exists
             cur.execute(
                 sql.SQL("SELECT 1 FROM {} WHERE id = %s").format(
-                    sql.Identifier(table_name)),
-                (row_data["id"],)
+                    sql.Identifier(table_name)
+                ),
+                (row_data["id"],),
             )
             exists = cur.fetchone()
 
@@ -389,14 +617,15 @@ class PostgresClient:
                         set_clauses.append(f"{col} = %s")
 
                 values.append(row_data["id"])
-                query = sql.SQL("UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;").format(
+                query = sql.SQL(
+                    "UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;"
+                ).format(
                     sql.Identifier(table_name),
-                    sql.SQL(", ").join(map(sql.SQL, set_clauses))
+                    sql.SQL(", ").join(map(sql.SQL, set_clauses)),
                 )
             else:
                 # Insert new row
-                columns = ["id"] + \
-                    [col for col in row_data.keys() if col != "id"]
+                columns = ["id"] + [col for col in row_data.keys() if col != "id"]
                 values = [row_data["id"]]
                 placeholders = ["%s"]
 
@@ -412,7 +641,7 @@ class PostgresClient:
                 query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
                     sql.Identifier(table_name),
                     sql.SQL(", ").join(map(sql.Identifier, columns)),
-                    sql.SQL(", ").join(map(sql.SQL, placeholders))
+                    sql.SQL(", ").join(map(sql.SQL, placeholders)),
                 )
 
             try:
@@ -420,18 +649,28 @@ class PostgresClient:
                 result = cur.fetchone()
                 if not result:
                     raise ValueError(
-                        f"Failed to create or update row with id {row_data['id']} in table {table_name}")
+                        f"Failed to create or update row with id {row_data['id']} in table {table_name}"
+                    )
                 return {
-                    col: json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    col: json.loads(result[col])
+                    if column_types.get(col) == "jsonb"
+                    and isinstance(result[col], str)
+                    and result[col]
                     else result[col]
                     for col in result.keys()
                 }
             except Exception as e:
-                logger.error("Failed to create or update row %s in %s: %s",
-                             row_data["id"], table_name, str(e))
+                logger.error(
+                    "Failed to create or update row %s in %s: %s",
+                    row_data["id"],
+                    table_name,
+                    str(e),
+                )
                 raise
 
-    def create_or_update_rows(self, table_name: str, rows_data: List[Dict[str, Any]]) -> List[TableRow]:
+    def create_or_update_rows(
+        self, table_name: str, rows_data: List[Dict[str, Any]]
+    ) -> List[TableRow]:
         """Create new rows or update existing ones in the specified table based on provided IDs.
 
         Args:
@@ -460,7 +699,11 @@ class PostgresClient:
                 results.append(result)
             except Exception as e:
                 logger.error(
-                    "Failed to create or update row %s in %s: %s", row["id"], table_name, str(e))
+                    "Failed to create or update row %s in %s: %s",
+                    row["id"],
+                    table_name,
+                    str(e),
+                )
                 raise
         return results
 
@@ -478,7 +721,7 @@ class PostgresClient:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
             columns = [row["column_name"] for row in cur.fetchall()]
             if not columns:
@@ -486,15 +729,18 @@ class PostgresClient:
 
             query = sql.SQL("SELECT {} FROM {} WHERE id = %s").format(
                 sql.SQL(", ").join(map(sql.Identifier, columns)),
-                sql.Identifier(table_name)
+                sql.Identifier(table_name),
             )
             cur.execute(query, (row_id,))
             result = cur.fetchone()
             if not result:
                 return None
             return {
-                col: result[col] if not (col == "details" and isinstance(
-                    result[col], str)) else json.loads(result[col]) if result[col] else None
+                col: result[col]
+                if not (col == "details" and isinstance(result[col], str))
+                else json.loads(result[col])
+                if result[col]
+                else None
                 for col in columns
             }
 
@@ -509,7 +755,7 @@ class PostgresClient:
         group_by: Optional[List[str]] = None,
         aggregates: Optional[
             Dict[str, Tuple[str, Literal["COUNT", "SUM", "AVG", "MIN", "MAX"]]]
-        ] = None
+        ] = None,
     ) -> List[TableRow]:
         """Retrieve rows from the specified table, optionally filtered by IDs, where conditions, limited, ordered, and grouped.
 
@@ -534,13 +780,15 @@ class PostgresClient:
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
-            column_info = {row["column_name"]: row["data_type"]
-                           for row in cur.fetchall()}
+            column_info = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
             if not column_info:
                 raise ValueError(
-                    f"No columns found for table {table_name} (excluding embedding)")
+                    f"No columns found for table {table_name} (excluding embedding)"
+                )
 
             columns = list(column_info.keys())
             # Build select clause
@@ -552,27 +800,27 @@ class PostgresClient:
                 for col in group_by:
                     if col not in columns:
                         raise ValueError(
-                            f"Group by column {col} not found in table {table_name}")
-                    formatted_columns.append(
-                        sql.SQL("{}").format(sql.Identifier(col)))
+                            f"Group by column {col} not found in table {table_name}"
+                        )
+                    formatted_columns.append(sql.SQL("{}").format(sql.Identifier(col)))
                     select_columns.append(col)
 
             # Handle aggregate functions
             if aggregates:
                 if not group_by:
-                    raise ValueError(
-                        "Aggregates require at least one group_by column")
+                    raise ValueError("Aggregates require at least one group_by column")
                 for alias, (col, agg_func) in aggregates.items():
                     if col not in columns:
                         raise ValueError(
-                            f"Aggregate column {col} not found in table {table_name}")
+                            f"Aggregate column {col} not found in table {table_name}"
+                        )
                     if agg_func not in ("COUNT", "SUM", "AVG", "MIN", "MAX"):
-                        raise ValueError(
-                            f"Unsupported aggregate function {agg_func}")
+                        raise ValueError(f"Unsupported aggregate function {agg_func}")
                     formatted_columns.append(
                         sql.SQL("{}({}) AS {}").format(
-                            sql.SQL(agg_func), sql.Identifier(
-                                col), sql.Identifier(alias)
+                            sql.SQL(agg_func),
+                            sql.Identifier(col),
+                            sql.Identifier(alias),
                         )
                     )
                     select_columns.append(alias)
@@ -580,17 +828,17 @@ class PostgresClient:
                 # If no aggregates, select all columns (or group_by columns if specified)
                 if not group_by:
                     formatted_columns = [
-                        sql.SQL("TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}").format(
-                            sql.Identifier(col), sql.Identifier(col)
-                        ) if column_info[col] == "timestamp with time zone"
+                        sql.SQL(
+                            "TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}"
+                        ).format(sql.Identifier(col), sql.Identifier(col))
+                        if column_info[col] == "timestamp with time zone"
                         else sql.Identifier(col)
                         for col in columns
                     ]
                     select_columns = columns
 
             query = sql.SQL("SELECT {} FROM {}").format(
-                sql.SQL(", ").join(formatted_columns),
-                sql.Identifier(table_name)
+                sql.SQL(", ").join(formatted_columns), sql.Identifier(table_name)
             )
             params = []
 
@@ -598,15 +846,16 @@ class PostgresClient:
             where_clauses = []
             if ids is not None:
                 where_clauses.append(
-                    sql.SQL("{} = ANY(%s)").format(sql.Identifier(id_column)))
+                    sql.SQL("{} = ANY(%s)").format(sql.Identifier(id_column))
+                )
                 params.append(ids)
             if where_conditions:
                 for col, value in where_conditions.items():
                     if col not in columns:
                         raise ValueError(
-                            f"Column {col} not found in table {table_name}")
-                    where_clauses.append(
-                        sql.SQL("{} = %s").format(sql.Identifier(col)))
+                            f"Column {col} not found in table {table_name}"
+                        )
+                    where_clauses.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
                     params.append(value)
 
             if where_clauses:
@@ -624,14 +873,17 @@ class PostgresClient:
             if order_by:
                 if not isinstance(order_by, tuple) or len(order_by) != 2:
                     raise ValueError(
-                        "order_by must be a tuple of (column_name, 'ASC' or 'DESC')")
+                        "order_by must be a tuple of (column_name, 'ASC' or 'DESC')"
+                    )
                 order_col, direction = order_by
-                if order_col not in (columns + list(aggregates.keys()) if aggregates else columns):
+                if order_col not in (
+                    columns + list(aggregates.keys()) if aggregates else columns
+                ):
                     raise ValueError(
-                        f"Column {order_col} not found in table {table_name} or aggregates")
+                        f"Column {order_col} not found in table {table_name} or aggregates"
+                    )
                 if direction not in ("ASC", "DESC"):
-                    raise ValueError(
-                        "order_by direction must be 'ASC' or 'DESC'")
+                    raise ValueError("order_by direction must be 'ASC' or 'DESC'")
                 query = sql.SQL("{} ORDER BY {} {}").format(
                     query, sql.Identifier(order_col), sql.SQL(direction)
                 )
@@ -647,8 +899,13 @@ class PostgresClient:
             results = cur.fetchall()
             return [
                 {
-                    col: row[col] if not (column_info.get(col) == "jsonb" and isinstance(
-                        row[col], str)) else json.loads(row[col]) if row[col] else None
+                    col: row[col]
+                    if not (
+                        column_info.get(col) == "jsonb" and isinstance(row[col], str)
+                    )
+                    else json.loads(row[col])
+                    if row[col]
+                    else None
                     for col in select_columns
                 }
                 for row in results
@@ -662,7 +919,8 @@ class PostgresClient:
                 cur.execute(query)
             else:
                 cur.execute(
-                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public';")
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public';"
+                )
                 tables = [row["tablename"] for row in cur.fetchall()]
                 for table in tables:
                     cur.execute(f"DELETE FROM {table};")
@@ -670,17 +928,20 @@ class PostgresClient:
     def delete_all_tables(self) -> None:
         """Drop all tables in the database."""
         with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT tablename FROM pg_tables WHERE schemaname = 'public';")
+            cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public';")
             tables = [row["tablename"] for row in cur.fetchall()]
             for table in tables:
-                cur.execute(sql.SQL("DROP TABLE IF EXISTS {} CASCADE;").format(
-                    sql.Identifier(table)))
+                cur.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE;").format(
+                        sql.Identifier(table)
+                    )
+                )
 
     def delete_db(self, confirm: bool = False) -> None:
         if not confirm:
             raise ValueError(
-                "Database deletion requires explicit confirmation by setting confirm=True")
+                "Database deletion requires explicit confirmation by setting confirm=True"
+            )
         dbname = self.conn.info.dbname
         user = self.conn.info.user
         password = self.conn.info.password
@@ -695,7 +956,7 @@ class PostgresClient:
                 password=password,
                 host=host,
                 port=port,
-                autocommit=True
+                autocommit=True,
             ) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -704,13 +965,15 @@ class PostgresClient:
                             "FROM pg_stat_activity "
                             "WHERE pg_stat_activity.datname = %s AND pid <> pg_backend_pid();"
                         ),
-                        (dbname,)
+                        (dbname,),
                     )
-                    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(
-                        sql.Identifier(dbname)))
+                    cur.execute(
+                        sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                            sql.Identifier(dbname)
+                        )
+                    )
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to delete database {dbname}: {str(e)}") from e
+            raise RuntimeError(f"Failed to delete database {dbname}: {str(e)}") from e
         self.conn = None
 
     def get_database_metadata(self) -> DatabaseMetadata:
@@ -726,8 +989,7 @@ class PostgresClient:
             cur.execute(query, (self.conn.info.dbname,))
             result = cur.fetchone()
             if not result:
-                raise RuntimeError(
-                    f"Database {self.conn.info.dbname} not found")
+                raise RuntimeError(f"Database {self.conn.info.dbname} not found")
             return {
                 "dbname": result["dbname"],
                 "owner": result["owner"],
@@ -759,12 +1021,12 @@ class PostgresClient:
                 "WHERE t.table_schema = 'public' AND t.table_name = %s;"
             )
             formatted_table_query = sql.SQL(table_query).format(
-                table_name=sql.Identifier(table_name))
+                table_name=sql.Identifier(table_name)
+            )
             cur.execute(formatted_table_query, (table_name,))
             table_result = cur.fetchone()
             if not table_result:
-                raise RuntimeError(
-                    f"Table {table_name} not found in public schema")
+                raise RuntimeError(f"Table {table_name} not found in public schema")
             column_query = (
                 "SELECT column_name, data_type, is_nullable, "
                 "character_maximum_length, numeric_precision, numeric_scale "
@@ -772,14 +1034,17 @@ class PostgresClient:
                 "WHERE table_schema = 'public' AND table_name = %s;"
             )
             cur.execute(column_query, (table_name,))
-            columns = [{
-                "column_name": row["column_name"],
-                "data_type": row["data_type"],
-                "is_nullable": row["is_nullable"],
-                "character_maximum_length": row["character_maximum_length"],
-                "numeric_precision": row["numeric_precision"],
-                "numeric_scale": row["numeric_scale"],
-            } for row in cur.fetchall()]
+            columns = [
+                {
+                    "column_name": row["column_name"],
+                    "data_type": row["data_type"],
+                    "is_nullable": row["is_nullable"],
+                    "character_maximum_length": row["character_maximum_length"],
+                    "numeric_precision": row["numeric_precision"],
+                    "numeric_scale": row["numeric_scale"],
+                }
+                for row in cur.fetchall()
+            ]
             return {
                 "table_name": table_result["table_name"],
                 "table_type": table_result["table_type"],
@@ -788,7 +1053,9 @@ class PostgresClient:
                 "columns": columns,
             }
 
-    def get_database_summary(self) -> Dict[str, Union[DatabaseMetadata, List[TableMetadata]]]:
+    def get_database_summary(
+        self,
+    ) -> Dict[str, Union[DatabaseMetadata, List[TableMetadata]]]:
         """Retrieve a comprehensive summary of the database including metadata and all tables."""
         tables = self.get_all_tables()
         table_metadata = [self.get_table_metadata(table) for table in tables]

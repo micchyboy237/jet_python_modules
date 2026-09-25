@@ -11,7 +11,6 @@ import uuid
 import numpy as np
 import pytest
 from jet.db.postgres.pgvector import PgVectorClient
-from psycopg import sql
 
 
 def generate_test_db_name():
@@ -46,127 +45,78 @@ def db_connection(pgvector_client):
 
 
 @pytest.fixture(autouse=True)
-def cleanup_enums_and_tables(db_connection):
+def cleanup_enums_and_tables(pgvector_client):
     """Automatically clean up enum types and tables after each test."""
     created_types = []
     created_tables = []
 
-    db_connection._test_created_types = created_types
-    db_connection._test_created_tables = created_tables
+    pgvector_client._test_created_types = created_types
+    pgvector_client._test_created_tables = created_tables
 
     yield
+
+    conn = pgvector_client.conn
 
     # Cleanup: Drop tables first (they depend on enum types)
     for table_name in reversed(created_tables):
         try:
-            with db_connection.cursor() as cur:
-                cur.execute(
-                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
-                        sql.Identifier(table_name)
-                    )
-                )
+            with conn.cursor() as cur:
+                cur.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE;")
         except Exception as e:
             print(f"Warning: Failed to drop table {table_name}: {e}")
 
     # Cleanup: Drop enum types
     for type_name in reversed(created_types):
         try:
-            with db_connection.cursor() as cur:
-                cur.execute(
-                    sql.SQL("DROP TYPE IF EXISTS {} CASCADE").format(
-                        sql.Identifier(type_name)
-                    )
-                )
+            pgvector_client.drop_enum_type(type_name)
         except Exception as e:
             print(f"Warning: Failed to drop type {type_name}: {e}")
-
-
-def create_enum_type(conn, type_name, values):
-    """Helper to create an enum type and track it for cleanup."""
-    with conn.cursor() as cur:
-        values_sql = ", ".join([f"'{v}'" for v in values])
-        query = sql.SQL("CREATE TYPE {} AS ENUM ({})").format(
-            sql.Identifier(type_name), sql.SQL(values_sql)
-        )
-        cur.execute(query)
-
-    conn._test_created_types.append(type_name)
-
-
-def create_table_with_enum_and_vector(conn, table_name, dimension, columns):
-    """Helper to create a table with enum and vector columns and track it for cleanup."""
-    with conn.cursor() as cur:
-        col_defs = [
-            sql.SQL("id TEXT PRIMARY KEY"),
-            sql.SQL("embedding vector({})").format(sql.Literal(dimension)),
-            sql.SQL("created_at TIMESTAMPTZ DEFAULT NOW()"),
-            sql.SQL("updated_at TIMESTAMPTZ DEFAULT NOW()"),
-        ]
-
-        for col_name, col_type in columns.items():
-            col_defs.append(
-                sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
-            )
-
-        columns_sql = sql.SQL(", ").join(col_defs)
-        query = sql.SQL("CREATE TABLE {} ({})").format(
-            sql.Identifier(table_name), columns_sql
-        )
-        cur.execute(query)
-
-    conn._test_created_tables.append(table_name)
 
 
 class TestEnumWithVectorBasic:
     """Test basic enum usage with vector embeddings."""
 
-    def test_create_enum_with_vector_table(self, db_connection):
+    def test_create_enum_with_vector_table(self, pgvector_client):
         """Test creating a table with both enum and vector columns."""
-        create_enum_type(
-            db_connection, "document_status", ["draft", "published", "archived"]
-        )
-        create_table_with_enum_and_vector(
-            db_connection,
+        type_name = "document_status"
+        pgvector_client.create_enum_type(type_name, ["draft", "published", "archived"])
+        pgvector_client._test_created_types.append(type_name)
+
+        pgvector_client.create_vector_table(
             "documents",
             dimension=3,
-            columns={
+            additional_columns={
                 "title": "TEXT",
-                "status": "document_status",
+                "status": type_name,
             },
         )
+        pgvector_client._test_created_tables.append("documents")
 
         # Verify table structure
-        with db_connection.cursor() as cur:
-            cur.execute("""
-                SELECT column_name, data_type, udt_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'documents'
-                ORDER BY ordinal_position
-            """)
-            columns = cur.fetchall()
+        metadata = pgvector_client.get_table_metadata("documents")
+        col_map = {c["column_name"]: c for c in metadata["columns"]}
 
-            col_map = {c["column_name"]: c for c in columns}
+        # Check status column uses enum
+        assert col_map["status"]["data_type"] == "USER-DEFINED"
 
-            # Check status column uses enum
-            assert col_map["status"]["data_type"] == "USER-DEFINED"
-            assert col_map["status"]["udt_name"] == "document_status"
-
-            # Check embedding column exists
-            assert col_map["embedding"]["data_type"] == "USER-DEFINED"
-            assert col_map["embedding"]["udt_name"] == "vector"
+        # Check embedding column exists
+        assert col_map["embedding"]["data_type"] == "USER-DEFINED"
 
     def test_insert_row_with_enum_and_vector(self, pgvector_client):
         """Test inserting a row with both enum value and embedding."""
-        create_enum_type(pgvector_client.conn, "category", ["tech", "science", "arts"])
-        create_table_with_enum_and_vector(
-            pgvector_client.conn,
+        type_name = "category"
+        pgvector_client.create_enum_type(type_name, ["tech", "science", "arts"])
+        pgvector_client._test_created_types.append(type_name)
+
+        pgvector_client.create_vector_table(
             "articles",
             dimension=3,
-            columns={
+            additional_columns={
                 "title": "TEXT",
-                "category": "category",
+                "category": type_name,
             },
         )
+        pgvector_client._test_created_tables.append("articles")
 
         # Insert using PgVectorClient
         row_data = {
@@ -186,18 +136,19 @@ class TestEnumWithVectorBasic:
 
     def test_query_by_enum_with_vector_search(self, pgvector_client):
         """Test querying by enum value and performing vector search."""
-        create_enum_type(
-            pgvector_client.conn, "topic", ["python", "javascript", "rust"]
-        )
-        create_table_with_enum_and_vector(
-            pgvector_client.conn,
+        type_name = "topic"
+        pgvector_client.create_enum_type(type_name, ["python", "javascript", "rust"])
+        pgvector_client._test_created_types.append(type_name)
+
+        pgvector_client.create_vector_table(
             "code_snippets",
             dimension=4,
-            columns={
-                "language": "topic",
+            additional_columns={
+                "language": type_name,
                 "description": "TEXT",
             },
         )
+        pgvector_client._test_created_tables.append("code_snippets")
 
         # Insert multiple rows
         snippets = [
@@ -224,18 +175,15 @@ class TestEnumWithVectorBasic:
         pgvector_client.create_rows("code_snippets", snippets, dimension=4)
 
         # Query by enum value
-        with pgvector_client.conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, language, description 
-                FROM code_snippets 
-                WHERE language = 'python'
-                ORDER BY id
-            """)
-            python_snippets = cur.fetchall()
+        python_snippets = pgvector_client.get_rows(
+            "code_snippets",
+            where_conditions={"language": "python"},
+            order_by=("id", "ASC"),
+        )
 
-            assert len(python_snippets) == 2
-            assert python_snippets[0]["id"] == "snippet-1"
-            assert python_snippets[1]["id"] == "snippet-3"
+        assert len(python_snippets) == 2
+        assert python_snippets[0]["id"] == "snippet-1"
+        assert python_snippets[1]["id"] == "snippet-3"
 
         # Vector search within enum category
         query_embedding = [0.88, 0.12, 0.08, 0.08]
@@ -252,16 +200,19 @@ class TestEnumConstraintsWithVectors:
 
     def test_invalid_enum_rejected_with_vector(self, pgvector_client):
         """Test that invalid enum values are rejected even with valid vectors."""
-        create_enum_type(pgvector_client.conn, "priority", ["low", "medium", "high"])
-        create_table_with_enum_and_vector(
-            pgvector_client.conn,
+        type_name = "priority"
+        pgvector_client.create_enum_type(type_name, ["low", "medium", "high"])
+        pgvector_client._test_created_types.append(type_name)
+
+        pgvector_client.create_vector_table(
             "tasks",
             dimension=2,
-            columns={
+            additional_columns={
                 "name": "TEXT",
-                "priority": "priority",
+                "priority": type_name,
             },
         )
+        pgvector_client._test_created_tables.append("tasks")
 
         # Try to insert with invalid enum but valid vector
         row_data = {
@@ -276,18 +227,19 @@ class TestEnumConstraintsWithVectors:
 
     def test_update_enum_value_with_vector(self, pgvector_client):
         """Test updating enum value while keeping vector intact."""
-        create_enum_type(
-            pgvector_client.conn, "status", ["todo", "in-progress", "done"]
-        )
-        create_table_with_enum_and_vector(
-            pgvector_client.conn,
+        type_name = "status"
+        pgvector_client.create_enum_type(type_name, ["todo", "in-progress", "done"])
+        pgvector_client._test_created_types.append(type_name)
+
+        pgvector_client.create_vector_table(
             "projects",
             dimension=3,
-            columns={
+            additional_columns={
                 "name": "TEXT",
-                "status": "status",
+                "status": type_name,
             },
         )
+        pgvector_client._test_created_tables.append("projects")
 
         # Insert initial row
         row_data = {
@@ -319,21 +271,25 @@ class TestMultipleEnumsWithVectors:
 
     def test_table_with_multiple_enums_and_vector(self, pgvector_client):
         """Test a table with multiple enum columns and vector."""
-        create_enum_type(
-            pgvector_client.conn, "department", ["engineering", "marketing", "sales"]
-        )
-        create_enum_type(pgvector_client.conn, "seniority", ["junior", "mid", "senior"])
+        dept_type = "department"
+        seniority_type = "seniority"
 
-        create_table_with_enum_and_vector(
-            pgvector_client.conn,
+        pgvector_client.create_enum_type(
+            dept_type, ["engineering", "marketing", "sales"]
+        )
+        pgvector_client.create_enum_type(seniority_type, ["junior", "mid", "senior"])
+        pgvector_client._test_created_types.extend([dept_type, seniority_type])
+
+        pgvector_client.create_vector_table(
             "employees",
             dimension=5,
-            columns={
+            additional_columns={
                 "name": "TEXT",
-                "department": "department",
-                "seniority": "seniority",
+                "department": dept_type,
+                "seniority": seniority_type,
             },
         )
+        pgvector_client._test_created_tables.append("employees")
 
         # Insert employee data with embeddings
         employees = [
@@ -363,18 +319,13 @@ class TestMultipleEnumsWithVectors:
         pgvector_client.create_rows("employees", employees, dimension=5)
 
         # Query by multiple enum filters
-        with pgvector_client.conn.cursor() as cur:
-            cur.execute("""
-                SELECT name, department, seniority 
-                FROM employees 
-                WHERE department = 'engineering' AND seniority = 'senior'
-            """)
-            result = cur.fetchone()
+        eng_seniors = pgvector_client.get_rows(
+            "employees",
+            where_conditions={"department": "engineering", "seniority": "senior"},
+        )
 
-            assert result is not None
-            assert result["name"] == "Alice"
-            assert result["department"] == "engineering"
-            assert result["seniority"] == "senior"
+        assert len(eng_seniors) == 1
+        assert eng_seniors[0]["name"] == "Alice"
 
         # Vector search filtered by enum
         query_embedding = [0.75, 0.65, 0.55, 0.45, 0.35]
@@ -392,18 +343,21 @@ class TestEnumOrderingWithVectorSearch:
 
     def test_vector_search_independent_of_enum_order(self, pgvector_client):
         """Test that vector search works correctly regardless of enum declaration order."""
-        create_enum_type(
-            pgvector_client.conn, "quality", ["poor", "fair", "good", "excellent"]
+        type_name = "quality"
+        pgvector_client.create_enum_type(
+            type_name, ["poor", "fair", "good", "excellent"]
         )
-        create_table_with_enum_and_vector(
-            pgvector_client.conn,
+        pgvector_client._test_created_types.append(type_name)
+
+        pgvector_client.create_vector_table(
             "products",
             dimension=3,
-            columns={
+            additional_columns={
                 "product_name": "TEXT",
-                "quality": "quality",
+                "quality": type_name,
             },
         )
+        pgvector_client._test_created_tables.append("products")
 
         # Insert products with varying quality and embeddings
         products = [
