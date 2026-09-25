@@ -27,6 +27,16 @@ class JobSourcePlatform(str, Enum):
     OTHER = "other"
 
 
+class SalaryFrequency(str, Enum):
+    HOURLY = "hourly"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    BIWEEKLY = "biweekly"
+    SEMI_MONTHLY = "semi_monthly"
+    MONTHLY = "monthly"
+    ANNUAL = "annual"
+
+
 class JobAnalytics(BaseModel):
     """Structured analytics-ready job record with normalized scope-of-work dimensions."""
 
@@ -75,6 +85,10 @@ class JobAnalytics(BaseModel):
         None,
         pattern=r"^[A-Z]{3}$",
         description="ISO 4217 currency code. e.g., 'USD', 'EUR', 'GBP', 'PHP'",
+    )
+    salary_frequency: Optional[SalaryFrequency] = Field(
+        None,
+        description="Pay frequency. MUST be one of: 'hourly', 'daily', 'weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual'.",
     )
     technology_stack: Optional[List[str]] = Field(
         None,
