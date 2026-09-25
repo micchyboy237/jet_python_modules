@@ -41,6 +41,7 @@ from jet_telemetry import (
     get_trace_url,
     initialize_telemetry,
     llm,
+    performance_monitor,
     redact,
     tool,
 )
@@ -120,6 +121,7 @@ def observe_structured_parsing(
 
 
 @llm(model_name="unknown")
+@performance_monitor(threshold_ms=1500)  # Track LLM observer overhead
 def observe_llm_chat_stream(
     prompt_or_messages: str | list[dict[str, Any]],
     model: str,
@@ -188,6 +190,7 @@ def observe_llm_chat_stream(
 
 
 @llm(model_name="unknown")
+@performance_monitor(threshold_ms=1500)
 async def observe_llm_chat_stream_async(
     prompt_or_messages: str | list[dict[str, Any]],
     model: str,
@@ -313,6 +316,7 @@ def _execute_tool_with_span(
 
 
 @agent(name="agent.chat_loop")
+@performance_monitor(threshold_ms=3000)  # Track total agent loop time
 def run_agentic_chat(
     prompt_or_messages: str | list[dict[str, Any]],
     model: str,
@@ -704,6 +708,7 @@ def _print_header_footer(
 
 
 @chain(name="chat-stream-session")
+@performance_monitor(threshold_ms=5000)  # Track total session time
 def run_chat_stream(
     prompt_or_messages: str | list[dict[str, Any]] = "What is OpenTelemetry?",
     model: str = MODEL,
@@ -806,6 +811,7 @@ def run_chat_stream(
 
 
 @chain(name="achat-stream-session")
+@performance_monitor(threshold_ms=5000)
 async def run_chat_stream_async(
     prompt_or_messages: str | list[dict[str, Any]] = "What is OpenTelemetry?",
     model: str = MODEL,
