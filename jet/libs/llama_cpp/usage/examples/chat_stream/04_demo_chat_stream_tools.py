@@ -1,14 +1,15 @@
 """Demo: Tool-calling agent loop with Phoenix observability.
 Demonstrates:
-  1. LLM decides to call a tool
-  2. Automatic tool execution via tool_registry
-  3. Multi-turn loop handled inside run_chat_stream
-  4. Full trace visible in Phoenix
+1. LLM decides to call a tool
+2. Automatic tool execution via tool_registry
+3. Multi-turn loop handled inside run_chat_stream
+4. Full trace visible in Phoenix and exported to JSONL
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,12 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
+
+# Setup output directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 WEATHER_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -69,9 +76,11 @@ TOOL_REGISTRY: dict[str, callable] = {
 def main():
     client = get_llm_client()
     prompt = "What's the weather like in Tokyo right now? Use celsius."
+
     logger.info("🚀 Starting tool-calling demo with automatic execution")
     logger.info(f"   Prompt: {prompt}")
     logger.info(f"   Tools: {list(TOOL_REGISTRY.keys())}")
+
     result = run_chat_stream(
         prompt,
         client=client,
@@ -82,7 +91,9 @@ def main():
         tool_registry=TOOL_REGISTRY,
         max_tool_rounds=5,
         temperature=0.0,
+        output_dir=OUTPUT_DIR,
     )
+
     logger.info("")
     logger.info("═══ Final Result ═══")
     logger.info(f"📋 Finish reason : {result.finish_reason}")

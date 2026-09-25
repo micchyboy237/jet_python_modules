@@ -1,21 +1,20 @@
 """Demo: Stream vision chat completion using a local image file.
 Demonstrates:
-  1. Local file reading with automatic MIME type detection from extension
-  2. Base64 encoding of local image bytes
-  3. Vision model streaming with Phoenix observability
-  4. Structured StreamCompletionResult usage
+1. Local file reading with automatic MIME type detection from extension
+2. Base64 encoding of local image bytes
+3. Vision model streaming with Phoenix observability
+4. Exported trace spans to JSONL
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    MODEL,
-    run_chat_stream,
-)
+from jet.adapters.llama_cpp.llm_utils_observed import chat
+from jet.libs.llama_cpp.usage.chat_stream_utils import MODEL
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -27,6 +26,11 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 LOCAL_IMAGE_PATH = (
     "/Users/jethroestrada/Desktop/External_Projects/AI/curated/"
     "awesome-ai-apps/memory_agents/ai_consultant_agent/demo.png"
@@ -39,21 +43,26 @@ def main():
     if not image_path.exists():
         logger.error(f"❌ Image file not found: {LOCAL_IMAGE_PATH}")
         raise SystemExit(1)
+
     logger.info(f"📂 Analyzing local image: {LOCAL_IMAGE_PATH}")
     logger.info(f"   File size: {image_path.stat().st_size / 1024:.1f} KB")
+
     prompt = (
         "Analyze this screenshot or diagram. Describe what it shows, "
         "identify key components, and explain the overall purpose or workflow depicted."
     )
-    result = run_chat_stream(
+
+    result = chat(
         prompt,
         client=client,
-        image_source=str(image_path),
         model=MODEL,
         project_name="vision-image-local-demo",
         temperature=0.7,
         max_tokens=4096,
+        image_source=str(image_path),
+        output_dir=OUTPUT_DIR,
     )
+
     logger.info(f"📋 Finish reason: {result.finish_reason}")
     if result.usage:
         logger.info(

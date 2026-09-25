@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,11 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
+
+# Setup output directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class ProgrammingLanguage(BaseModel):
@@ -50,6 +56,7 @@ def main():
         "Multi-paradigm, primarily OOP. Dynamic typing with strong enforcement. "
         "Frameworks: Django, Flask, FastAPI, SQLAlchemy. Website: python.org."
     )
+
     result = run_chat_stream(
         f"Extract programming language info from:\n{text}",
         client=client,
@@ -57,7 +64,9 @@ def main():
         temperature=0.0,
         max_tokens=300,
         response_format=ProgrammingLanguage,
+        output_dir=OUTPUT_DIR,
     )
+
     console.print("\n[bold green]✅ Result:[/bold green]")
     structured = getattr(result, "structured", None)
     if structured and structured.success and structured.parsed:
@@ -68,7 +77,7 @@ def main():
         console.print(
             f"   [cyan]Frameworks:[/cyan] {', '.join(model.popular_frameworks)}"
         )
-        console.print(f"\n   [dim]Full model:[/dim]")
+        console.print(f"\n[dim]Full model:[/dim]")
         console.print_json(json.dumps(model.model_dump(), indent=2, default=str))
     else:
         console.print(f"   [red]Extraction failed[/red]")

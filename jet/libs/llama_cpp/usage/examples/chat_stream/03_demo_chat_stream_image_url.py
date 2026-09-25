@@ -1,14 +1,15 @@
 """Demo: Stream vision chat completion using a remote image URL.
 Demonstrates:
-  1. Remote image fetching with browser-like headers
-  2. Base64 encoding and MIME type detection from URL extension
-  3. Vision model streaming with Phoenix observability
-  4. Structured StreamCompletionResult usage
+1. Remote image fetching with browser-like headers
+2. Base64 encoding and MIME type detection from URL extension
+3. Vision model streaming with Phoenix observability
+4. Exported trace spans to JSONL
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
@@ -27,6 +28,12 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
+
+# Setup output directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 IMAGE_URL = "https://picsum.photos/800/600"
 
 
@@ -36,7 +43,9 @@ def main():
         "Describe this image in detail. Include colors, objects, composition, "
         "and any text visible. Be specific and thorough."
     )
+
     logger.info(f"🌐 Analyzing remote image: {IMAGE_URL}")
+
     result = run_chat_stream(
         prompt,
         client=client,
@@ -45,7 +54,9 @@ def main():
         project_name="vision-image-url-demo",
         temperature=0.7,
         max_tokens=4096,
+        output_dir=OUTPUT_DIR,
     )
+
     logger.info(f"📋 Finish reason: {result.finish_reason}")
     if result.usage:
         logger.info(

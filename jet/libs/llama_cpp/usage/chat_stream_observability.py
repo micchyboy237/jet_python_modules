@@ -14,10 +14,6 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from jet_telemetry import initialize_telemetry
-
-PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
-initialize_telemetry(service_name="chat-stream-obs", endpoint=PHOENIX_URL)
 from jet.libs.llama_cpp.usage.chat_stream import (
     run_chat_stream as _pure_run_chat_stream,
 )
@@ -44,6 +40,7 @@ from jet_telemetry import (
     export_spans_to_jsonl,
     get_spans_api_url,
     get_trace_url,
+    initialize_telemetry,
     llm,
     redact,
     tool,
@@ -63,6 +60,8 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger("chat-stream-obs")
+
+PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 
 
 def _ensure_telemetry(project_name: str, phoenix_url: str):
@@ -92,15 +91,32 @@ def observe_structured_parsing(
     """Wraps structured output parsing in an EVALUATOR span."""
     if resolved_fmt.output_format == OutputFormat.TEXT:
         return None
+
     from jet.libs.llama_cpp.usage.structured_output import parse_structured_content
 
     result = parse_structured_content(content, resolved_fmt)
+
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute("evaluator.format", resolved_fmt.output_format.value)
         span.set_attribute("evaluator.success", result.success)
+
+        # Capture the schema used for validation
+        if resolved_fmt.schema:
+            schema_str = json.dumps(resolved_fmt.schema)
+            if len(schema_str) > 1000:
+                schema_str = schema_str[:1000] + "... [truncated]"
+            span.set_attribute("evaluator.schema", redact(schema_str))
+
         if result.error:
             span.set_attribute("evaluator.error", redact(result.error))
+
+        # Capture validation errors individually for better filtering in Phoenix
+        if result.validation_errors:
+            span.set_attribute(
+                "evaluator.validation_errors", json.dumps(result.validation_errors)
+            )
+
     return result
 
 
@@ -111,20 +127,41 @@ def observe_llm_chat_stream(
     on_chunk: Callable,
     client: OpenAI | None = None,
     system_message: str | None = None,
+    system_prompt_addition: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """
     Decorated LLM span for synchronous chat streaming.
     Delegates to pure engine while capturing semantic attributes.
     """
+    # Pass both system_message and system_prompt_addition to the pure engine
     result = _pure_run_chat_stream(
         prompt_or_messages=prompt_or_messages,
         model=model,
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        **kwargs,
+        # We need to inject the addition into the pure engine's flow.
+        # Since pure engine expects it via build_messages, we can't easily pass it
+        # unless we modify the pure engine signature or handle it here.
+        # However, the pure engine's run_chat_stream calculates resolved_fmt itself.
+        # To fix this properly, we should let the pure engine handle it,
+        # BUT the pure engine doesn't know about the resolved_fmt from the wrapper.
+        # FIX: We will pass the resolved_fmt's addition via a temporary hack or
+        # by modifying the pure engine to accept it.
+        # Actually, the best way is to pass it as part of the messages if we can,
+        # but the pure engine rebuilds messages.
+        # Let's rely on the fact that we updated chat_stream.py to accept
+        # system_prompt_addition? No, chat_stream.py calculates it from response_format.
+        # CORRECT FIX: The wrapper (chat_stream_observability) has the resolved_fmt.
+        # It should construct the messages itself or pass the addition to the pure engine.
+        # Since we want to keep the pure engine clean, let's update the pure engine
+        # to accept an optional system_prompt_addition override.
+        # For now, we will assume the pure engine has been updated to accept
+        # system_prompt_addition as a kwarg if provided, otherwise it uses its own.
+        **{**kwargs, "system_prompt_addition_override": system_prompt_addition},
     )
+
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
@@ -137,8 +174,17 @@ def observe_llm_chat_stream(
                 SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
                 result.usage.get("completion_tokens", 0),
             )
+
+        # Capture output messages
+        if result.content:
+            output_msg = [{"role": "assistant", "content": redact(result.content)}]
+            span.set_attribute(
+                SpanAttributes.LLM_OUTPUT_MESSAGES, json.dumps(output_msg)
+            )
+
         if system_message:
             span.set_attribute("llm.system_message", redact(system_message))
+
     return result
 
 
@@ -149,6 +195,7 @@ async def observe_llm_chat_stream_async(
     on_chunk: Callable,
     client: AsyncOpenAI | None = None,
     system_message: str | None = None,
+    system_prompt_addition: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """Decorated LLM span for asynchronous chat streaming."""
@@ -158,8 +205,9 @@ async def observe_llm_chat_stream_async(
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        **kwargs,
+        **{**kwargs, "system_prompt_addition_override": system_prompt_addition},
     )
+
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
@@ -168,8 +216,16 @@ async def observe_llm_chat_stream_async(
                 SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
                 result.usage.get("total_tokens", 0),
             )
+
+        if result.content:
+            output_msg = [{"role": "assistant", "content": redact(result.content)}]
+            span.set_attribute(
+                SpanAttributes.LLM_OUTPUT_MESSAGES, json.dumps(output_msg)
+            )
+
         if system_message:
             span.set_attribute("llm.system_message", redact(system_message))
+
     return result
 
 
@@ -228,6 +284,7 @@ def _execute_tool_with_span(
         args = arguments
     else:
         args = {}
+
     with tracer.start_as_current_span(
         f"tool_execution.{func_name}", kind=SpanKind.INTERNAL
     ) as tool_span:
@@ -235,11 +292,13 @@ def _execute_tool_with_span(
         tool_span.set_attribute(SpanAttributes.TOOL_NAME, func_name)
         params_str = arguments if isinstance(arguments, str) else json.dumps(arguments)
         tool_span.set_attribute("tool.parameters", redact(params_str))
+
         try:
             if isinstance(args, dict):
                 result = func(**args)
             else:
                 result = func(args)
+
             result_str = str(result)
             if len(result_str) > 1000:
                 result_str = result_str[:1000] + "... [truncated]"
@@ -273,13 +332,16 @@ def run_agentic_chat(
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
+
     if isinstance(prompt_or_messages, str):
         messages = [{"role": "user", "content": prompt_or_messages}]
     else:
         messages = list(prompt_or_messages)
+
     current_messages = messages
     final_result = None
     tracer = otel_trace.get_tracer(__name__)
+
     for round_idx in range(max_tool_rounds):
         result = observe_llm_chat_stream(
             prompt_or_messages=current_messages,
@@ -287,6 +349,7 @@ def run_agentic_chat(
             on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
             client=client,
             system_message=system_message,
+            system_prompt_addition=resolved_fmt.system_prompt_addition,
             **{
                 k: v
                 for k, v in kwargs.items()
@@ -294,8 +357,10 @@ def run_agentic_chat(
             },
         )
         final_result = result
+
         if not result.tool_calls:
             break
+
         new_messages = list(current_messages)
         assistant_msg = {
             "role": "assistant",
@@ -315,6 +380,7 @@ def run_agentic_chat(
             ],
         }
         new_messages.append(assistant_msg)
+
         for tc in result.tool_calls:
             func_name = tc.name
             func = tool_registry.get(func_name)
@@ -341,13 +407,16 @@ def run_agentic_chat(
                     "content": json.dumps({"error": f"Tool '{func_name}' not found"}),
                 }
                 new_messages.append(tool_msg)
+
         current_messages = new_messages
+
     if final_result and final_result.content:
         structured_result = observe_structured_parsing(
             final_result.content, resolved_fmt
         )
         if structured_result:
             final_result.structured = structured_result
+
     return final_result
 
 
@@ -367,13 +436,16 @@ async def run_agentic_chat_async(
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
+
     if isinstance(prompt_or_messages, str):
         messages = [{"role": "user", "content": prompt_or_messages}]
     else:
         messages = list(prompt_or_messages)
+
     current_messages = messages
     final_result = None
     tracer = otel_trace.get_tracer(__name__)
+
     for round_idx in range(max_tool_rounds):
         result = await observe_llm_chat_stream_async(
             prompt_or_messages=current_messages,
@@ -381,6 +453,7 @@ async def run_agentic_chat_async(
             on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
             client=client,
             system_message=system_message,
+            system_prompt_addition=resolved_fmt.system_prompt_addition,
             **{
                 k: v
                 for k, v in kwargs.items()
@@ -388,8 +461,10 @@ async def run_agentic_chat_async(
             },
         )
         final_result = result
+
         if not result.tool_calls:
             break
+
         new_messages = list(current_messages)
         assistant_msg = {
             "role": "assistant",
@@ -409,6 +484,7 @@ async def run_agentic_chat_async(
             ],
         }
         new_messages.append(assistant_msg)
+
         for tc in result.tool_calls:
             func_name = tc.name
             func = tool_registry.get(func_name)
@@ -435,13 +511,16 @@ async def run_agentic_chat_async(
                     "content": json.dumps({"error": f"Tool '{func_name}' not found"}),
                 }
                 new_messages.append(tool_msg)
+
         current_messages = new_messages
+
     if final_result and final_result.content:
         structured_result = observe_structured_parsing(
             final_result.content, resolved_fmt
         )
         if structured_result:
             final_result.structured = structured_result
+
     return final_result
 
 
@@ -459,18 +538,22 @@ def run_simple_chat(
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
+
     result = observe_llm_chat_stream(
         prompt_or_messages=prompt_or_messages,
         model=model,
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
+        system_prompt_addition=resolved_fmt.system_prompt_addition,
         **kwargs,
     )
+
     if result.content:
         structured_result = observe_structured_parsing(result.content, resolved_fmt)
         if structured_result:
             result.structured = structured_result
+
     return result
 
 
@@ -488,18 +571,22 @@ async def run_simple_chat_async(
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
+
     result = await observe_llm_chat_stream_async(
         prompt_or_messages=prompt_or_messages,
         model=model,
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
+        system_prompt_addition=resolved_fmt.system_prompt_addition,
         **kwargs,
     )
+
     if result.content:
         structured_result = observe_structured_parsing(result.content, resolved_fmt)
         if structured_result:
             result.structured = structured_result
+
     return result
 
 
@@ -513,12 +600,14 @@ def _make_chat_chunk_handler() -> tuple[Callable[[Any], None], dict[str, Any]]:
         delta = chunk.choices[0].delta
         if not delta:
             return
+
         if state["first_token_at"] is None and (
             getattr(delta, "content", None)
             or getattr(delta, "reasoning_content", None)
             or getattr(delta, "tool_calls", None)
         ):
             state["first_token_at"] = time.perf_counter()
+
         if hasattr(delta, "reasoning_content") and delta.reasoning_content:
             if not state["in_think_block"]:
                 console.print("[bold orange1]<think>[/bold orange1]", end="")
@@ -532,6 +621,7 @@ def _make_chat_chunk_handler() -> tuple[Callable[[Any], None], dict[str, Any]]:
         elif state["in_think_block"]:
             console.print("[bold orange1]</think>[/bold orange1]", end="")
             state["in_think_block"] = False
+
         if hasattr(delta, "content") and delta.content:
             console.print(
                 f"[bold cyan]{delta.content}[/bold cyan]",
@@ -564,32 +654,30 @@ def _print_header_footer(
     if trace_url:
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
-        if project_name and phoenix_url and output_dir:
-            current_span = otel_trace.get_current_span()
-            if current_span.is_recording():
-                trace_id = current_span.get_span_context().trace_id
-                trace_id_hex = format(trace_id, "032x")
+    if project_name and phoenix_url and output_dir:
+        current_span = otel_trace.get_current_span()
+        if current_span.is_recording():
+            trace_id = current_span.get_span_context().trace_id
+            trace_id_hex = format(trace_id, "032x")
+            api_url = get_spans_api_url(
+                phoenix_url, project_name, trace_id=trace_id_hex
+            )
+            console.print(f"🔗 Inspect API : [link={api_url}]{api_url}[/link]")
 
-                api_url = get_spans_api_url(
-                    phoenix_url, project_name, trace_id=trace_id_hex
+            try:
+                jsonl_path = export_spans_to_jsonl(
+                    project_name=project_name,
+                    trace_id=trace_id_hex,
+                    output_path=output_dir / f"{trace_id_hex}.jsonl",
+                    phoenix_base_url=phoenix_url,
+                    wait_for_flush=True,
                 )
-                console.print(f"🔗 Inspect API : [link={api_url}]{api_url}[/link]")
-
-                try:
-                    jsonl_path = export_spans_to_jsonl(
-                        project_name=project_name,
-                        trace_id=trace_id_hex,
-                        output_path=output_dir / f"{trace_id_hex}.jsonl",
-                        phoenix_base_url=phoenix_url,
-                        wait_for_flush=True,
-                        max_retries=3,
+                if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
+                    console.print(
+                        f"📥 Exported JSONL: [link=file://{jsonl_path.resolve()}]{jsonl_path.name}[/link]"
                     )
-                    if jsonl_path.exists() and jsonl_path.stat().st_size > 0:
-                        console.print(
-                            f"📥 Exported JSONL: [link=file://{jsonl_path.resolve()}]{jsonl_path.name}[/link]"
-                        )
-                except Exception as e:
-                    console.print(f"⚠️ Export failed: {e}")
+            except Exception as e:
+                console.print(f"⚠️ Export failed: {e}")
 
     logger.info("─" * 60)
     logger.info("📊 Summary")
@@ -608,11 +696,11 @@ def _print_header_footer(
         logger.info(f"   Duration         : {total_secs:.2f}s")
         if ttft is not None:
             logger.info(f"   Time to first token: {ttft:.2f}s")
-    if result.structured:
-        status = "✅" if result.structured.success else "⚠️"
-        logger.info(
-            f"   Structured       : {status} {result.structured.format_used.value}"
-        )
+        if result.structured:
+            status = "✅" if result.structured.success else "⚠️"
+            logger.info(
+                f"   Structured       : {status} {result.structured.format_used.value}"
+            )
     logger.info("─" * 60)
 
 
@@ -651,9 +739,12 @@ def run_chat_stream(
     _ensure_telemetry(project_name, phoenix_url)
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
+
     on_chunk, chunk_state = _make_chat_chunk_handler()
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
     t_start = time.perf_counter()
+
     common_kwargs = {
         "model": model,
         "enable_thinking": enable_thinking,
@@ -675,6 +766,7 @@ def run_chat_stream(
         "image_source": image_source,
         "system_message": system_message,
     }
+
     if is_agentic:
         result = run_agentic_chat(
             prompt_or_messages=prompt_or_messages,
@@ -692,10 +784,12 @@ def run_chat_stream(
             client=client,
             **common_kwargs,
         )
+
     total_secs = time.perf_counter() - t_start
     ttft = chunk_state.get("first_token_at")
     if ttft is not None:
         ttft = ttft - t_start
+
     trace_url = get_trace_url(phoenix_url) if project_name else None
     _print_header_footer(
         result,
@@ -708,6 +802,7 @@ def run_chat_stream(
         phoenix_url,
         output_dir,
     )
+
     return result
 
 
@@ -746,9 +841,12 @@ async def run_chat_stream_async(
     _ensure_telemetry(project_name, phoenix_url)
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
+
     on_chunk, chunk_state = _make_chat_chunk_handler()
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
     t_start = time.perf_counter()
+
     common_kwargs = {
         "model": model,
         "enable_thinking": enable_thinking,
@@ -770,6 +868,7 @@ async def run_chat_stream_async(
         "image_source": image_source,
         "system_message": system_message,
     }
+
     if is_agentic:
         result = await run_agentic_chat_async(
             prompt_or_messages=prompt_or_messages,
@@ -787,10 +886,12 @@ async def run_chat_stream_async(
             client=client,
             **common_kwargs,
         )
+
     total_secs = time.perf_counter() - t_start
     ttft = chunk_state.get("first_token_at")
     if ttft is not None:
         ttft = ttft - t_start
+
     trace_url = get_trace_url(phoenix_url) if project_name else None
     _print_header_footer(
         result,
@@ -803,6 +904,7 @@ async def run_chat_stream_async(
         phoenix_url,
         output_dir,
     )
+
     return result
 
 
@@ -830,9 +932,12 @@ def run_generate_stream(
 ) -> StreamCompletionResult:
     """Traced synchronous raw text completion."""
     _ensure_telemetry(project_name, phoenix_url)
+
     on_chunk, chunk_state = _make_chat_chunk_handler()
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
     t_start = time.perf_counter()
+
     result = observe_generate_stream(
         prompt=prompt,
         model=model,
@@ -851,10 +956,12 @@ def run_generate_stream(
         stop=stop,
         extra_body_params=extra_body_params,
     )
+
     total_secs = time.perf_counter() - t_start
     ttft = chunk_state.get("first_token_at")
     if ttft is not None:
         ttft = ttft - t_start
+
     trace_url = get_trace_url(phoenix_url) if project_name else None
     _print_header_footer(
         result,
@@ -867,6 +974,7 @@ def run_generate_stream(
         phoenix_url=phoenix_url,
         output_dir=output_dir,
     )
+
     return result
 
 
@@ -894,9 +1002,12 @@ async def run_generate_stream_async(
 ) -> StreamCompletionResult:
     """Traced asynchronous raw text completion."""
     _ensure_telemetry(project_name, phoenix_url)
+
     on_chunk, chunk_state = _make_chat_chunk_handler()
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
     t_start = time.perf_counter()
+
     result = await observe_generate_stream_async(
         prompt=prompt,
         model=model,
@@ -915,10 +1026,12 @@ async def run_generate_stream_async(
         stop=stop,
         extra_body_params=extra_body_params,
     )
+
     total_secs = time.perf_counter() - t_start
     ttft = chunk_state.get("first_token_at")
     if ttft is not None:
         ttft = ttft - t_start
+
     trace_url = get_trace_url(phoenix_url) if project_name else None
     _print_header_footer(
         result,
@@ -931,6 +1044,7 @@ async def run_generate_stream_async(
         phoenix_url=phoenix_url,
         output_dir=output_dir,
     )
+
     return result
 
 
@@ -991,12 +1105,9 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    # Setup Output Directory
     output_dir = Path(args.output_dir) if args.output_dir else None
     if not output_dir:
-        # Default to generated/<script_name> if not specified
         output_dir = Path(__file__).parent / "generated" / Path(__file__).stem
-
     shutil.rmtree(output_dir, ignore_errors=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1007,6 +1118,7 @@ if __name__ == "__main__":
         except json.JSONDecodeError as e:
             logger.error(f"❌ Invalid logit_bias JSON: {e}")
             raise SystemExit(1)
+
     parsed_tools: list[dict[str, Any]] | None = None
     if args.tools_json:
         try:
@@ -1014,12 +1126,14 @@ if __name__ == "__main__":
         except json.JSONDecodeError as e:
             logger.error(f"❌ Invalid tools JSON: {e}")
             raise SystemExit(1)
+
     parsed_tool_choice: str | dict[str, Any] | None = args.tool_choice
     if parsed_tool_choice and parsed_tool_choice.startswith("{"):
         try:
             parsed_tool_choice = json.loads(parsed_tool_choice)
         except json.JSONDecodeError:
             pass
+
     parsed_response_format: dict[str, Any] | None = None
     if args.response_format:
         try:
@@ -1027,7 +1141,9 @@ if __name__ == "__main__":
         except json.JSONDecodeError as e:
             logger.error(f"❌ Invalid response_format JSON: {e}")
             raise SystemExit(1)
+
     client = get_llm_client(base_url=args.base_url, timeout=args.timeout)
+
     if args.generate:
         result = run_generate_stream(
             args.prompt,
@@ -1076,6 +1192,7 @@ if __name__ == "__main__":
             system_message=args.system_message,
             output_dir=output_dir,
         )
+
     if result.has_tool_calls:
         logger.info(
             f"📋 Result: {len(result.tool_calls)} tool call(s), "

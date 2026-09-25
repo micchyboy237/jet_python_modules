@@ -1,15 +1,17 @@
 """Demo: Automatic tool execution via tool_registry with Phoenix observability.
 Demonstrates:
-  1. Passing a tool_registry dict to run_chat_stream for automatic execution
-  2. Multi-turn agent loop handled entirely inside run_chat_stream
-  3. Tool execution spans nested under tool_execution_loop parent span
-  4. Graceful handling of unknown tools (error returned to model, no crash)
-  5. Single Phoenix trace showing full LLM → tool → LLM round-trip
+1. Passing a tool_registry dict to run_chat_stream for automatic execution
+2. Multi-turn agent loop handled entirely inside run_chat_stream
+3. Tool execution spans nested under tool_execution_loop parent span
+4. Graceful handling of unknown tools (error returned to model, no crash)
+5. Single Phoenix trace showing full LLM → tool → LLM round-trip
+6. Exported trace spans to JSONL
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,12 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
+
+# Setup output directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 WEATHER_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -51,6 +59,7 @@ WEATHER_TOOL: dict[str, Any] = {
         },
     },
 }
+
 CALCULATOR_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -102,6 +111,7 @@ TOOL_REGISTRY: dict[str, Any] = {
     "get_weather": get_weather,
     "calculate": calculate,
 }
+
 TOOLS = [WEATHER_TOOL, CALCULATOR_TOOL]
 
 
@@ -110,10 +120,12 @@ def main():
     prompt = (
         "What's the weather in Tokyo right now in celsius? Also, what is 28 * 3 + 15?"
     )
+
     logger.info("🚀 Starting auto-tool-execution demo")
     logger.info(f"   Prompt: {prompt}")
     logger.info(f"   Tools registered: {list(TOOL_REGISTRY.keys())}")
     logger.info("")
+
     result = run_chat_stream(
         prompt,
         client=client,
@@ -125,7 +137,9 @@ def main():
         max_tool_rounds=5,
         temperature=0.0,
         max_tokens=4096,
+        output_dir=OUTPUT_DIR,
     )
+
     logger.info("")
     logger.info("═══ Final Result ═══")
     logger.info(f"📋 Finish reason : {result.finish_reason}")

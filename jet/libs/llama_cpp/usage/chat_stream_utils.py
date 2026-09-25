@@ -29,11 +29,6 @@ DEFAULT_MODEL = "qwen3.5-uncensored:2b"
 MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
 
 
-# ---------------------------------------------------------------------------
-# Image encoding
-# ---------------------------------------------------------------------------
-
-
 def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
     """Encode a local file, remote URL, or raw bytes to base64 for vision API."""
     if isinstance(image_source, (str, Path)):
@@ -66,6 +61,7 @@ def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
         mime = "image/jpeg"
     else:
         raise ValueError("image_source must be str/Path (local/remote) or bytes")
+
     base64_data = base64.b64encode(img_bytes).decode("utf-8")
     return base64_data, mime
 
@@ -108,13 +104,9 @@ async def encode_image_to_base64_async(
         mime = "image/jpeg"
     else:
         raise ValueError("image_source must be str/Path (local/remote) or bytes")
+
     base64_data = base64.b64encode(img_bytes).decode("utf-8")
     return base64_data, mime
-
-
-# ---------------------------------------------------------------------------
-# Tool execution
-# ---------------------------------------------------------------------------
 
 
 def execute_tool(
@@ -137,6 +129,7 @@ def execute_tool(
             if strict:
                 raise
             return {"error": f"Invalid JSON arguments: {e}", "tool": tool_name}
+
     try:
         result = executor(**tool_arguments)
         return result
@@ -173,6 +166,7 @@ async def execute_tool_async(
             if strict:
                 raise
             return {"error": f"Invalid JSON arguments: {e}", "tool": tool_name}
+
     try:
         if inspect.iscoroutinefunction(executor):
             result = await executor(**tool_arguments)
@@ -195,11 +189,6 @@ async def execute_tool_async(
         return {"error": str(exc), "tool": tool_name}
 
 
-# ---------------------------------------------------------------------------
-# Message building
-# ---------------------------------------------------------------------------
-
-
 def build_messages(
     prompt: str | None,
     messages: list[dict[str, Any]] | None,
@@ -208,54 +197,85 @@ def build_messages(
     encode_image: Callable,
     system_message: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Build the initial messages list from prompt/messages/image inputs.
+
+    Logic:
+    1. If messages is None, create it from prompt/image.
+    2. If system_message is provided, it REPLACES any existing system message in the list.
+    3. If system_prompt_addition is provided (and no explicit system_message override),
+       it is appended to an existing system message or inserted at index 0.
     """
-    Builds the messages list for the chat API, ensuring the system message is first.
-    """
-    messages = messages or []
+    current_messages: list[dict[str, Any]] | None = messages
 
-    # Build the system message content
-    system_content = system_message or system_prompt_addition
-    system_msg = (
-        {"role": "system", "content": system_content} if system_content else None
-    )
-
-    # Start with the system message if it exists
-    final_messages: list[dict[str, Any]] = []
-    if system_msg:
-        final_messages.append(system_msg)
-
-    # Add existing messages (excluding any existing system messages to avoid duplicates)
-    for msg in messages:
-        if msg.get("role") != "system":
-            final_messages.append(msg)
-
-    # Add the user prompt if provided
-    if prompt:
-        final_messages.append({"role": "user", "content": prompt})
-
-    # Handle image encoding (replace the last user message if it exists)
-    if image_source:
-        encoded_image = encode_image(image_source)
-        if encoded_image:
-            image_content = [
-                {"type": "text", "text": prompt or ""},
+    # 1. Initialize messages if missing
+    if current_messages is None:
+        if image_source and prompt:
+            base64_img, mime_type = encode_image(image_source)
+            content: Any = [
+                {"type": "text", "text": prompt},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"},
+                    "image_url": {"url": f"data:{mime_type};base64,{base64_img}"},
                 },
             ]
-            # Replace the last user message with the image + text
-            if final_messages and final_messages[-1].get("role") == "user":
-                final_messages[-1] = {"role": "user", "content": image_content}
-            else:
-                final_messages.append({"role": "user", "content": image_content})
+            current_messages = [{"role": "user", "content": content}]
+        elif prompt:
+            current_messages = [{"role": "user", "content": prompt}]
+        else:
+            current_messages = []
 
-    return final_messages
+    # 2. Handle System Message Replacement
+    if system_message:
+        # Find existing system message index
+        existing_system_idx = next(
+            (
+                i
+                for i, msg in enumerate(current_messages)
+                if msg.get("role") == "system"
+            ),
+            None,
+        )
+        if existing_system_idx is not None:
+            # Replace existing system message content
+            current_messages[existing_system_idx]["content"] = system_message
+        else:
+            # Insert new system message at the top
+            current_messages.insert(0, {"role": "system", "content": system_message})
 
+    # 3. Handle System Prompt Addition (Schema/Formatting instructions)
+    # Only apply addition if we aren't using an explicit system_message override,
+    # OR if you want them combined, you can adjust this logic.
+    # Based on your request "replace... if system_message is passed", we assume
+    # system_message takes full precedence. However, for structured output to work,
+    # we usually want BOTH.
 
-# ---------------------------------------------------------------------------
-# Tool call accumulation
-# ---------------------------------------------------------------------------
+    # REVISED LOGIC FOR STRUCTURED OUTPUT COMPATIBILITY:
+    # If system_message is present, we use it as the base.
+    # If system_prompt_addition is present, we append it to the active system message.
+
+    addition_content = system_prompt_addition
+    if addition_content:
+        # Find the system message to append to (either the one we just set, or an existing one)
+        system_idx = next(
+            (
+                i
+                for i, msg in enumerate(current_messages)
+                if msg.get("role") == "system"
+            ),
+            None,
+        )
+
+        if system_idx is not None:
+            existing_content = current_messages[system_idx].get("content", "")
+            # Append addition with a separator
+            current_messages[system_idx]["content"] = (
+                f"{existing_content}\n\n{addition_content}"
+            )
+        else:
+            # No system message exists yet, insert one with the addition
+            current_messages.insert(0, {"role": "system", "content": addition_content})
+
+    return current_messages
 
 
 def parse_tool_calls_from_accumulator(
@@ -303,11 +323,6 @@ def accumulate_tool_call_delta(
             tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
 
 
-# ---------------------------------------------------------------------------
-# Response format → API kwargs preparation
-# ---------------------------------------------------------------------------
-
-
 def prepare_response_format(
     response_format: Any,
     extra_body_params: dict[str, Any] | None,
@@ -319,19 +334,16 @@ def prepare_response_format(
     """
     resolved_fmt = resolve_response_format(response_format)
     api_response_format = resolved_fmt.api_format
+
     if resolved_fmt.output_format == OutputFormat.GRAMMAR:
         grammar_str = (api_response_format or {}).get("_grammar", "")
         if grammar_str:
             if extra_body_params is None:
                 extra_body_params = {}
             extra_body_params["grammar"] = grammar_str
-        api_response_format = None
+            api_response_format = None
+
     return resolved_fmt, api_response_format, extra_body_params
-
-
-# ---------------------------------------------------------------------------
-# Extra body & API kwargs builders
-# ---------------------------------------------------------------------------
 
 
 def build_chat_extra_body(
@@ -448,11 +460,6 @@ def build_generate_api_kwargs(
     }
 
 
-# ---------------------------------------------------------------------------
-# Chunk processing helpers
-# ---------------------------------------------------------------------------
-
-
 def extract_content_from_chat_chunk(
     chunk: ChatCompletionChunk,
     collected_content: list[str],
@@ -502,18 +509,17 @@ def extract_content_from_generate_chunk(
     """
     if not chunk.choices:
         return None
+
     delta = chunk.choices[0].text
     finish_reason: str | None = None
+
     if chunk.choices[0].finish_reason:
         finish_reason = chunk.choices[0].finish_reason
+
     if delta:
         collected_content.append(delta)
+
     return finish_reason
-
-
-# ---------------------------------------------------------------------------
-# Agentic tool loop helpers
-# ---------------------------------------------------------------------------
 
 
 def build_assistant_tool_message(

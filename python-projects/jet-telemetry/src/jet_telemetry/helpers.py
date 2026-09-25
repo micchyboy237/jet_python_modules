@@ -85,11 +85,10 @@ def export_spans_to_jsonl(
     phoenix_base_url: str = "http://localhost:6006",
     limit: int = 1000,
     wait_for_flush: bool = True,
-    max_retries: int = 3,
 ) -> Path:
     """
     Export spans as RAW JSON objects (preserving nesting, events, and all attributes).
-    Optimized for speed: uses a fixed wait time instead of complex root-span checks.
+    Performs a single fetch attempt after flushing traces.
     """
     if not PHOENIX_CLIENT_AVAILABLE:
         raise ImportError("arize-phoenix-client is required.")
@@ -104,49 +103,32 @@ def export_spans_to_jsonl(
 
     client = Client(base_url=phoenix_base_url)
 
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            trace_ids = [trace_id] if trace_id else None
+    try:
+        trace_ids = [trace_id] if trace_id else None
 
-            spans_list = client.spans.get_spans(
-                project_identifier=project_name,
-                trace_ids=trace_ids,
-                limit=limit,
-                start_time=datetime.now() - timedelta(days=7),
-            )
+        spans_list = client.spans.get_spans(
+            project_identifier=project_name,
+            trace_ids=trace_ids,
+            limit=limit,
+            start_time=datetime.now() - timedelta(days=7),
+        )
 
-            if not spans_list:
-                if attempt < max_retries - 1:
-                    print(
-                        f"⏳ Waiting for trace indexing ({attempt + 1}/{max_retries})..."
-                    )
-                    time.sleep(1.5)
-                    continue
-                print(f"⚠️ No spans found for trace '{trace_id}'.")
-                output_path.write_text("")
-                return output_path
-
-            # Sort spans by start_time to maintain hierarchy order
-            spans_list.sort(key=lambda s: s.get("start_time", ""))
-
-            with open(output_path, "w") as f:
-                for span in spans_list:
-                    f.write(json.dumps(span) + "\n")
-
-            print(f"✅ Exported {len(spans_list)} spans to {output_path.name}")
+        if not spans_list:
+            print(f"⚠️ No spans found for trace '{trace_id}'.")
+            output_path.write_text("")
             return output_path
 
-        except Exception as e:
-            last_error = e
-            if attempt < max_retries - 1:
-                print(
-                    f"⏳ Retry {attempt + 1}/{max_retries} due to: {type(e).__name__}"
-                )
-                time.sleep(1.0)
-            else:
-                print(f"❌ Export failed: {e}")
-                output_path.write_text("")
-                return output_path
+        # Sort spans by start_time to maintain hierarchy order
+        spans_list.sort(key=lambda s: s.get("start_time", ""))
 
-    return output_path
+        with open(output_path, "w") as f:
+            for span in spans_list:
+                f.write(json.dumps(span) + "\n")
+
+        print(f"✅ Exported {len(spans_list)} spans to {output_path.name}")
+        return output_path
+
+    except Exception as e:
+        print(f"❌ Export failed: {e}")
+        output_path.write_text("")
+        return output_path

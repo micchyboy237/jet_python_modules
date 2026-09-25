@@ -1,20 +1,20 @@
 """Demo: Basic text-only chat completion with Phoenix observability.
 Demonstrates:
-  1. Simple text-only chat streaming
-  2. Phoenix observability integration (auto-initialized via project_name)
-  3. Structured StreamCompletionResult usage
+1. Simple text-only chat streaming
+2. Phoenix observability integration (auto-initialized via project_name)
+3. Structured StreamCompletionResult usage
+4. Exported trace spans to JSONL
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    MODEL,
-    run_chat_stream,
-)
+from jet.adapters.llama_cpp.llm_utils_observed import chat
+from jet.libs.llama_cpp.usage.chat_stream_utils import MODEL
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -27,19 +27,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
+# Setup output directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def main():
-    # Observability is auto-initialized by run_chat_stream when project_name is set
     client = get_llm_client()
     prompt = "Write a 3 sentence romantic short story"
-    result = run_chat_stream(
+
+    result = chat(
         prompt,
         client=client,
         model=MODEL,
         project_name="chat-stream-basic-demo",
         temperature=0.7,
         max_tokens=16384,
+        output_dir=OUTPUT_DIR,
     )
+
     logger.info(f"📋 Finish reason: {result.finish_reason}")
     if result.usage:
         logger.info(

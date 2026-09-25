@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
@@ -23,6 +24,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
+# Setup output directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def main():
     console.print(
@@ -36,11 +42,12 @@ def main():
     prompt = (
         "Extract key facts about Python as a JSON object with fields:\n"
         '  "creator" (string), "year_created" (number), "type" (string),\n'
-        '  "known_for" (array), "latest_version" (string)\n\n'
+        '  "known_for" (array), "latest_version" (string)\n'
         "Python was created by Guido van Rossum in 1991. "
         "It is an interpreted, high-level language. Latest version is 3.13.\n"
         "Return ONLY JSON."
     )
+
     result = run_chat_stream(
         prompt,
         client=client,
@@ -48,15 +55,17 @@ def main():
         temperature=0.0,
         max_tokens=300,
         response_format={"type": "json_object"},
+        output_dir=OUTPUT_DIR,
     )
+
     console.print("\n[bold green]✅ Result:[/bold green]")
     console.print(f"   [dim]Raw: {result.content[:200]}[/dim]")
     structured = getattr(result, "structured", None)
     if structured and structured.success:
-        console.print(f"\n   [cyan]Parsed JSON:[/cyan]")
+        console.print(f"\n[cyan]Parsed JSON:[/cyan]")
         console.print_json(json.dumps(structured.parsed, indent=2))
     else:
-        console.print(f"\n   [yellow]No structured parse available[/yellow]")
+        console.print(f"\n[yellow]No structured parse available[/yellow]")
     console.print(f"   [dim]Finish: {result.finish_reason}[/dim]")
 
 

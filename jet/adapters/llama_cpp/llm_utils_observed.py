@@ -143,23 +143,10 @@ import argparse
 from pathlib import Path
 from typing import Any, Callable
 
+from jet.adapters.llama_cpp.config import PHOENIX_BASE_URL as PHOENIX_URL
 from jet.libs.llama_cpp.usage.chat_stream import MODEL
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    PHOENIX_URL,
-)
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    run_chat_stream as _obs_chat,
-)
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    run_chat_stream_async as _obs_achat,
-)
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    run_generate_stream as _obs_generate,
-)
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    run_generate_stream_async as _obs_agenerate,
-)
 from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
+from jet_telemetry import initialize_telemetry
 from openai import AsyncOpenAI, OpenAI
 
 
@@ -196,6 +183,12 @@ def chat(
 ) -> StreamCompletionResult:
     """Synchronous multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
+
+    initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
+
+    from jet.libs.llama_cpp.usage.chat_stream_observability import (
+        run_chat_stream as _obs_chat,
+    )
 
     logger.debug(
         f"💬 chat() called with type={type(prompt_or_messages).__name__}, "
@@ -272,6 +265,11 @@ async def achat(
     """Async multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
 
+    initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
+    from jet.libs.llama_cpp.usage.chat_stream_observability import (
+        run_chat_stream_async as _obs_achat,
+    )
+
     logger.debug(
         f"💬 achat() called with type={type(prompt_or_messages).__name__}, "
         f"project={project_name}"
@@ -338,6 +336,11 @@ def generate(
     """Synchronous raw text generation alternative to chat()."""
     from jet.logger import logger
 
+    initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
+    from jet.libs.llama_cpp.usage.chat_stream_observability import (
+        run_generate_stream as _obs_generate,
+    )
+
     logger.debug(
         f"✏️ generate() called with prompt length={len(prompt)}, project={project_name}"
     )
@@ -394,6 +397,11 @@ async def agenerate(
 ) -> StreamCompletionResult:
     """Asynchronous raw text generation alternative to achat()."""
     from jet.logger import logger
+
+    initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
+    from jet.libs.llama_cpp.usage.chat_stream_observability import (
+        run_generate_stream_async as _obs_agenerate,
+    )
 
     logger.debug(
         f"✏️ agenerate() called with prompt length={len(prompt)}, project={project_name}"

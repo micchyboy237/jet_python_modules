@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
@@ -23,6 +24,11 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
+
+# Setup output directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class Conference(BaseModel):
@@ -46,6 +52,7 @@ def main():
         "PyCon US 2024 in Pittsburgh, PA attracted 2,500+ attendees. "
         "Topics: ML, web dev, DevOps, core Python."
     )
+
     result = run_chat_stream(
         f"Extract conference info from:\n{text}",
         client=client,
@@ -53,7 +60,9 @@ def main():
         temperature=0.0,
         max_tokens=300,
         response_format=Conference,
+        output_dir=OUTPUT_DIR,
     )
+
     console.print("\n[bold green]✅ Result:[/bold green]")
     structured = getattr(result, "structured", None)
     if structured and structured.success and structured.parsed:
@@ -62,12 +71,12 @@ def main():
         console.print(f"   [cyan]Location:[/cyan] {conf.location}")
         console.print(f"   [cyan]Attendees:[/cyan] {conf.attendees:,}")
         console.print(f"   [cyan]Topics:[/cyan] {', '.join(conf.topics)}")
-        console.print(f"\n   [dim]Full model:[/dim]")
+        console.print(f"\n[dim]Full model:[/dim]")
         console.print_json(json.dumps(conf.model_dump(), indent=2, default=str))
     else:
         console.print(f"   [red]Parsing failed[/red]")
-    console.print(f"   [dim]Content: {len(result.content)} chars[/dim]")
-    console.print(f"   [dim]Finish: {result.finish_reason}[/dim]")
+        console.print(f"   [dim]Content: {len(result.content)} chars[/dim]")
+        console.print(f"   [dim]Finish: {result.finish_reason}[/dim]")
 
 
 if __name__ == "__main__":

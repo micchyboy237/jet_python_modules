@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
@@ -23,6 +24,11 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
+
+# Setup output directory
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class City(BaseModel):
@@ -52,6 +58,7 @@ def main():
         "items": City.model_json_schema(),
         "title": "CityList",
     }
+
     result = run_chat_stream(
         f"Extract ALL cities as a JSON array from:\n{text}",
         client=client,
@@ -59,7 +66,9 @@ def main():
         temperature=0.0,
         max_tokens=500,
         response_format=city_schema,
+        output_dir=OUTPUT_DIR,
     )
+
     console.print("\n[bold green]✅ Result:[/bold green]")
     structured = getattr(result, "structured", None)
     if structured and structured.success and isinstance(structured.parsed, list):
@@ -74,7 +83,7 @@ def main():
                 str(item.get("population_millions", "?")),
             )
         console.print(table)
-        console.print(f"\n   [dim]Items: {len(structured.parsed)}[/dim]")
+        console.print(f"\n[dim]Items: {len(structured.parsed)}[/dim]")
     else:
         console.print(f"   [red]Extraction failed[/red]")
         if structured:
