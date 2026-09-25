@@ -17,9 +17,8 @@ import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    run_chat_stream,
-)
+from jet.adapters.llama_cpp.llm_utils_observed import chat
+from jet.libs.llama_cpp.usage.chat_stream_utils import MODEL
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
@@ -33,7 +32,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
-# Setup output directory
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -101,6 +99,7 @@ def main():
             style="blue",
         )
     )
+
     client = get_llm_client()
     prompt = (
         "Generate a sensor reading for an industrial IoT device.\n"
@@ -110,9 +109,10 @@ def main():
         "Return ONLY valid JSON matching the schema."
     )
 
-    result = run_chat_stream(
+    result = chat(
         prompt,
         client=client,
+        model=MODEL,
         project_name="demo-jsonschema-modern",
         temperature=0.0,
         max_tokens=400,
@@ -122,6 +122,7 @@ def main():
 
     console.print("\n[bold green]✅ Raw Response:[/bold green]")
     console.print(f"   [dim]{result.content[:300]}[/dim]")
+
     structured = getattr(result, "structured", None)
     if structured is None:
         console.print("[red]No structured result attached[/red]")

@@ -9,9 +9,8 @@ import time
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    run_chat_stream,
-)
+from jet.adapters.llama_cpp.llm_utils_observed import chat
+from jet.libs.llama_cpp.usage.chat_stream_utils import MODEL
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
@@ -26,7 +25,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
-# Setup output directory
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,6 +46,7 @@ def demo_grammar_mode():
             style="blue",
         )
     )
+
     client = get_llm_client()
     prompt = (
         "Write a brief review of 'Dune' by Frank Herbert.\n"
@@ -56,9 +55,10 @@ def demo_grammar_mode():
     )
 
     t0 = time.perf_counter()
-    result = run_chat_stream(
+    result = chat(
         prompt,
         client=client,
+        model=MODEL,
         project_name="demo-grammar",
         temperature=0.0,
         max_tokens=300,
@@ -70,6 +70,7 @@ def demo_grammar_mode():
 
     console.print("\n[bold green]✅ Grammar Result:[/bold green]")
     console.print(f"   [dim]{result.content}[/dim]")
+
     try:
         parsed = json.loads(result.content)
         console.print(f"\n[cyan]Parsed (guaranteed valid):[/cyan]")

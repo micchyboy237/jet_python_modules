@@ -13,10 +13,8 @@ import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    MODEL,
-    run_chat_stream,
-)
+from jet.adapters.llama_cpp.llm_utils_observed import chat
+from jet.libs.llama_cpp.usage.chat_stream_utils import MODEL
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -29,7 +27,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
-# Setup output directory
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -46,14 +43,14 @@ def main():
 
     logger.info(f"🌐 Analyzing remote image: {IMAGE_URL}")
 
-    result = run_chat_stream(
+    result = chat(
         prompt,
         client=client,
-        image_source=IMAGE_URL,
         model=MODEL,
         project_name="vision-image-url-demo",
         temperature=0.7,
         max_tokens=4096,
+        image_source=IMAGE_URL,
         output_dir=OUTPUT_DIR,
     )
 

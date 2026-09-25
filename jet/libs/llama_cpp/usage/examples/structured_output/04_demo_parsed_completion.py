@@ -8,9 +8,8 @@ import shutil
 from pathlib import Path
 
 from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    run_chat_stream,
-)
+from jet.adapters.llama_cpp.llm_utils_observed import chat
+from jet.libs.llama_cpp.usage.chat_stream_utils import MODEL
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.logging import RichHandler
@@ -25,7 +24,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
-# Setup output directory
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -47,15 +45,17 @@ def main():
             style="blue",
         )
     )
+
     client = get_llm_client()
     text = (
         "PyCon US 2024 in Pittsburgh, PA attracted 2,500+ attendees. "
         "Topics: ML, web dev, DevOps, core Python."
     )
 
-    result = run_chat_stream(
+    result = chat(
         f"Extract conference info from:\n{text}",
         client=client,
+        model=MODEL,
         project_name="demo-parsed-completion",
         temperature=0.0,
         max_tokens=300,

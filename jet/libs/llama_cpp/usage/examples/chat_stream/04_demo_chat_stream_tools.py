@@ -14,10 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    MODEL,
-    run_chat_stream,
-)
+from jet.adapters.llama_cpp.llm_utils_observed import chat
+from jet.libs.llama_cpp.usage.chat_stream_utils import MODEL
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -30,7 +28,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
-# Setup output directory
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -81,7 +78,7 @@ def main():
     logger.info(f"   Prompt: {prompt}")
     logger.info(f"   Tools: {list(TOOL_REGISTRY.keys())}")
 
-    result = run_chat_stream(
+    result = chat(
         prompt,
         client=client,
         model=MODEL,
