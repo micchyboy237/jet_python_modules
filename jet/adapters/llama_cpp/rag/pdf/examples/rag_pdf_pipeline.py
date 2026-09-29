@@ -1,35 +1,31 @@
 """
 rag_pdf_pipeline.py
 High-precision RAG pipeline using Docling for extraction and custom element-aware chunking.
-Uses llm_utils_observed for LLM calls and includes CLI query support.
+Updated to reuse features from jet.adapters.langchain.* for Embeddings and Chat Models.
 """
 
 import argparse
 import logging
 from typing import Any, Dict, List, Tuple
 
+from jet.adapters.langchain.factory import get_chat_openai, get_openai_embeddings
 from jet.adapters.llama_cpp.chunk_strategies._common import detect_text_overlap
 from jet.adapters.llama_cpp.chunking_utils import _get_size_fn
 from jet.adapters.llama_cpp.config import EMBED_MODEL, PHOENIX_BASE_URL
-from jet_telemetry import chain, initialize_telemetry
-
-# Initialize telemetry for the pipeline
-initialize_telemetry(service_name="rag-pdf-pipeline", endpoint=PHOENIX_BASE_URL)
-
-from jet.adapters.llama_cpp.embed_utils import embed
-from jet.adapters.llama_cpp.llm_utils_observed import chat
-from jet.adapters.llama_cpp.rag.pdf.pdf_extractor import PdfExtractor
 from jet.adapters.llama_cpp.rerank_utils import rerank
+from jet_telemetry import chain, initialize_telemetry
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+
+initialize_telemetry(service_name="rag-pdf-pipeline", endpoint=PHOENIX_BASE_URL)
+
+from jet.adapters.llama_cpp.rag.pdf.pdf_extractor import PdfExtractor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 RETRIEVE_K = 50
 RERANK_TOP_N = 10
-
 DEFAULT_PDF = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/data/Resume Latest - Jethro Estrada.pdf"
 DEFAULT_QUERY = "Summarize this job seeker's resume"
 
@@ -50,7 +46,6 @@ def chunk_docling_document(
     chunk_overlap: int = 50,
 ) -> List[Document]:
     """Chunk a DoclingDocument by iterating through its structural elements.
-
     This approach preserves atomic elements like tables and code blocks
     while grouping smaller text items into coherent paragraphs with token-aware overlap.
 
@@ -64,21 +59,17 @@ def chunk_docling_document(
     current_text_parts = []
     current_token_count = 0
     previous_chunk_text = ""
-
     size_fn = _get_size_fn(model)
 
     for item, level in doc.iterate_items():
         elem_type = type(item).__name__
         content = ""
-
         if hasattr(item, "text"):
             content = item.text
         elif hasattr(item, "orig"):
             content = item.orig
 
-        # Handle atomic elements (Tables, Code, Formulas)
         if elem_type in ["TableItem", "CodeItem", "FormulaItem"]:
-            # If we have accumulated text, flush it first
             if current_text_parts:
                 chunk_text = "\n".join(current_text_parts)
                 chunks.append(Document(page_content=chunk_text))
@@ -86,22 +77,18 @@ def chunk_docling_document(
                 current_text_parts = []
                 current_token_count = 0
 
-            # Add atomic element as its own chunk
             if elem_type == "TableItem":
                 content = item.export_to_html(doc)
-            chunks.append(Document(page_content=content, metadata={"type": elem_type}))
-            previous_chunk_text = content
+                chunks.append(
+                    Document(page_content=content, metadata={"type": elem_type})
+                )
+                previous_chunk_text = content
             continue
 
-        # Handle regular text items
         if content:
             item_tokens = len(size_fn(content))
-
-            # If adding this item exceeds the limit, flush the current buffer
             if current_token_count + item_tokens > max_tokens and current_text_parts:
                 chunk_text = "\n".join(current_text_parts)
-
-                # Calculate overlap
                 overlap_text = ""
                 if chunk_overlap > 0 and previous_chunk_text:
                     overlap_candidate, _ = detect_text_overlap(
@@ -110,7 +97,6 @@ def chunk_docling_document(
                     if overlap_candidate:
                         overlap_text = overlap_candidate
 
-                # Start new chunk with overlap
                 if overlap_text:
                     current_text_parts = [overlap_text, content]
                     current_token_count = len(size_fn(overlap_text)) + item_tokens
@@ -124,7 +110,6 @@ def chunk_docling_document(
                 current_text_parts.append(content)
                 current_token_count += item_tokens
 
-    # Flush any remaining text
     if current_text_parts:
         chunk_text = "\n".join(current_text_parts)
         chunks.append(Document(page_content=chunk_text))
@@ -136,22 +121,15 @@ def chunk_docling_document(
 
 
 def build_vectorstore(docs: List[Document], save_path: str = None) -> FAISS:
-    """Build a FAISS vector store from documents."""
+    """Build a FAISS vector store from documents using LangChain embeddings."""
     if not docs:
         raise ValueError("Cannot build vectorstore: No documents provided.")
 
-    texts = [d.page_content for d in docs]
+    # Reuse existing feature: Get LangChain-compatible embeddings
+    embeddings = get_openai_embeddings(embed_model=EMBED_MODEL)
 
-    # Use batch_size=1 to avoid 'input too large' errors on local servers
-    embeddings = embed(texts, model=EMBED_MODEL, show_progress=True, batch_size=1)
-
-    import numpy as np
-
-    embeddings_np = np.array(embeddings)
-
-    vectorstore = FAISS.from_embeddings(
-        text_embeddings=list(zip(texts, embeddings_np)), embedding=None
-    )
+    # Use LangChain's built-in from_documents method
+    vectorstore = FAISS.from_documents(docs, embeddings)
 
     if save_path:
         vectorstore.save_local(save_path)
@@ -168,6 +146,8 @@ def execute_rag_query(
         return {"answer": "No relevant context found.", "citations": []}
 
     doc_texts = [d.page_content for d in candidates]
+
+    # Reuse existing feature: Reranking
     ranked_results = rerank(
         query=query, documents=doc_texts, top_n=RERANK_TOP_N, method="auto"
     )
@@ -236,38 +216,40 @@ def main(
     # 1. Extract
     doc, markdown_content = load_and_extract_pdf(pdf_path)
 
-    # 2. Chunk using custom Docling-aware logic
+    # 2. Chunk
     docs = chunk_docling_document(doc, max_tokens=max_tokens, chunk_overlap=overlap)
-
     if not docs:
         logger.error("Pipeline failed: No chunks were generated from the document.")
         return
 
-    # 3. Index
+    # 3. Index (Reusing jet.adapters.langchain.factory for embeddings)
     vs = build_vectorstore(
         docs, save_path="faiss_docling_index" if save_index else None
     )
 
-    # 4. Query
+    # 4. Retrieve & Rerank
     result = execute_rag_query(vs, query, docs)
 
-    # 5. Generate Answer using observed LLM
+    # 5. Generate Answer (Reusing jet.adapters.langchain.factory for Chat Model)
     system_prompt = (
         "You are a helpful assistant. Answer the question using ONLY the provided context. "
         "If the answer is not in the context, say 'I don't know'. Include citation IDs."
     )
+    user_prompt = f"Question: {query}\nContext:\n{result['context']}"
 
-    user_prompt = f"Question: {query}\n\nContext:\n{result['context']}"
+    logger.info("Generating answer using ChatLlamaCpp...")
 
-    logger.info("Generating answer using observed LLM...")
-    llm_result = chat(
-        prompt_or_messages=user_prompt,
-        system_message=system_prompt,
-        project_name="rag-pdf-answer",
-        temperature=0.1,
-    )
+    # Initialize LangChain-compatible chat model
+    llm = get_chat_openai(temperature=0.1, agent_name="rag-pdf-answer", verbose=True)
 
-    print("\n=== ANSWER ===\n", llm_result.content)
+    # Invoke using LangChain interface
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+
+    response = llm.invoke(messages)
+
+    print("\n=== ANSWER ===\n", response.content)
     print("\n=== SOURCES ===")
     for c in result["citations"]:
         print(c)
