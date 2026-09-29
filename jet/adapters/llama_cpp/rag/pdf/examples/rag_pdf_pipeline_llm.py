@@ -285,7 +285,7 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-@chain(name="rag-pdf-pipeline")
+@chain(name="rag-pdf-pipeline-llm")
 def main(
     pdf_path: str,
     query: str,
