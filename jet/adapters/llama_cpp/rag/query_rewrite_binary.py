@@ -44,7 +44,7 @@ from typing import Literal
 
 from jet.adapters.llama_cpp.config import LLM_MODEL, PHOENIX_BASE_URL
 from jet.adapters.llama_cpp.llm_utils_observed import chat
-from jet_telemetry import chain, initialize_telemetry, llm, tool
+from jet_telemetry import chain, get_service_name, initialize_telemetry, llm, tool
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.panel import Panel
@@ -146,7 +146,7 @@ def _analyze_intent(
         temperature=0.0,
         enable_thinking=False,
         response_format=RouterDecision,
-        project_name="binary-query-rewrite",
+        project_name=get_service_name(),
         output_dir=OUTPUT_DIR,
     )
 
@@ -180,7 +180,7 @@ def _refine_query(original_query: str, context: str = "") -> str:
         model=LLM_MODEL,
         temperature=0.0,
         enable_thinking=False,
-        project_name="binary-query-rewrite",
+        project_name=get_service_name(),
         output_dir=OUTPUT_DIR,
     )
     return result.content.strip()
@@ -204,7 +204,7 @@ def _decompose_query(original_query: str, context: str = "") -> list[str]:
         model=LLM_MODEL,
         temperature=0.0,
         enable_thinking=False,
-        project_name="binary-query-rewrite",
+        project_name=get_service_name(),
         output_dir=OUTPUT_DIR,
     )
 
