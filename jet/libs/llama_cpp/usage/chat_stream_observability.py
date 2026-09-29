@@ -1100,7 +1100,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--system-message",
         type=str,
-        default="You are a helpful assistant.",
+        default=None,
         help="System message to guide the model's behavior.",
     )
     parser.add_argument(
