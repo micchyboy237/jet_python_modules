@@ -19,7 +19,66 @@ from openinference.semconv.trace import (
 )
 from opentelemetry import trace as otel_trace
 
-# ─── 1. CORE UTILITIES ───────────────────────────────────────────────────────
+
+class LazyPhoenixTracer:
+    """
+    A proxy tracer that safely handles decorator application before
+    initialize_telemetry() is called. It resolves the real Phoenix tracer
+    at runtime when spans are actually created.
+    """
+
+    def __init__(self):
+        self._real_tracer = None
+
+    def _get_real_tracer(self):
+        if self._real_tracer is None:
+            try:
+                from .setup import get_tracer_provider
+
+                provider = get_tracer_provider()
+                if provider:
+                    self._real_tracer = provider.get_tracer(__name__)
+            except Exception:
+                pass
+
+        # Fallback to global OTel tracer if Phoenix isn't ready
+        if self._real_tracer is None:
+            return otel_trace.get_tracer(__name__)
+        return self._real_tracer
+
+    def __getattr__(self, name: str):
+        # Delegate attribute access (like .tool(), .llm(), .chain())
+        # to the real tracer at runtime
+        real_tracer = self._get_real_tracer()
+
+        # Check if the real tracer has the requested attribute/method
+        if hasattr(real_tracer, name):
+            attr = getattr(real_tracer, name)
+            # If it's callable (like .tool()), we might need to wrap the call
+            # to ensure it returns something compatible, but usually
+            # arize-phoenix-otel tracers return decorators or span creators.
+            return attr
+
+        # If the real tracer still doesn't have the attribute (e.g., OTel fallback),
+        # raise a helpful error instead of AttributeError on ProxyTracer
+        raise AttributeError(
+            f"Tracer method '{name}' not available. "
+            f"Ensure initialize_telemetry() is called before using @{name} decorated functions."
+        )
+
+    def start_as_current_span(self, *args, **kwargs):
+        """Explicitly delegate start_as_current_span to support manual span creation."""
+        real_tracer = self._get_real_tracer()
+        return real_tracer.start_as_current_span(*args, **kwargs)
+
+
+# Global lazy tracer instance
+_lazy_tracer = LazyPhoenixTracer()
+
+
+def _get_tracer():
+    """Returns the lazy tracer wrapper instead of a raw OTel tracer."""
+    return _lazy_tracer
 
 
 def _redact(text: str) -> str:
@@ -32,31 +91,16 @@ def _redact(text: str) -> str:
     return text
 
 
-def _get_tracer():
-    """Lazily get the global tracer from Phoenix TracerProvider."""
-    try:
-        from .setup import get_tracer_provider
-
-        provider = get_tracer_provider()
-        if provider:
-            return provider.get_tracer(__name__)
-    except ImportError:
-        pass
-    return otel_trace.get_tracer(__name__)
-
-
 def performance_monitor(func=None, *, threshold_ms: float = 500):
     """
     Attaches performance metrics (duration_ms, slow) to the CURRENT active span.
     Useful for stacking with @llm, @tool, or @chain to track latency explicitly.
-
     Args:
         threshold_ms: If duration exceeds this, sets 'perf.slow' to True.
     """
 
     def decorator(f):
         is_async = inspect.iscoroutinefunction(f)
-
         if is_async:
 
             @wraps(f)
@@ -93,12 +137,8 @@ def _attach_perf_metrics(elapsed_ms: float, threshold_ms: float, name: str):
     """Helper to attach metrics to the current active span."""
     span = otel_trace.get_current_span()
     if span.is_recording():
-        # Use a standard prefix for easy querying in Phoenix
         span.set_attribute(f"perf.{name}.duration_ms", round(elapsed_ms, 2))
         span.set_attribute(f"perf.{name}.slow", elapsed_ms > threshold_ms)
-
-
-# ─── 2. HIGH-LEVEL WRAPPERS (arize-phoenix-otel) ─────────────────────────────
 
 
 def llm(
@@ -116,7 +156,23 @@ def llm(
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
-        decorated = tracer.llm(name=span_name)(f)
+
+        # Get the decorated function from the lazy tracer
+        # Note: tracer.llm(...) will resolve the real tracer at call time inside __getattr__
+        # However, we need to be careful. tracer.llm returns a decorator.
+        # We must apply that decorator to f.
+
+        # To handle the lazy nature, we can't just do tracer.llm(...)(f) immediately
+        # if tracer.llm itself needs to be resolved.
+        # But __getattr__ returns the actual method from the real tracer.
+        # So tracer.llm(name=span_name) returns the phoenix decorator factory.
+
+        try:
+            phoenix_decorator_factory = tracer.llm(name=span_name)
+            decorated = phoenix_decorator_factory(f)
+        except AttributeError:
+            # Fallback if lazy resolution fails completely
+            decorated = f
 
         @wraps(decorated)
         def wrapper(*args, **kwargs):
@@ -124,8 +180,6 @@ def llm(
             if span.is_recording():
                 span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model_name)
                 span.set_attribute(SpanAttributes.LLM_PROVIDER, provider)
-
-                # Capture input messages if available
                 sig = inspect.signature(f)
                 bound_args = sig.bind(*args, **kwargs)
                 bound_args.apply_defaults()
@@ -152,7 +206,6 @@ def llm(
                 if span.is_recording():
                     span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model_name)
                     span.set_attribute(SpanAttributes.LLM_PROVIDER, provider)
-
                     sig = inspect.signature(f)
                     bound_args = sig.bind(*args, **kwargs)
                     bound_args.apply_defaults()
@@ -192,7 +245,12 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
             kwargs["name"] = name
         if description:
             kwargs["description"] = description
-        decorated = tracer.tool(**kwargs)(f)
+
+        try:
+            phoenix_decorator_factory = tracer.tool(**kwargs)
+            decorated = phoenix_decorator_factory(f)
+        except AttributeError:
+            decorated = f
 
         @wraps(decorated)
         def wrapper(*args, **kwargs):
@@ -243,7 +301,10 @@ def chain(func=None, *, name: Optional[str] = None):
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
-        return tracer.chain(name=span_name)(f)
+        try:
+            return tracer.chain(name=span_name)(f)
+        except AttributeError:
+            return f
 
     if func is not None:
         return decorator(func)
@@ -258,14 +319,14 @@ def agent(func=None, *, name: Optional[str] = None):
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
-        return tracer.agent(name=span_name)(f)
+        try:
+            return tracer.agent(name=span_name)(f)
+        except AttributeError:
+            return f
 
     if func is not None:
         return decorator(func)
     return decorator
-
-
-# ─── 3. SEMANTIC MANUAL SPANS (Custom OpenInference) ─────────────────────────
 
 
 def retriever(
@@ -293,7 +354,9 @@ def retriever(
                             span.set_attribute("retriever.model_name", model_name)
                         if args:
                             span.set_attribute("retrieval.query", _redact(str(args[0])))
+
                     result = await f(*args, **kwargs)
+
                     if span.is_recording() and result:
                         if isinstance(result, list) and len(result) > 0:
                             doc_metadata = []
@@ -305,6 +368,7 @@ def retriever(
                                     if "id" in doc:
                                         meta["id"] = doc["id"]
                                 doc_metadata.append(meta)
+
                             span.set_attribute("retrieval.document_count", len(result))
                             span.set_attribute(
                                 "retrieval.documents.metadata", json.dumps(doc_metadata)
@@ -324,7 +388,9 @@ def retriever(
                             span.set_attribute("retriever.model_name", model_name)
                         if args:
                             span.set_attribute("retrieval.query", _redact(str(args[0])))
+
                     result = f(*args, **kwargs)
+
                     if span.is_recording() and result:
                         if isinstance(result, list) and len(result) > 0:
                             doc_metadata = []
@@ -336,6 +402,7 @@ def retriever(
                                     if "id" in doc:
                                         meta["id"] = doc["id"]
                                 doc_metadata.append(meta)
+
                             span.set_attribute("retrieval.document_count", len(result))
                             span.set_attribute(
                                 "retrieval.documents.metadata", json.dumps(doc_metadata)
@@ -360,7 +427,6 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
 
-        # Import numpy locally to check types without requiring it as a hard dependency
         try:
             import numpy as np
         except ImportError:
@@ -385,29 +451,19 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                             span.set_attribute(
                                 "embedding.text_length", len(str(args[0]))
                             )
+
                     result = await f(*args, **kwargs)
 
-                    # FIX: Check for None instead of truthiness to support NumPy arrays
                     if span.is_recording() and result is not None:
-                        # Handle both Python lists and NumPy arrays
                         dim = None
                         if isinstance(result, list):
                             dim = len(result)
                         elif np is not None and isinstance(result, np.ndarray):
-                            # For multi-dimensional arrays (batch), we might want the last dimension
-                            # or just the total size. Usually, embedding vectors are 1D per text.
-                            # If it's a batch (2D), len(result) gives the batch size.
-                            # Let's assume the user wants the vector dimension if 1D, or batch size if 2D.
                             if result.ndim == 1:
                                 dim = len(result)
-                            else:
-                                # For batches, we can't easily set a single "vector_dimension"
-                                # unless we know the schema. We'll skip or set batch size.
-                                pass
 
                         if dim is not None:
                             span.set_attribute("embedding.vector_dimension", dim)
-
                     return result
 
             return async_wrapper
@@ -430,9 +486,9 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                             span.set_attribute(
                                 "embedding.text_length", len(str(args[0]))
                             )
+
                     result = f(*args, **kwargs)
 
-                    # FIX: Check for None instead of truthiness to support NumPy arrays
                     if span.is_recording() and result is not None:
                         dim = None
                         if isinstance(result, list):
@@ -443,7 +499,6 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
 
                         if dim is not None:
                             span.set_attribute("embedding.vector_dimension", dim)
-
                     return result
 
             return sync_wrapper
@@ -483,7 +538,9 @@ def reranker(
                             span.set_attribute(
                                 RerankerAttributes.RERANKER_QUERY, _redact(str(args[0]))
                             )
+
                     result = await f(*args, **kwargs)
+
                     if span.is_recording() and result:
                         if isinstance(result, list):
                             span.set_attribute(
@@ -516,7 +573,9 @@ def reranker(
                             span.set_attribute(
                                 RerankerAttributes.RERANKER_QUERY, _redact(str(args[0]))
                             )
+
                     result = f(*args, **kwargs)
+
                     if span.is_recording() and result:
                         if isinstance(result, list):
                             span.set_attribute(
@@ -558,7 +617,9 @@ def guardrail(func=None, *, name: Optional[str] = None):
                 ) as span:
                     if span.is_recording() and args:
                         span.set_attribute("guardrail.input", _redact(str(args[0])))
+
                     result = await f(*args, **kwargs)
+
                     if span.is_recording():
                         span.set_attribute("guardrail.result", str(result))
                     return result
@@ -573,7 +634,9 @@ def guardrail(func=None, *, name: Optional[str] = None):
                 ) as span:
                     if span.is_recording() and args:
                         span.set_attribute("guardrail.input", _redact(str(args[0])))
+
                     result = f(*args, **kwargs)
+
                     if span.is_recording():
                         span.set_attribute("guardrail.result", str(result))
                     return result
@@ -668,13 +731,25 @@ def trace(func=None, *, name: Optional[str] = None, kind: str = "CHAIN"):
         kind_upper = kind.upper()
 
         if kind_upper == "CHAIN":
-            return tracer.chain(name=span_name)(f)
+            try:
+                return tracer.chain(name=span_name)(f)
+            except AttributeError:
+                return f
         elif kind_upper == "TOOL":
-            return tracer.tool(name=span_name)(f)
+            try:
+                return tracer.tool(name=span_name)(f)
+            except AttributeError:
+                return f
         elif kind_upper == "LLM":
-            return tracer.llm(name=span_name)(f)
+            try:
+                return tracer.llm(name=span_name)(f)
+            except AttributeError:
+                return f
         elif kind_upper == "AGENT":
-            return tracer.agent(name=span_name)(f)
+            try:
+                return tracer.agent(name=span_name)(f)
+            except AttributeError:
+                return f
         else:
             is_async = inspect.iscoroutinefunction(f)
             if is_async:
