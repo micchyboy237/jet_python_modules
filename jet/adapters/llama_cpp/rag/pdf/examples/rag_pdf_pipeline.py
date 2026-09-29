@@ -1,6 +1,6 @@
 """
 rag_pdf_pipeline.py
-High-precision RAG pipeline using Docling for extraction and SmartChunker for processing.
+High-precision RAG pipeline using Docling for extraction and custom element-aware chunking.
 Uses llm_utils_observed for LLM calls and includes CLI query support.
 """
 
@@ -8,13 +8,14 @@ import argparse
 import logging
 from typing import Any, Dict, List, Tuple
 
+from jet.adapters.llama_cpp.chunk_strategies._common import detect_text_overlap
+from jet.adapters.llama_cpp.chunking_utils import _get_size_fn
 from jet.adapters.llama_cpp.config import EMBED_MODEL, PHOENIX_BASE_URL
 from jet_telemetry import chain, initialize_telemetry
 
 # Initialize telemetry for the pipeline
 initialize_telemetry(service_name="rag-pdf-pipeline", endpoint=PHOENIX_BASE_URL)
 
-from jet.adapters.llama_cpp.chunk_strategies import get_chunker
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.llm_utils_observed import chat
 from jet.adapters.llama_cpp.rag.pdf.pdf_extractor import PdfExtractor
@@ -29,47 +30,120 @@ logger = logging.getLogger(__name__)
 RETRIEVE_K = 50
 RERANK_TOP_N = 10
 
+DEFAULT_PDF = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/data/Resume Latest - Jethro Estrada.pdf"
+DEFAULT_QUERY = "Summarize this job seeker's resume"
 
-def load_and_extract_pdf(pdf_path: str) -> Tuple[str, List[Dict[str, Any]]]:
-    """Load PDF and extract both markdown and structured elements."""
+
+def load_and_extract_pdf(pdf_path: str) -> Tuple[Any, str]:
+    """Load PDF and extract DoclingDocument and Markdown content."""
     extractor = PdfExtractor()
     doc = extractor.extract_from_path(pdf_path)
     markdown_content = extractor.export_to_markdown(doc)
-    elements = extractor.extract_elements(doc)
-    return markdown_content, elements
+    return doc, markdown_content
 
 
-def smart_chunk_document(
-    markdown_content: str,
-    elements: List[Dict[str, Any]],
+@chain(name="docling-element-chunker")
+def chunk_docling_document(
+    doc,
     model: str = "qwen3.5-uncensored:2b",
+    max_tokens: int = 450,
+    chunk_overlap: int = 50,
 ) -> List[Document]:
-    """Chunk document using SmartChunker with element-aware formatting."""
-    chunker = get_chunker(strategy="smart", model=model)
+    """Chunk a DoclingDocument by iterating through its structural elements.
 
-    # SmartChunker can take elements directly for atomic preservation
-    chunks = chunker.chunk(
-        text=markdown_content,
-        chunk_size=512,
-        chunk_overlap=50,
-        elements=elements,
-        retrieval_type="dense",
+    This approach preserves atomic elements like tables and code blocks
+    while grouping smaller text items into coherent paragraphs with token-aware overlap.
+
+    Args:
+        doc: The DoclingDocument to chunk.
+        model: Model key for tokenizer resolution.
+        max_tokens: Maximum number of tokens per chunk.
+        chunk_overlap: Number of overlapping tokens between consecutive chunks.
+    """
+    chunks = []
+    current_text_parts = []
+    current_token_count = 0
+    previous_chunk_text = ""
+
+    size_fn = _get_size_fn(model)
+
+    for item, level in doc.iterate_items():
+        elem_type = type(item).__name__
+        content = ""
+
+        if hasattr(item, "text"):
+            content = item.text
+        elif hasattr(item, "orig"):
+            content = item.orig
+
+        # Handle atomic elements (Tables, Code, Formulas)
+        if elem_type in ["TableItem", "CodeItem", "FormulaItem"]:
+            # If we have accumulated text, flush it first
+            if current_text_parts:
+                chunk_text = "\n".join(current_text_parts)
+                chunks.append(Document(page_content=chunk_text))
+                previous_chunk_text = chunk_text
+                current_text_parts = []
+                current_token_count = 0
+
+            # Add atomic element as its own chunk
+            if elem_type == "TableItem":
+                content = item.export_to_html(doc)
+            chunks.append(Document(page_content=content, metadata={"type": elem_type}))
+            previous_chunk_text = content
+            continue
+
+        # Handle regular text items
+        if content:
+            item_tokens = len(size_fn(content))
+
+            # If adding this item exceeds the limit, flush the current buffer
+            if current_token_count + item_tokens > max_tokens and current_text_parts:
+                chunk_text = "\n".join(current_text_parts)
+
+                # Calculate overlap
+                overlap_text = ""
+                if chunk_overlap > 0 and previous_chunk_text:
+                    overlap_candidate, _ = detect_text_overlap(
+                        previous_chunk_text, chunk_text, size_fn
+                    )
+                    if overlap_candidate:
+                        overlap_text = overlap_candidate
+
+                # Start new chunk with overlap
+                if overlap_text:
+                    current_text_parts = [overlap_text, content]
+                    current_token_count = len(size_fn(overlap_text)) + item_tokens
+                else:
+                    current_text_parts = [content]
+                    current_token_count = item_tokens
+
+                chunks.append(Document(page_content=chunk_text))
+                previous_chunk_text = chunk_text
+            else:
+                current_text_parts.append(content)
+                current_token_count += item_tokens
+
+    # Flush any remaining text
+    if current_text_parts:
+        chunk_text = "\n".join(current_text_parts)
+        chunks.append(Document(page_content=chunk_text))
+
+    logger.info(
+        f"Generated {len(chunks)} chunks from DoclingDocument (max_tokens={max_tokens}, overlap={chunk_overlap})."
     )
-
-    # Apply RAG formatting markers based on element types if available
-    # Note: SmartChunker already handles some of this, but we can reinforce it
-    docs = []
-    for i, chunk_text in enumerate(chunks):
-        docs.append(Document(page_content=chunk_text, metadata={"chunk_index": i}))
-
-    logger.info(f"Generated {len(docs)} chunks from document.")
-    return docs
+    return chunks
 
 
 def build_vectorstore(docs: List[Document], save_path: str = None) -> FAISS:
     """Build a FAISS vector store from documents."""
+    if not docs:
+        raise ValueError("Cannot build vectorstore: No documents provided.")
+
     texts = [d.page_content for d in docs]
-    embeddings = embed(texts, model=EMBED_MODEL, show_progress=True)
+
+    # Use batch_size=1 to avoid 'input too large' errors on local servers
+    embeddings = embed(texts, model=EMBED_MODEL, show_progress=True, batch_size=1)
 
     import numpy as np
 
@@ -114,23 +188,60 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="High-precision RAG pipeline with Docling and observed LLM."
     )
-    parser.add_argument("--pdf", required=True, help="Path to PDF file")
-    parser.add_argument("-q", "--query", type=str, default=None, help="Search query")
+    parser.add_argument(
+        "--pdf",
+        type=str,
+        default=DEFAULT_PDF,
+        help="Path to PDF file (defaults to Resume Latest - Jethro Estrada.pdf)",
+    )
+    parser.add_argument(
+        "-q",
+        "--query",
+        type=str,
+        default=DEFAULT_QUERY,
+        help="Search query (defaults to 'Summarize this job seeker's resume')",
+    )
+    parser.add_argument(
+        "-m",
+        "--max-tokens",
+        type=int,
+        default=450,
+        help="Maximum tokens per chunk (default: 450)",
+    )
+    parser.add_argument(
+        "-o",
+        "--overlap",
+        type=int,
+        default=50,
+        help="Number of overlapping tokens between chunks (default: 50)",
+    )
     parser.add_argument(
         "--save-index", action="store_true", help="Save FAISS index locally"
     )
     return parser.parse_args()
 
 
-def main(pdf_path: str, query: str, save_index: bool = False):
+def main(
+    pdf_path: str,
+    query: str,
+    max_tokens: int = 450,
+    overlap: int = 50,
+    save_index: bool = False,
+):
     """Main pipeline execution."""
-    logger.info(f"Starting RAG pipeline for: {pdf_path}")
+    logger.info(
+        f"Starting RAG pipeline for: {pdf_path} (max_tokens={max_tokens}, overlap={overlap})"
+    )
 
     # 1. Extract
-    markdown_content, elements = load_and_extract_pdf(pdf_path)
+    doc, markdown_content = load_and_extract_pdf(pdf_path)
 
-    # 2. Chunk
-    docs = smart_chunk_document(markdown_content, elements)
+    # 2. Chunk using custom Docling-aware logic
+    docs = chunk_docling_document(doc, max_tokens=max_tokens, chunk_overlap=overlap)
+
+    if not docs:
+        logger.error("Pipeline failed: No chunks were generated from the document.")
+        return
 
     # 3. Index
     vs = build_vectorstore(
@@ -138,9 +249,6 @@ def main(pdf_path: str, query: str, save_index: bool = False):
     )
 
     # 4. Query
-    if not query:
-        query = "How does the authentication workflow handle token refresh?"
-
     result = execute_rag_query(vs, query, docs)
 
     # 5. Generate Answer using observed LLM
@@ -167,4 +275,4 @@ def main(pdf_path: str, query: str, save_index: bool = False):
 
 if __name__ == "__main__":
     args = get_args()
-    main(args.pdf, args.query, args.save_index)
+    main(args.pdf, args.query, args.max_tokens, args.overlap, args.save_index)
