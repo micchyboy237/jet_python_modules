@@ -1,4 +1,3 @@
-# jet/shared_modules/shared/data_types/job_analytics.py
 from datetime import date, datetime
 from enum import Enum
 from typing import List, Optional
@@ -37,11 +36,22 @@ class SalaryFrequency(str, Enum):
     ANNUAL = "annual"
 
 
+class SeniorityLevel(str, Enum):
+    INTERN = "intern"
+    JUNIOR = "junior"
+    MID = "mid"
+    SENIOR = "senior"
+    LEAD = "lead"
+    PRINCIPAL = "principal"
+    EXECUTIVE = "executive"
+
+
 class JobAnalytics(BaseModel):
     """Structured analytics-ready job record with normalized scope-of-work dimensions."""
 
     model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
 
+    # --- Company & Location ---
     company_name: Optional[str] = Field(
         None,
         description="Name of the hiring company. e.g., 'TechNova Solutions', 'Google'",
@@ -59,6 +69,8 @@ class JobAnalytics(BaseModel):
         None,
         description="Normalized job board. MUST be one of: 'linkedin', 'jobstreet', 'onlinejobs', 'indeed', 'other'.",
     )
+
+    # --- Dates & Type ---
     posted_date: Optional[date] = Field(
         None,
         description="Date the job was first posted in ISO 8601 format (YYYY-MM-DD). e.g., '2024-05-15'",
@@ -71,6 +83,8 @@ class JobAnalytics(BaseModel):
         None,
         description="Standardized work mode. MUST be one of: 'remote', 'onsite', 'hybrid'.",
     )
+
+    # --- Compensation ---
     salary_min: Optional[int] = Field(
         None,
         ge=0,
@@ -90,12 +104,49 @@ class JobAnalytics(BaseModel):
         None,
         description="Pay frequency. MUST be one of: 'hourly', 'daily', 'weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual'.",
     )
+
+    # --- Experience & Seniority ---
+    seniority_level: Optional[SeniorityLevel] = Field(
+        None,
+        description="Career level required. MUST be one of: 'intern', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive'.",
+    )
+    years_experience_min: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Minimum years of relevant experience required. e.g., 3",
+    )
+    years_experience_max: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Maximum years of experience expected (if capped). e.g., 7",
+    )
+    experience_description: Optional[str] = Field(
+        None,
+        description="Raw text description of experience requirements if specific years are not mentioned. e.g., 'Proven track record in...'",
+    )
+
+    # --- Technology Stack (Categorized) ---
+    required_technologies: Optional[List[str]] = Field(
+        None,
+        description="Mandatory technologies, tools, frameworks, and libraries. The candidate MUST have these. e.g., ['Python', 'AWS', 'React']",
+    )
+    preferred_technologies: Optional[List[str]] = Field(
+        None,
+        description="Nice-to-have technologies. Candidates with these are preferred but not required. e.g., ['Docker', 'Kubernetes']",
+    )
+    optional_technologies: Optional[List[str]] = Field(
+        None,
+        description="Other technologies mentioned in the stack but not explicitly categorized as required or preferred.",
+    )
+
+    # Legacy field for backward compatibility if needed, otherwise deprecated
     technology_stack: Optional[List[str]] = Field(
         None,
-        description="Specific technologies, tools, frameworks, and libraries. "
-        "e.g., ['Python', 'PyTorch', 'LangChain', 'AWS']. "
-        "Do NOT include generic terms like 'AI', 'ML', 'Cloud', or 'Software'.",
+        description="Deprecated: Use required/preferred/optional fields. Specific technologies, tools, frameworks, and libraries.",
+        deprecated=True,
     )
+
+    # --- Domain & Platform ---
     job_domain: Optional[List[str]] = Field(
         None,
         description="Primary engineering domains. e.g., ['Backend', 'Frontend', 'Data/AI', 'DevOps', 'Mobile']",
@@ -105,7 +156,15 @@ class JobAnalytics(BaseModel):
         description="Target deployment platforms or environments. e.g., ['Web', 'iOS', 'Android', 'AWS', 'Linux']",
     )
 
-    @field_validator("source_platform", "employment_type", "work_mode", mode="before")
+    # --- Validators ---
+
+    @field_validator(
+        "source_platform",
+        "employment_type",
+        "work_mode",
+        "seniority_level",
+        mode="before",
+    )
     @classmethod
     def normalize_enum_strings(cls, v):
         """Normalize common LLM output variations to match Enum values."""
@@ -113,6 +172,8 @@ class JobAnalytics(BaseModel):
             return None
         if isinstance(v, str):
             cleaned = v.lower().replace("-", "_").replace(" ", "_")
+
+            # Existing mappings
             mappings = {
                 "full_time": "full_time",
                 "fulltime": "full_time",
@@ -129,6 +190,26 @@ class JobAnalytics(BaseModel):
                 "online_jobs": "onlinejobs",
                 "onlinejobs": "onlinejobs",
                 "indeed": "indeed",
+                # Seniority mappings
+                "intern": "intern",
+                "internship": "intern",
+                "junior": "junior",
+                "jr": "junior",
+                "jr_": "junior",
+                "mid": "mid",
+                "mid_level": "mid",
+                "mid-level": "mid",
+                "senior": "senior",
+                "sr": "senior",
+                "sr_": "senior",
+                "lead": "lead",
+                "team_lead": "lead",
+                "principal": "principal",
+                "staff": "principal",
+                "executive": "executive",
+                "c_level": "executive",
+                "cto": "executive",
+                "ceo": "executive",
             }
             return mappings.get(cleaned, cleaned)
         return v
@@ -166,8 +247,24 @@ class JobAnalytics(BaseModel):
                 )
         return v
 
+    @field_validator("years_experience_max")
+    @classmethod
+    def validate_experience_range(cls, v, info):
+        if v is not None and info.data.get("years_experience_min") is not None:
+            if v < info.data["years_experience_min"]:
+                raise ValueError(
+                    f"years_experience_max ({v}) must be >= years_experience_min ({info.data['years_experience_min']})"
+                )
+        return v
+
     @field_validator(
-        "technology_stack", "job_domain", "platform_targets", mode="before"
+        "required_technologies",
+        "preferred_technologies",
+        "optional_technologies",
+        "technology_stack",
+        "job_domain",
+        "platform_targets",
+        mode="before",
     )
     @classmethod
     def normalize_lists(cls, v):

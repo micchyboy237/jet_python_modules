@@ -1,6 +1,6 @@
 import math
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 from jet.adapters.llama_cpp.config import EMBED_MODEL
@@ -17,7 +17,6 @@ from shared.data_types.job import (
     HybridSearchResult,
     JobData,
     TableJobMetadata,
-    TableJobRow,
     VectorSearchResult,
 )
 from tqdm import tqdm
@@ -27,6 +26,7 @@ _ctx_embd_size = get_model_ctx_embd_size(DEFAULT_EMBED_MODEL)
 DEFAULT_EMBEDDING_DIM = _ctx_embd_size["embd_dims"]
 DEFAULT_JOBS_DB_NAME = "jobs_db3"
 DEFAULT_TABLE_CHUNKS = "job_chunks"
+DEFAULT_TABLE_PARENTS = "job_parents"
 DEFAULT_TABLE_DATA = "jobs"
 DEFAULT_TABLE_ENTITIES = "job_entities"
 DEFAULT_BUFFER = 32
@@ -141,36 +141,6 @@ def get_jobs_db_summary(db_client: PgVectorClient | None = None):
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
     db_summary = db_client.get_database_summary()
     return db_summary
-
-
-def load_jobs(
-    chunk_ids: list[str] | None = None, db_client: PgVectorClient | None = None
-) -> list[JobData]:
-    """
-    Load jobs from the metadata table. If chunk_ids provided, loads only those jobs.
-    This now loads from DEFAULT_TABLE_DATA as the primary source for JobData.
-
-    Args:
-        chunk_ids: Optional list of job IDs to retrieve
-        db_client: Optional PgVectorClient instance
-    Returns:
-        List of JobData dictionaries
-    """
-    if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-
-    with db_client:
-        if chunk_ids:
-            # Load specific jobs by their IDs from metadata table
-            metadata_rows = db_client.get_rows(DEFAULT_TABLE_DATA, ids=chunk_ids)
-            jobs = [_metadata_row_to_jobdata(row) for row in metadata_rows]
-        else:
-            # Load all jobs from metadata table
-            metadata_rows = db_client.get_rows(DEFAULT_TABLE_DATA)
-            jobs = [_metadata_row_to_jobdata(row) for row in metadata_rows]
-
-    logger.info(f"Loaded {len(jobs)} jobs from '{DEFAULT_TABLE_DATA}' table")
-    return jobs
 
 
 def _metadata_row_to_jobdata(row: dict) -> JobData:
@@ -399,79 +369,6 @@ def compute_text_hash(text: str) -> str:
     return generate_hash(text)
 
 
-def table_row_to_jobdata(
-    row: TableJobRow, db_client: PgVectorClient | None = None
-) -> JobData:
-    """
-    Convert a chunk row from DEFAULT_TABLE_CHUNKS back into a JobData object.
-    Loads full metadata from DEFAULT_TABLE_DATA since chunk rows only contain
-    chunk-specific data. Entities must be loaded separately via load_job_entities().
-    """
-    chunk_meta = row.get("chunk_meta") or {}
-    job_id = chunk_meta.get("doc_id", row.get("id", ""))
-
-    if not db_client:
-        logger.warning(f"No db_client provided, returning minimal JobData for {job_id}")
-        return {
-            "id": job_id,
-            "link": "",
-            "title": row.get("header", ""),
-            "company": row.get("parent_header", ""),
-            "posted_date": row.get("posted_date"),
-            "keywords": [],
-            "details": row.get("content", ""),
-            "entities": None,
-            "domain": None,
-            "salary": None,
-            "job_type": None,
-            "hours_per_week": None,
-            "tags": None,
-        }
-
-    metadata = _load_metadata_from_table(db_client, job_id)
-
-    if not metadata:
-        logger.warning(
-            f"No metadata found for job {job_id}, using chunk data as fallback"
-        )
-        return {
-            "id": job_id,
-            "link": "",
-            "title": row.get("header", ""),
-            "company": row.get("parent_header", ""),
-            "posted_date": row.get("posted_date"),
-            "keywords": [],
-            "details": row.get("content", ""),
-            "entities": None,
-            "domain": None,
-            "salary": None,
-            "job_type": None,
-            "hours_per_week": None,
-            "tags": None,
-        }
-
-    job_data: JobData = {
-        "id": job_id,
-        "link": metadata.get("link", ""),
-        "title": metadata.get("title", row.get("header", "")),
-        "company": metadata.get("company", row.get("parent_header", "")),
-        "posted_date": metadata.get("posted_date") or row.get("posted_date"),
-        "keywords": metadata.get("keywords", []),
-        "details": metadata.get("details", row.get("content", "")),
-        "entities": None,
-        "domain": metadata.get("domain"),
-        "salary": metadata.get("salary"),
-        "job_type": metadata.get("job_type"),
-        "hours_per_week": metadata.get("hours_per_week"),
-        "tags": metadata.get("tags"),
-    }
-
-    logger.debug(
-        f"Reconstructed JobData for {job_id}: title='{job_data['title']}', company='{job_data['company']}'"
-    )
-    return job_data
-
-
 def load_job_metadata(
     job_id: str,
     db_client: PgVectorClient | None = None,
@@ -568,12 +465,12 @@ def save_job_embeddings(
     child_chunk_size: int | None = None,
     chunk_overlap: int = 0,
 ) -> dict:
-    """
+    f"""
     Save PDR chunked embeddings to DEFAULT_TABLE_CHUNKS (children only),
-    parent content to job_parents, and full metadata to DEFAULT_TABLE_DATA.
+    parent content to {DEFAULT_TABLE_PARENTS}, and full metadata to DEFAULT_TABLE_DATA.
 
     PDR Architecture:
-      - Parents: Full logical sections stored in job_parents (NOT embedded)
+      - Parents: Full logical sections stored in {DEFAULT_TABLE_PARENTS} (NOT embedded)
       - Children: Granular sentence chunks stored in jobs (embedded for search)
       - Retrieval: Match children → resolve to unique parents → full context for LLM
 
@@ -624,8 +521,8 @@ def save_job_embeddings(
             updated_at      TIMESTAMPTZ DEFAULT NOW()
         );
         """
-        parent_table_query = """
-        CREATE TABLE IF NOT EXISTS job_parents (
+        parent_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_PARENTS} (
             id              TEXT PRIMARY KEY,
             job_id          TEXT NOT NULL,
             parent_index    INT NOT NULL,
@@ -636,13 +533,13 @@ def save_job_embeddings(
             updated_at      TIMESTAMPTZ DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_job_parents_job_id
-            ON job_parents(job_id);
+            ON {DEFAULT_TABLE_PARENTS}(job_id);
         """
         with db_client.conn.cursor() as cur:
             cur.execute(chunk_table_query)
             cur.execute(parent_table_query)
         logger.debug(
-            f"Ensured '{DEFAULT_TABLE_CHUNKS}' and 'job_parents' tables exist."
+            f"Ensured '{DEFAULT_TABLE_CHUNKS}' and '{DEFAULT_TABLE_PARENTS}' tables exist."
         )
 
         _ensure_metadata_table(db_client)
@@ -761,7 +658,9 @@ def save_job_embeddings(
                 deleted_children = cur.rowcount
                 # Delete old parents
                 cur.execute(
-                    sql.SQL("DELETE FROM job_parents WHERE job_id = ANY(%s)"),
+                    sql.SQL(
+                        f"DELETE FROM {DEFAULT_TABLE_PARENTS} WHERE job_id = ANY(%s)"
+                    ),
                     (reprocessed_job_ids,),
                 )
                 deleted_parents = cur.rowcount
@@ -771,7 +670,7 @@ def save_job_embeddings(
                 f"{deleted_parents} old parents for {len(reprocessed_job_ids)} jobs"
             )
 
-        # ── Save parents to job_parents ──────────────────────────────────
+        # ── Save parents to {DEFAULT_TABLE_PARENTS} ──────────────────────────────────
         parent_rows = []
         for parent in all_parents:
             parent_rows.append(
@@ -786,10 +685,10 @@ def save_job_embeddings(
             )
 
         if parent_rows:
-            db_client.create_or_update_rows("job_parents", parent_rows)
+            db_client.create_or_update_rows(DEFAULT_TABLE_PARENTS, parent_rows)
             db_client.commit()
             logger.success(
-                f"Saved {len(parent_rows)} parent records to 'job_parents' table"
+                f"Saved {len(parent_rows)} parent records to '{DEFAULT_TABLE_PARENTS}' table"
             )
 
         # ── Prepare children for embedding ───────────────────────────────
@@ -950,11 +849,11 @@ def _resolve_parents_from_children(
     results: list[dict],
     db_client: PgVectorClient,
 ) -> dict[str, str]:
-    """
+    f"""
     Resolve child search results to their parent content.
 
     Extracts unique parent_ids from chunk_meta, batch-fetches from
-    job_parents table, and returns a mapping of parent_id → content.
+    {DEFAULT_TABLE_PARENTS} table, and returns a mapping of parent_id → content.
 
     Args:
         results: List of search result dicts with chunk_meta containing parent_id.
@@ -975,20 +874,20 @@ def _resolve_parents_from_children(
         return {}
 
     try:
-        parent_rows = db_client.get_rows("job_parents", ids=list(parent_ids))
+        parent_rows = db_client.get_rows(DEFAULT_TABLE_PARENTS, ids=list(parent_ids))
         parent_map = {row["id"]: row["content"] for row in parent_rows}
         missing = parent_ids - set(parent_map.keys())
         if missing:
             logger.warning(
-                f"Missing {len(missing)} parents in job_parents table: "
+                f"Missing {len(missing)} parents in {DEFAULT_TABLE_PARENTS} table: "
                 f"{list(missing)[:5]}..."
             )
         logger.debug(
-            f"Resolved {len(parent_map)}/{len(parent_ids)} parents from job_parents"
+            f"Resolved {len(parent_map)}/{len(parent_ids)} parents from {DEFAULT_TABLE_PARENTS}"
         )
         return parent_map
     except Exception as e:
-        logger.error(f"Failed to resolve parents from job_parents: {e}")
+        logger.error(f"Failed to resolve parents from {DEFAULT_TABLE_PARENTS}: {e}")
         return {}
 
 
@@ -1000,10 +899,10 @@ def search_jobs(
     db_client: PgVectorClient | None = None,
     enrich_with_metadata: bool = True,
 ) -> list[VectorSearchResult]:
-    """
+    f"""
     Search for jobs based on a query string and return ranked results with data.
     Searches against CHILD embeddings in DEFAULT_TABLE_CHUNKS, resolves to
-    PARENT content from job_parents for full-context retrieval.
+    PARENT content from {DEFAULT_TABLE_PARENTS} for full-context retrieval.
     """
     query_embedding = generate_embeddings([query], embed_model)[0]
     if not db_client:
@@ -1067,6 +966,128 @@ def search_jobs(
             return enriched_results
 
         return filtered_results
+
+
+# Job-Level Result Type
+class JobSearchResult(TypedDict, total=False):
+    """Job-level search result derived from public.jobs + public.job_entities."""
+
+    id: str
+    rank: int
+    score: float
+    distance: float
+    link: str
+    title: str
+    company: str
+    posted_date: str | None
+    keywords: list[str] | None
+    details: str | None
+    domain: str | None
+    salary: str | None
+    job_type: str | None
+    hours_per_week: str | None
+    tags: list[str] | None
+    entities: dict | None
+
+
+def search_full_jobs(
+    query: str,
+    top_k: int | None = None,
+    threshold: float | None = None,
+    embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
+    db_client: PgVectorClient | None = None,
+) -> list[JobSearchResult]:
+    """
+    Search for jobs and return unique Job-Level results.
+
+    Uses search_jobs() to find relevant chunks, deduplicates by doc_id,
+    and returns full job records from public.jobs enriched with entities.
+    """
+    if not db_client:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+
+    # 1. Use existing search_jobs to get chunk-level matches
+    # Fetch extra to account for deduplication reducing count
+    fetch_limit = (top_k * 3) if top_k else 100
+
+    chunk_results = search_jobs(
+        query=query,
+        top_k=fetch_limit,
+        threshold=threshold,
+        embed_model=embed_model,
+        db_client=db_client,
+        enrich_with_metadata=False,  # We'll fetch fresh metadata below
+    )
+
+    if not chunk_results:
+        return []
+
+    # 2. Deduplicate by doc_id, keeping highest score per job
+    best_scores: dict[str, float] = {}
+    for result in chunk_results:
+        chunk_meta = result.get("chunk_meta", {})
+        job_id = chunk_meta.get("doc_id")
+        if not job_id:
+            continue
+
+        score = result.get("score", 0.0)
+        if job_id not in best_scores or score > best_scores[job_id]:
+            best_scores[job_id] = score
+
+    if not best_scores:
+        return []
+
+    # 3. Sort by score and apply top_k limit
+    sorted_job_ids = sorted(
+        best_scores.keys(), key=lambda jid: best_scores[jid], reverse=True
+    )
+    if top_k:
+        sorted_job_ids = sorted_job_ids[:top_k]
+
+    # 4. Batch load jobs WITH entities from DB
+    # This ensures we get the canonical job record, not chunk artifacts
+    jobs_with_entities = load_jobs_list(
+        db_client=db_client,
+        include_entities=True,
+    )
+    jobs_map = {job["id"]: job for job in jobs_with_entities}
+
+    # 5. Construct Job-Level Results
+    final_results: list[JobSearchResult] = []
+    for rank, job_id in enumerate(sorted_job_ids, start=1):
+        job = jobs_map.get(job_id)
+        if not job:
+            logger.warning(
+                f"Job {job_id} found in vector index but missing in public.jobs"
+            )
+            continue
+
+        score = best_scores[job_id]
+
+        result: JobSearchResult = {
+            "id": job_id,
+            "rank": rank,
+            "score": score,
+            "distance": round(1.0 - score, 6),
+            "link": job.get("link"),
+            "title": job.get("title"),
+            "company": job.get("company"),
+            "posted_date": job.get("posted_date"),
+            "keywords": job.get("keywords"),
+            "details": job.get("details"),
+            "domain": job.get("domain"),
+            "salary": job.get("salary"),
+            "job_type": job.get("job_type"),
+            "hours_per_week": job.get("hours_per_week"),
+            "tags": job.get("tags"),
+            "entities": job.get("entities"),
+        }
+        final_results.append(result)
+
+    logger.info(
+        f"Deduplicated search: {len(final_results)} unique jobs from {len(chunk_results)} chunks"
+    )
+    return final_results
 
 
 def filter_jobs_by_metadata(

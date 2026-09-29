@@ -1,10 +1,11 @@
 from typing import TypedDict
 
 from shared.data_types.job_analytics import JobAnalytics
-from shared.data_types.job_entities import JobEntities
+
+# from shared.data_types.job_entities import JobEntities
 
 JobAnalytics = JobAnalytics
-JobEntities = JobEntities
+JobEntities = JobAnalytics
 
 
 class Entity(TypedDict):
