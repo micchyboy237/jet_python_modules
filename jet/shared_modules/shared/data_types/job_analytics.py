@@ -139,13 +139,6 @@ class JobAnalytics(BaseModel):
         description="Other technologies mentioned in the stack but not explicitly categorized as required or preferred.",
     )
 
-    # Legacy field for backward compatibility if needed, otherwise deprecated
-    technology_stack: Optional[List[str]] = Field(
-        None,
-        description="Deprecated: Use required/preferred/optional fields. Specific technologies, tools, frameworks, and libraries.",
-        deprecated=True,
-    )
-
     # --- Domain & Platform ---
     job_domain: Optional[List[str]] = Field(
         None,
@@ -267,7 +260,6 @@ class JobAnalytics(BaseModel):
         "required_technologies",
         "preferred_technologies",
         "optional_technologies",
-        "technology_stack",
         "job_domain",
         "platform_targets",
         mode="before",
