@@ -38,7 +38,7 @@ class SalaryFrequency(str, Enum):
 
 class SeniorityLevel(str, Enum):
     INTERN = "intern"
-    JUNIOR = "junior"
+    JUNIOR = "junior"  # Covers "Entry Level", "Graduate", "Associate"
     MID = "mid"
     SENIOR = "senior"
     LEAD = "lead"
@@ -108,17 +108,17 @@ class JobAnalytics(BaseModel):
     # --- Experience & Seniority ---
     seniority_level: Optional[SeniorityLevel] = Field(
         None,
-        description="Career level required. MUST be one of: 'intern', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive'.",
+        description="Career level required. MUST be one of: 'intern', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive'. Note: 'Entry Level' maps to 'junior'.",
     )
-    years_experience_min: Optional[int] = Field(
+    years_experience_min: Optional[float] = Field(
         None,
         ge=0,
-        description="Minimum years of relevant experience required. e.g., 3",
+        description="Minimum years of relevant experience required. Can be fractional. e.g., 1.5",
     )
-    years_experience_max: Optional[int] = Field(
+    years_experience_max: Optional[float] = Field(
         None,
         ge=0,
-        description="Maximum years of experience expected (if capped). e.g., 7",
+        description="Maximum years of experience expected (if capped). Can be fractional. e.g., 7.5",
     )
     experience_description: Optional[str] = Field(
         None,
@@ -193,6 +193,12 @@ class JobAnalytics(BaseModel):
                 # Seniority mappings
                 "intern": "intern",
                 "internship": "intern",
+                # Map Entry/Graduate to Junior to avoid redundancy
+                "entry": "junior",
+                "entry_level": "junior",
+                "graduate": "junior",
+                "new_grad": "junior",
+                "associate": "junior",
                 "junior": "junior",
                 "jr": "junior",
                 "jr_": "junior",
