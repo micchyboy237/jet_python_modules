@@ -1,25 +1,36 @@
 """
 rag_pdf_pipeline.py
 High-precision RAG pipeline using Docling for extraction and custom element-aware chunking.
-Updated to reuse features from jet.adapters.langchain.* for Embeddings and Chat Models.
+Uses llm_utils_observed for LLM calls and includes CLI query support.
+Telemetry decorators are now applied at the pipeline level for better modularity.
 """
 
 import argparse
 import logging
 from typing import Any, Dict, List, Tuple
 
-from jet.adapters.langchain.factory import get_chat_openai, get_openai_embeddings
 from jet.adapters.llama_cpp.chunk_strategies._common import detect_text_overlap
 from jet.adapters.llama_cpp.chunking_utils import _get_size_fn
 from jet.adapters.llama_cpp.config import EMBED_MODEL, PHOENIX_BASE_URL
-from jet.adapters.llama_cpp.rerank_utils import rerank
-from jet_telemetry import chain, initialize_telemetry
-from langchain_community.vectorstores import FAISS
-from langchain_core.documents import Document
+from jet_telemetry import (
+    chain,
+    embedding,
+    initialize_telemetry,
+    llm,
+    reranker,
+    retriever,
+    tool,
+)
 
 initialize_telemetry(service_name="rag-pdf-pipeline", endpoint=PHOENIX_BASE_URL)
 
+from jet.adapters.langchain.factory import get_openai_embeddings
+from jet.adapters.llama_cpp.embed_utils import embed
+from jet.adapters.llama_cpp.llm_utils_observed import chat
 from jet.adapters.llama_cpp.rag.pdf.pdf_extractor import PdfExtractor
+from jet.adapters.llama_cpp.rerank_utils import rerank as rerank_utility
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,6 +41,9 @@ DEFAULT_PDF = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/d
 DEFAULT_QUERY = "Summarize this job seeker's resume"
 
 
+@tool(
+    name="extract-pdf-content", description="Extracts structured text from a PDF file."
+)
 def load_and_extract_pdf(pdf_path: str) -> Tuple[Any, str]:
     """Load PDF and extract DoclingDocument and Markdown content."""
     extractor = PdfExtractor()
@@ -120,15 +134,28 @@ def chunk_docling_document(
     return chunks
 
 
+@embedding(model_name=EMBED_MODEL)
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    """Wrapper for embedding to ensure telemetry capture."""
+    # Using the existing embed utility which handles batching and prefixes
+    embeddings = embed(texts, model=EMBED_MODEL, show_progress=False, batch_size=64)
+
+    # Ensure we return a plain Python list of lists to avoid NumPy truthiness issues
+    # and ensure compatibility with LangChain/FAISS
+    if hasattr(embeddings, "tolist"):
+        return embeddings.tolist()
+    return embeddings
+
+
 def build_vectorstore(docs: List[Document], save_path: str = None) -> FAISS:
-    """Build a FAISS vector store from documents using LangChain embeddings."""
+    """Build a FAISS vector store from documents using the LangChain factory."""
     if not docs:
         raise ValueError("Cannot build vectorstore: No documents provided.")
 
-    # Reuse existing feature: Get LangChain-compatible embeddings
+    # Get the standardized embedding object from the factory
     embeddings = get_openai_embeddings(embed_model=EMBED_MODEL)
 
-    # Use LangChain's built-in from_documents method
+    # FAISS.from_documents handles the embedding of texts internally
     vectorstore = FAISS.from_documents(docs, embeddings)
 
     if save_path:
@@ -136,20 +163,35 @@ def build_vectorstore(docs: List[Document], save_path: str = None) -> FAISS:
     return vectorstore
 
 
+@retriever(name="vector-search", model_name="cosine-similarity")
+def retrieve_candidates(vectorstore: FAISS, query: str, k: int) -> List[Document]:
+    """Wrapper for retrieval to ensure telemetry capture."""
+    # This now works because vectorstore has a valid embedding_function
+    return vectorstore.similarity_search(query, k=k)
+
+
+@reranker(name="cross-encoder-reranker", model_name="auto")
+def rerank_documents(query: str, documents: List[str], top_n: int) -> List[Dict]:
+    """Wrapper for reranking to ensure telemetry capture."""
+    return rerank_utility(query=query, documents=documents, top_n=top_n, method="auto")
+
+
 @chain(name="rag-query-execution")
 def execute_rag_query(
     vectorstore: FAISS, query: str, original_docs: List[Document]
 ) -> Dict[str, Any]:
     """Retrieve, rerank, and prepare context for LLM."""
-    candidates = vectorstore.similarity_search(query, k=RETRIEVE_K)
+    # 1. Retrieve
+    candidates = retrieve_candidates(vectorstore, query, k=RETRIEVE_K)
+
     if not candidates:
         return {"answer": "No relevant context found.", "citations": []}
 
     doc_texts = [d.page_content for d in candidates]
 
-    # Reuse existing feature: Reranking
-    ranked_results = rerank(
-        query=query, documents=doc_texts, top_n=RERANK_TOP_N, method="auto"
+    # 2. Rerank
+    ranked_results = rerank_documents(
+        query=query, documents=doc_texts, top_n=RERANK_TOP_N
     )
 
     context_blocks = []
@@ -162,6 +204,18 @@ def execute_rag_query(
 
     context = "\n".join(context_blocks)
     return {"context": context, "citations": citations}
+
+
+@llm(model_name="qwen3.5-uncensored:2b")
+def generate_answer(system_prompt: str, user_prompt: str) -> str:
+    """Wrapper for LLM generation to ensure telemetry capture."""
+    llm_result = chat(
+        prompt_or_messages=user_prompt,
+        system_message=system_prompt,
+        project_name="rag-pdf-answer",
+        temperature=0.1,
+    )
+    return llm_result.content
 
 
 def get_args() -> argparse.Namespace:
@@ -201,6 +255,7 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+@chain(name="rag-pdf-pipeline")
 def main(
     pdf_path: str,
     query: str,
@@ -208,48 +263,40 @@ def main(
     overlap: int = 50,
     save_index: bool = False,
 ):
-    """Main pipeline execution."""
+    """Main pipeline execution. Decorated with @chain to serve as the single root span."""
     logger.info(
         f"Starting RAG pipeline for: {pdf_path} (max_tokens={max_tokens}, overlap={overlap})"
     )
 
-    # 1. Extract
+    # 1. Extract (Child span via @tool)
     doc, markdown_content = load_and_extract_pdf(pdf_path)
 
-    # 2. Chunk
+    # 2. Chunk (Child span via @chain)
     docs = chunk_docling_document(doc, max_tokens=max_tokens, chunk_overlap=overlap)
     if not docs:
         logger.error("Pipeline failed: No chunks were generated from the document.")
         return
 
-    # 3. Index (Reusing jet.adapters.langchain.factory for embeddings)
+    # 3. Index (Child span containing @embedding)
     vs = build_vectorstore(
         docs, save_path="faiss_docling_index" if save_index else None
     )
 
-    # 4. Retrieve & Rerank
+    # 4. Retrieve & Rerank (Child span via @chain, containing @retriever and @reranker)
     result = execute_rag_query(vs, query, docs)
 
-    # 5. Generate Answer (Reusing jet.adapters.langchain.factory for Chat Model)
+    # 5. Generate Answer (Child span via @llm)
     system_prompt = (
         "You are a helpful assistant. Answer the question using ONLY the provided context. "
         "If the answer is not in the context, say 'I don't know'. Include citation IDs."
     )
     user_prompt = f"Question: {query}\nContext:\n{result['context']}"
 
-    logger.info("Generating answer using ChatLlamaCpp...")
+    logger.info("Generating answer using observed LLM...")
 
-    # Initialize LangChain-compatible chat model
-    llm = get_chat_openai(temperature=0.1, agent_name="rag-pdf-answer", verbose=True)
+    answer = generate_answer(system_prompt, user_prompt)
 
-    # Invoke using LangChain interface
-    from langchain_core.messages import HumanMessage, SystemMessage
-
-    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
-
-    response = llm.invoke(messages)
-
-    print("\n=== ANSWER ===\n", response.content)
+    print("\n=== ANSWER ===\n", answer)
     print("\n=== SOURCES ===")
     for c in result["citations"]:
         print(c)

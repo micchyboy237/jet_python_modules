@@ -360,6 +360,12 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
 
+        # Import numpy locally to check types without requiring it as a hard dependency
+        try:
+            import numpy as np
+        except ImportError:
+            np = None
+
         if is_async:
 
             @wraps(f)
@@ -380,11 +386,28 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                                 "embedding.text_length", len(str(args[0]))
                             )
                     result = await f(*args, **kwargs)
-                    if span.is_recording() and result:
+
+                    # FIX: Check for None instead of truthiness to support NumPy arrays
+                    if span.is_recording() and result is not None:
+                        # Handle both Python lists and NumPy arrays
+                        dim = None
                         if isinstance(result, list):
-                            span.set_attribute(
-                                "embedding.vector_dimension", len(result)
-                            )
+                            dim = len(result)
+                        elif np is not None and isinstance(result, np.ndarray):
+                            # For multi-dimensional arrays (batch), we might want the last dimension
+                            # or just the total size. Usually, embedding vectors are 1D per text.
+                            # If it's a batch (2D), len(result) gives the batch size.
+                            # Let's assume the user wants the vector dimension if 1D, or batch size if 2D.
+                            if result.ndim == 1:
+                                dim = len(result)
+                            else:
+                                # For batches, we can't easily set a single "vector_dimension"
+                                # unless we know the schema. We'll skip or set batch size.
+                                pass
+
+                        if dim is not None:
+                            span.set_attribute("embedding.vector_dimension", dim)
+
                     return result
 
             return async_wrapper
@@ -408,11 +431,19 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                                 "embedding.text_length", len(str(args[0]))
                             )
                     result = f(*args, **kwargs)
-                    if span.is_recording() and result:
+
+                    # FIX: Check for None instead of truthiness to support NumPy arrays
+                    if span.is_recording() and result is not None:
+                        dim = None
                         if isinstance(result, list):
-                            span.set_attribute(
-                                "embedding.vector_dimension", len(result)
-                            )
+                            dim = len(result)
+                        elif np is not None and isinstance(result, np.ndarray):
+                            if result.ndim == 1:
+                                dim = len(result)
+
+                        if dim is not None:
+                            span.set_attribute("embedding.vector_dimension", dim)
+
                     return result
 
             return sync_wrapper
