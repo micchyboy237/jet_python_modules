@@ -125,6 +125,7 @@ def _load_metadata_from_table(
             row.pop("id", None)
             row.pop("created_at", None)
             row.pop("updated_at", None)
+            logger.debug(f"Loaded metadata for job {job_id} from '{table_name}' table.")
             return row
         else:
             logger.debug(f"No metadata found for job {job_id} in '{table_name}' table.")
