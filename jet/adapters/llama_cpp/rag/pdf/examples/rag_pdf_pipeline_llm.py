@@ -11,7 +11,7 @@ import logging
 from jet.adapters.llama_cpp.config import PHOENIX_BASE_URL
 from jet_telemetry import chain, initialize_telemetry, llm, tool
 
-initialize_telemetry(service_name="rag-pdf-pipeline", endpoint=PHOENIX_BASE_URL)
+initialize_telemetry(service_name="rag-pdf-pipeline-llm", endpoint=PHOENIX_BASE_URL)
 from jet.adapters.llama_cpp.llm_utils_observed import chat
 from jet.adapters.llama_cpp.rag.pdf.docling_chunker import chunk_docling_document
 from jet.adapters.llama_cpp.rag.pdf.pdf_extractor import PdfExtractor
@@ -87,7 +87,7 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-@chain(name="rag-pdf-pipeline")
+@chain(name="rag-pdf-pipeline-llm")
 def main(
     pdf_path: str,
     query: str,
