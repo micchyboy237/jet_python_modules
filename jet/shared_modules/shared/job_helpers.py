@@ -20,6 +20,7 @@ from shared.data_types.job import (
     TableJobRow,
     VectorSearchResult,
 )
+from tqdm import tqdm
 
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 _ctx_embd_size = get_model_ctx_embd_size(DEFAULT_EMBED_MODEL)
@@ -125,7 +126,7 @@ def _load_metadata_from_table(
             row.pop("id", None)
             row.pop("created_at", None)
             row.pop("updated_at", None)
-            logger.debug(f"Loaded metadata for job {job_id} from '{table_name}' table.")
+            # logger.debug(f"Loaded metadata for job {job_id} from '{table_name}' table.")
             return row
         else:
             logger.debug(f"No metadata found for job {job_id} in '{table_name}' table.")
@@ -1025,7 +1026,8 @@ def search_jobs(
             parent_map = _resolve_parents_from_children(filtered_results, db_client)
 
             enriched_results = []
-            for result in filtered_results:
+            # <--- Wrap loop with tqdm
+            for result in tqdm(filtered_results, desc="Enriching results"):
                 chunk_meta = result.get("chunk_meta", {})
                 job_id = chunk_meta.get("doc_id", result.get("id", ""))
                 metadata = _load_metadata_from_table(db_client, job_id)
@@ -1059,9 +1061,9 @@ def search_jobs(
                     )
                 enriched_results.append(enriched)
 
-            logger.debug(
-                f"Enriched {len(enriched_results)} search results with metadata + parent content"
-            )
+            # logger.debug( # <--- Optional: Remove or keep this summary log
+            #     f"Enriched {len(enriched_results)} search results with metadata + parent content"
+            # )
             return enriched_results
 
         return filtered_results
