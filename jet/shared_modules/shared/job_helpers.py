@@ -1024,6 +1024,8 @@ def search_full_jobs(
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
+    # 1. Use existing search_jobs to get chunk-level matches
+    # Fetch extra to account for deduplication reducing count
     fetch_limit = (top_k * 3) if top_k else 100
 
     chunk_results = search_jobs(
@@ -1038,6 +1040,7 @@ def search_full_jobs(
     if not chunk_results:
         return []
 
+    # 2. Deduplicate by doc_id, keeping highest score per job
     best_scores: dict[str, float] = {}
     for result in chunk_results:
         chunk_meta = result.get("chunk_meta", {})
@@ -1051,13 +1054,15 @@ def search_full_jobs(
     if not best_scores:
         return []
 
+    # 3. Sort by score and apply top_k limit
     sorted_job_ids = sorted(
         best_scores.keys(), key=lambda jid: best_scores[jid], reverse=True
     )
     if top_k:
         sorted_job_ids = sorted_job_ids[:top_k]
 
-    # Pass new filters to load_jobs_list                             # UPDATED
+    # 4. Batch load jobs WITH entities from DB
+    # This ensures we get the canonical job record, not chunk artifacts
     jobs_with_entities = load_jobs_list(
         db_client=db_client,
         include_entities=True,
@@ -1068,6 +1073,7 @@ def search_full_jobs(
 
     jobs_map = {job["id"]: job for job in jobs_with_entities}
 
+    # 5. Construct Job-Level Results
     final_results: list[JobSearchResult] = []
     for rank, job_id in enumerate(sorted_job_ids, start=1):
         job = jobs_map.get(job_id)
