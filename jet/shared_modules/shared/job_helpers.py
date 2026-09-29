@@ -222,25 +222,25 @@ def load_jobs_list(
     table_name: str = DEFAULT_TABLE_DATA,
     include_entities: bool = False,
     where_conditions: dict[str, Any] | None = None,
+    posted_after: datetime | None = None,  # NEW
+    posted_before: datetime | None = None,  # NEW
 ) -> list[JobData]:
     """
-    Load all existing jobs from the metadata table with optional DB-level filtering.
+    Load jobs with optional DB-level filtering including date ranges and null checks.
+
     Args:
-        db_client: Optional PgVectorClient instance.
-        table_name: Metadata table name.
-        include_entities: If True, LEFT JOIN job_entities table.
-        where_conditions: Dict of column filters applied as SQL WHERE.
-            Use {"column": "NOT_NULL"} to filter for non-null/non-empty values.
-            Use {"column": value} for exact match.
-            Example: {"salary": "NOT_NULL", "company": "NOT_NULL"}
+        posted_after: Only return jobs posted on or after this datetime.
+        posted_before: Only return jobs posted on or before this datetime.
+        where_conditions: Dict of column filters.
+            - Use {"column": "NOT_NULL"} for non-null/non-empty values.
+            - Use {"column": "IS_NULL"} for null/empty values.       # NEW
+            - Use {"column": value} for exact match.
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
     try:
-        # NEW: Ensure entities table exists if we're joining it
         if include_entities:
             _ensure_entities_table(db_client)
-
         with db_client:
             if include_entities:
                 base_query = sql.SQL("""
@@ -256,14 +256,21 @@ def load_jobs_list(
                     sql.Identifier(table_name)
                 )
 
-            # Build WHERE clause from where_conditions
             params: list[Any] = []
+            where_parts = []
+
+            # Handle where_conditions with IS_NULL support
             if where_conditions:
-                where_parts = []
                 for col, val in where_conditions.items():
                     if val == "NOT_NULL":
                         where_parts.append(
                             sql.SQL("{} IS NOT NULL AND {} != ''").format(
+                                sql.Identifier(col), sql.Identifier(col)
+                            )
+                        )
+                    elif val == "IS_NULL":  # NEW
+                        where_parts.append(
+                            sql.SQL("({} IS NULL OR {} = '')").format(
                                 sql.Identifier(col), sql.Identifier(col)
                             )
                         )
@@ -272,13 +279,23 @@ def load_jobs_list(
                             sql.SQL("{} = %s").format(sql.Identifier(col))
                         )
                         params.append(val)
-                if where_parts:
-                    base_query = (
-                        base_query
-                        + sql.SQL(" WHERE ")
-                        + sql.SQL(" AND ").join(where_parts)
-                    )
-                    logger.info(f"Applied DB filter: {where_conditions}")
+
+            # Handle date range filters                               # NEW
+            if posted_after is not None:
+                where_parts.append(sql.SQL("posted_date >= %s"))
+                params.append(posted_after.isoformat())
+            if posted_before is not None:
+                where_parts.append(sql.SQL("posted_date <= %s"))
+                params.append(posted_before.isoformat())
+
+            if where_parts:
+                base_query = (
+                    base_query + sql.SQL(" WHERE ") + sql.SQL(" AND ").join(where_parts)
+                )
+
+            logger.info(
+                f"Applied DB filter: {where_conditions}, after={posted_after}, before={posted_before}"
+            )
 
             with db_client.conn.cursor() as cur:
                 cur.execute(base_query, params)
@@ -309,23 +326,23 @@ def load_jobs_list(
                         d["entities"] = d.pop("_joined_entities", None)
                 processed_rows.append(d)
 
-        jobs: list[JobData] = []
-        for row in processed_rows:
-            try:
-                job = _metadata_row_to_jobdata(row)
-                if include_entities and row.get("entities") is not None:
-                    job["entities"] = row["entities"]
-                jobs.append(job)
-            except (KeyError, TypeError, ValueError) as e:
-                logger.warning(
-                    f"Skipping invalid metadata row (id={row.get('id', 'unknown')}): {e}"
-                )
-        logger.info(
-            f"Loaded {len(jobs)} jobs from '{table_name}'"
-            f"{' with entities' if include_entities else ''}"
-            f"{' with where=' + str(where_conditions) if where_conditions else ''}"
-        )
-        return jobs
+            jobs: list[JobData] = []
+            for row in processed_rows:
+                try:
+                    job = _metadata_row_to_jobdata(row)
+                    if include_entities and row.get("entities") is not None:
+                        job["entities"] = row["entities"]
+                    jobs.append(job)
+                except (KeyError, TypeError, ValueError) as e:
+                    logger.warning(
+                        f"Skipping invalid metadata row (id={row.get('id', 'unknown')}): {e}"
+                    )
+
+            logger.info(
+                f"Loaded {len(jobs)} jobs from '{table_name}'"
+                f"{' with entities' if include_entities else ''}"
+            )
+            return jobs
     except Exception as e:
         logger.warning(f"Failed to load jobs from metadata table: {e}")
         return []
@@ -996,18 +1013,17 @@ def search_full_jobs(
     threshold: float | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
+    posted_after: datetime | None = None,  # NEW
+    posted_before: datetime | None = None,  # NEW
+    where_conditions: dict[str, Any] | None = None,  # NEW
 ) -> list[JobSearchResult]:
     """
     Search for jobs and return unique Job-Level results.
-
-    Uses search_jobs() to find relevant chunks, deduplicates by doc_id,
-    and returns full job records from public.jobs enriched with entities.
+    Now supports date range and null/non-null filtering at the DB level.
     """
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
-    # 1. Use existing search_jobs to get chunk-level matches
-    # Fetch extra to account for deduplication reducing count
     fetch_limit = (top_k * 3) if top_k else 100
 
     chunk_results = search_jobs(
@@ -1016,20 +1032,18 @@ def search_full_jobs(
         threshold=threshold,
         embed_model=embed_model,
         db_client=db_client,
-        enrich_with_metadata=False,  # We'll fetch fresh metadata below
+        enrich_with_metadata=False,
     )
 
     if not chunk_results:
         return []
 
-    # 2. Deduplicate by doc_id, keeping highest score per job
     best_scores: dict[str, float] = {}
     for result in chunk_results:
         chunk_meta = result.get("chunk_meta", {})
         job_id = chunk_meta.get("doc_id")
         if not job_id:
             continue
-
         score = result.get("score", 0.0)
         if job_id not in best_scores or score > best_scores[job_id]:
             best_scores[job_id] = score
@@ -1037,22 +1051,23 @@ def search_full_jobs(
     if not best_scores:
         return []
 
-    # 3. Sort by score and apply top_k limit
     sorted_job_ids = sorted(
         best_scores.keys(), key=lambda jid: best_scores[jid], reverse=True
     )
     if top_k:
         sorted_job_ids = sorted_job_ids[:top_k]
 
-    # 4. Batch load jobs WITH entities from DB
-    # This ensures we get the canonical job record, not chunk artifacts
+    # Pass new filters to load_jobs_list                             # UPDATED
     jobs_with_entities = load_jobs_list(
         db_client=db_client,
         include_entities=True,
+        posted_after=posted_after,
+        posted_before=posted_before,
+        where_conditions=where_conditions,
     )
+
     jobs_map = {job["id"]: job for job in jobs_with_entities}
 
-    # 5. Construct Job-Level Results
     final_results: list[JobSearchResult] = []
     for rank, job_id in enumerate(sorted_job_ids, start=1):
         job = jobs_map.get(job_id)
@@ -1063,7 +1078,6 @@ def search_full_jobs(
             continue
 
         score = best_scores[job_id]
-
         result: JobSearchResult = {
             "id": job_id,
             "rank": rank,

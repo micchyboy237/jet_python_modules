@@ -1,13 +1,14 @@
-"""LLM-based reranker using GBNF Grammar for maximum efficiency and accuracy."""
+"""LLM-based reranker using GBNF Grammar with Batched Token Processing."""
 
 from __future__ import annotations
 
 import json
-from typing import Optional, TypedDict, overload
+from typing import List, Optional, Tuple, TypedDict, overload
 
 from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.factory import get_async_llm_client, get_llm_client
 from jet.adapters.llama_cpp.llm_utils import achat, chat
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.logger import logger
 
 
@@ -26,7 +27,6 @@ class CompactRankingResultDict(TypedDict):
     score: float
 
 
-# GBNF Grammar for Compact Output (Index + Score)
 COMPACT_GRAMMAR = r"""
 root ::= rankings
 rankings ::= "[" item ("," item)* "]"
@@ -36,7 +36,6 @@ int ::= [0-9]+
 number ::= [0-9]+ "." [0-9]+
 """
 
-# GBNF Grammar for Full Output (Index + Score + Reason)
 FULL_GRAMMAR = r"""
 root ::= rankings
 rankings ::= "[" item ("," item)* "]"
@@ -49,9 +48,113 @@ char ::= [^"\\] | "\\" ["\\/bfnrt]
 """
 
 
+class BatchedTokenProcessor:
+    """
+    Splits documents into batches based on token limits.
+
+    Design Pattern: Greedy Bin-Packing
+
+    Algorithm:
+    1. Start with an empty batch and 0 accumulated tokens.
+    2. Iterate through documents.
+    3. Add doc to current batch.
+    4. If total tokens > max_tokens:
+       - Save current batch as a completed group.
+       - Start a new empty batch with the current doc.
+    5. Return list of batches.
+    """
+
+    def __init__(self, model: str = LLM_MODEL):
+        self.model = model
+        logger.debug(f"BatchedTokenProcessor initialized with model={model}")
+
+    def create_batches(
+        self,
+        documents: List[str],
+        max_tokens: int = 500,
+        query: Optional[str] = None,
+    ) -> List[Tuple[List[str], List[int]]]:
+        """
+        Create batches of documents that fit within the token limit.
+
+        Args:
+            documents: List of document strings
+            max_tokens: Maximum tokens per batch (including query overhead estimate)
+            query: Optional query to account for in token budget
+
+        Returns:
+            List of tuples: (batch_documents, original_indices)
+        """
+        if not documents:
+            return []
+
+        # Estimate query tokens once
+        query_tokens = count_tokens(query) if query else 0
+        # Reserve some space for prompt structure/system message (approx 100 tokens)
+        overhead = 100
+        available_budget = max_tokens - query_tokens - overhead
+
+        if available_budget <= 0:
+            raise ValueError(
+                "max_tokens is too low to accommodate query and prompt overhead."
+            )
+
+        batches = []
+        current_batch_docs = []
+        current_batch_indices = []
+        current_batch_tokens = 0
+
+        logger.info(f"Creating batches with budget {available_budget} tokens per batch")
+
+        for i, doc in enumerate(documents):
+            doc_tokens = count_tokens(doc, model=self.model)
+
+            # If a single doc exceeds the entire budget, we have to include it alone
+            # or raise an error. Here we include it alone but warn.
+            if doc_tokens > available_budget:
+                logger.warning(
+                    f"Document[{i}] ({doc_tokens} tokens) exceeds batch budget "
+                    f"({available_budget}). It will be processed in its own batch."
+                )
+                # If we have items in current batch, flush them first
+                if current_batch_docs:
+                    batches.append((current_batch_docs, current_batch_indices))
+                    current_batch_docs = []
+                    current_batch_indices = []
+                    current_batch_tokens = 0
+
+                batches.append(([doc], [i]))
+                continue
+
+            # Check if adding this doc exceeds budget
+            if current_batch_tokens + doc_tokens > available_budget:
+                # Flush current batch
+                if current_batch_docs:
+                    batches.append((current_batch_docs, current_batch_indices))
+
+                # Start new batch
+                current_batch_docs = [doc]
+                current_batch_indices = [i]
+                current_batch_tokens = doc_tokens
+            else:
+                # Add to current batch
+                current_batch_docs.append(doc)
+                current_batch_indices.append(i)
+                current_batch_tokens += doc_tokens
+
+        # Don't forget the last batch
+        if current_batch_docs:
+            batches.append((current_batch_docs, current_batch_indices))
+
+        logger.info(f"Created {len(batches)} batches from {len(documents)} documents")
+        return batches
+
+
 class LLMReranker:
     """
-    Use LLM to rerank documents using GBNF Grammar for strict output control.
+    Use LLM to rerank documents using GBNF Grammar.
+
+    Enhanced with batched processing to handle large document sets.
     """
 
     def __init__(
@@ -59,11 +162,16 @@ class LLMReranker:
         model: str = LLM_MODEL,
         base_url: Optional[str] = None,
         api_key: Optional[str] = "not-needed",
+        max_tokens: int = 500,
     ):
         self.model = model
         self._base_url = base_url
         self._api_key = api_key
-        logger.debug(f"LLMReranker initialized with model={model}")
+        self.max_tokens = max_tokens
+        self._processor = BatchedTokenProcessor(model=model)
+        logger.debug(
+            f"LLMReranker initialized with model={model}, max_tokens={max_tokens}"
+        )
 
     def _get_sync_client(self):
         return get_llm_client(base_url=self._base_url, api_key=self._api_key)
@@ -81,6 +189,7 @@ class LLMReranker:
         criteria: Optional[str] = None,
         max_doc_length: int = 200,
         include_reasoning: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> list[CompactRankingResultDict]: ...
 
     @overload
@@ -93,6 +202,7 @@ class LLMReranker:
         criteria: Optional[str] = None,
         max_doc_length: int = 200,
         include_reasoning: bool = True,
+        max_tokens: Optional[int] = None,
     ) -> list[RankingResultDict]: ...
 
     def rerank(
@@ -104,43 +214,72 @@ class LLMReranker:
         criteria: Optional[str] = None,
         max_doc_length: int = 200,
         include_reasoning: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> list[RankingResultDict | CompactRankingResultDict]:
-        """Synchronous rerank using GBNF grammar."""
-        prompt = self._build_grammar_prompt(
-            query,
-            documents,
-            criteria,
-            max_doc_length,
-            top_k,
-            min_score,
-            include_reasoning,
+        """Synchronous rerank with automatic batching."""
+
+        limit = max_tokens if max_tokens is not None else self.max_tokens
+
+        # 1. Create batches
+        batches = self._processor.create_batches(
+            documents=documents,
+            max_tokens=limit,
+            query=query,
         )
 
-        grammar_str = FULL_GRAMMAR if include_reasoning else COMPACT_GRAMMAR
+        all_results = []
 
-        # We use response_format to pass the grammar to llama.cpp via extra_body
-        response_format = {"type": "grammar", "grammar": grammar_str}
+        # 2. Process each batch
+        for batch_idx, (batch_docs, original_indices) in enumerate(batches):
+            logger.info(
+                f"Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_docs)} docs)"
+            )
 
-        logger.info(f"Reranking {len(documents)} docs for query='{query[:60]}...'")
+            prompt = self._build_grammar_prompt(
+                query,
+                batch_docs,
+                criteria,
+                max_doc_length,
+                top_k,
+                min_score,
+                include_reasoning,
+            )
 
-        result = chat(
-            prompt_or_messages=[
-                {
-                    "role": "system",
-                    "content": "You are a strict relevance ranking engine.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            model=self.model,
-            client=self._get_sync_client(),
-            temperature=0.0,
-            enable_thinking=False,  # Must be false for grammar
-            response_format=response_format,
-        )
+            grammar_str = FULL_GRAMMAR if include_reasoning else COMPACT_GRAMMAR
+            response_format = {"type": "grammar", "grammar": grammar_str}
 
-        return self._parse_grammar_response(
-            result.content, include_reasoning, min_score
-        )
+            result = chat(
+                prompt_or_messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a strict relevance ranking engine.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                model=self.model,
+                client=self._get_sync_client(),
+                temperature=0.0,
+                enable_thinking=False,
+                response_format=response_format,
+            )
+
+            batch_results = self._parse_grammar_response(
+                result.content, include_reasoning, min_score
+            )
+
+            # 3. Map local indices back to global original indices
+            for res in batch_results:
+                local_idx = res["index"]
+                if local_idx < len(original_indices):
+                    res_copy = dict(res)
+                    res_copy["index"] = original_indices[local_idx]
+                    all_results.append(res_copy)
+
+        # 4. Sort all accumulated results by score descending
+        all_results.sort(key=lambda x: x["score"], reverse=True)
+
+        # 5. Return top_k overall
+        return all_results[:top_k]
 
     @overload
     async def arerank(
@@ -152,6 +291,7 @@ class LLMReranker:
         criteria: Optional[str] = None,
         max_doc_length: int = 200,
         include_reasoning: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> list[CompactRankingResultDict]: ...
 
     @overload
@@ -164,6 +304,7 @@ class LLMReranker:
         criteria: Optional[str] = None,
         max_doc_length: int = 200,
         include_reasoning: bool = True,
+        max_tokens: Optional[int] = None,
     ) -> list[RankingResultDict]: ...
 
     async def arerank(
@@ -175,43 +316,72 @@ class LLMReranker:
         criteria: Optional[str] = None,
         max_doc_length: int = 200,
         include_reasoning: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> list[RankingResultDict | CompactRankingResultDict]:
-        """Async rerank using GBNF grammar."""
-        prompt = self._build_grammar_prompt(
-            query,
-            documents,
-            criteria,
-            max_doc_length,
-            top_k,
-            min_score,
-            include_reasoning,
+        """Async rerank with automatic batching."""
+
+        limit = max_tokens if max_tokens is not None else self.max_tokens
+
+        # 1. Create batches
+        batches = self._processor.create_batches(
+            documents=documents,
+            max_tokens=limit,
+            query=query,
         )
 
-        grammar_str = FULL_GRAMMAR if include_reasoning else COMPACT_GRAMMAR
-        response_format = {"type": "grammar", "grammar": grammar_str}
+        all_results = []
 
-        logger.info(
-            f"Async reranking {len(documents)} docs for query='{query[:60]}...'"
-        )
+        # 2. Process each batch concurrently or sequentially
+        # For simplicity and to avoid rate limits, we process sequentially here
+        # but you could use asyncio.gather for concurrent processing
+        for batch_idx, (batch_docs, original_indices) in enumerate(batches):
+            logger.info(f"Async processing batch {batch_idx + 1}/{len(batches)}")
 
-        result = await achat(
-            prompt_or_messages=[
-                {
-                    "role": "system",
-                    "content": "You are a strict relevance ranking engine.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            model=self.model,
-            client=self._get_async_client(),
-            temperature=0.0,
-            enable_thinking=False,
-            response_format=response_format,
-        )
+            prompt = self._build_grammar_prompt(
+                query,
+                batch_docs,
+                criteria,
+                max_doc_length,
+                top_k,
+                min_score,
+                include_reasoning,
+            )
 
-        return self._parse_grammar_response(
-            result.content, include_reasoning, min_score
-        )
+            grammar_str = FULL_GRAMMAR if include_reasoning else COMPACT_GRAMMAR
+            response_format = {"type": "grammar", "grammar": grammar_str}
+
+            result = await achat(
+                prompt_or_messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a strict relevance ranking engine.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                model=self.model,
+                client=self._get_async_client(),
+                temperature=0.0,
+                enable_thinking=False,
+                response_format=response_format,
+            )
+
+            batch_results = self._parse_grammar_response(
+                result.content, include_reasoning, min_score
+            )
+
+            # 3. Map local indices back to global original indices
+            for res in batch_results:
+                local_idx = res["index"]
+                if local_idx < len(original_indices):
+                    res_copy = dict(res)
+                    res_copy["index"] = original_indices[local_idx]
+                    all_results.append(res_copy)
+
+        # 4. Sort all accumulated results by score descending
+        all_results.sort(key=lambda x: x["score"], reverse=True)
+
+        # 5. Return top_k overall
+        return all_results[:top_k]
 
     def _build_grammar_prompt(
         self,
@@ -228,30 +398,23 @@ class LLMReranker:
             doc[:max_doc_length] + "..." if len(doc) > max_doc_length else doc
             for doc in documents
         ]
-
-        # Add metadata prefix [ID: i] to help LLM track indices
         docs_text = "\n".join(
             [f"[ID: {i}] {doc}" for i, doc in enumerate(truncated_docs)]
         )
-
         criteria_text = f"\nCriteria: {criteria}" if criteria else ""
         reasoning_instr = (
             " Provide a short, concise reason (max 1 sentence)."
             if include_reasoning
             else ""
         )
-
         return f"""Query: {query}{criteria_text}
-
 Documents:
 {docs_text}
-
 Instructions:
 1. Rank the documents by relevance to the query.
 2. Return ONLY the top {top_k} documents that have a relevance score of {min_score} or higher.
 3. If fewer than {top_k} documents meet the threshold, return only those that do.
 4. Output MUST be a valid JSON array.{reasoning_instr}
-
 Format:
 [{{"index": ID, "score": 0-10{', "reason": "text"' if include_reasoning else ""}}}, ...]"""
 
@@ -263,24 +426,18 @@ Format:
     ) -> list[RankingResultDict | CompactRankingResultDict]:
         """Parse the grammar-constrained JSON response."""
         try:
-            # Grammar ensures valid JSON, but we still parse it
             data = json.loads(content)
             if not isinstance(data, list):
                 data = data.get("rankings", [])
-
             results = []
             for item in data:
-                # Ensure types are correct
                 item["index"] = int(item["index"])
                 item["score"] = float(item["score"])
-
-                # Apply min_score filter (double-check)
                 if item["score"] >= min_score:
                     if include_reasoning and "reason" not in item:
                         item["reason"] = ""
                     results.append(item)
             return results
-
         except Exception as e:
             logger.error(
                 f"Failed to parse grammar response: {e}. Content: {content[:200]}"
@@ -305,7 +462,6 @@ if __name__ == "__main__":
 
     reranker = LLMReranker()
 
-    # Test 1: Compact Mode (No Reasoning)
     print("--- TEST 1: include_reasoning=False ---")
     results_compact = reranker.rerank(
         query=query,
@@ -314,15 +470,13 @@ if __name__ == "__main__":
         min_score=7.0,
         include_reasoning=False,
     )
-
     if not results_compact:
         print("No documents met the minimum score threshold.")
     else:
         for i, r in enumerate(results_compact, 1):
             print(f"{i}. [score:{r['score']}/10] Index: {r['index']}")
-    print()
 
-    # Test 2: Full Mode (With Reasoning)
+    print()
     print("--- TEST 2: include_reasoning=True ---")
     results_full = reranker.rerank(
         query=query,
@@ -332,7 +486,6 @@ if __name__ == "__main__":
         criteria="Consider ecosystem maturity and library support",
         include_reasoning=True,
     )
-
     if not results_full:
         print("No documents met the minimum score threshold.")
     else:
@@ -340,8 +493,8 @@ if __name__ == "__main__":
             print(f"{i}. [score:{r['score']}/10] Index: {r['index']}")
             if "reason" in r and r["reason"]:
                 print(f"   Reason: {r['reason']}")
-    print()
 
+    print()
     print("=" * 60)
     print("Evaluation Complete")
     print("=" * 60)
