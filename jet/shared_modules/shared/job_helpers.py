@@ -25,8 +25,8 @@ DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 _ctx_embd_size = get_model_ctx_embd_size(DEFAULT_EMBED_MODEL)
 DEFAULT_EMBEDDING_DIM = _ctx_embd_size["embd_dims"]
 DEFAULT_JOBS_DB_NAME = "jobs_db3"
-DEFAULT_TABLE_DATA = "jobs"  # Only stores chunked embeddings data
-DEFAULT_TABLE_METADATA = "jobs_meta"  # Primary source for JobData items
+DEFAULT_TABLE_CHUNKS = "job_chunks"
+DEFAULT_TABLE_DATA = "jobs"
 DEFAULT_TABLE_ENTITIES = "job_entities"
 DEFAULT_BUFFER = 32
 DEFAULT_CHUNK_SIZE = _ctx_embd_size["ctx"] - DEFAULT_BUFFER
@@ -43,7 +43,7 @@ def _serialize_for_jsonb(value):
 
 
 def _ensure_metadata_table(
-    db_client: PgVectorClient, table_name: str = DEFAULT_TABLE_METADATA
+    db_client: PgVectorClient, table_name: str = DEFAULT_TABLE_DATA
 ) -> None:
     """
     Ensure the metadata table exists with a flat column structure.
@@ -89,7 +89,7 @@ def _save_metadata_to_table(
     db_client: PgVectorClient,
     job_id: str,
     metadata: dict,
-    table_name: str = DEFAULT_TABLE_METADATA,
+    table_name: str = DEFAULT_TABLE_DATA,
 ) -> None:
     """
     Save job metadata as a flat row in the metadata table.
@@ -113,7 +113,7 @@ def _save_metadata_to_table(
 def _load_metadata_from_table(
     db_client: PgVectorClient,
     job_id: str,
-    table_name: str = DEFAULT_TABLE_METADATA,
+    table_name: str = DEFAULT_TABLE_DATA,
 ) -> dict:
     """
     Load job metadata from the metadata table.
@@ -125,7 +125,6 @@ def _load_metadata_from_table(
             row.pop("id", None)
             row.pop("created_at", None)
             row.pop("updated_at", None)
-            logger.debug(f"Loaded metadata for job {job_id} from '{table_name}' table.")
             return row
         else:
             logger.debug(f"No metadata found for job {job_id} in '{table_name}' table.")
@@ -147,7 +146,7 @@ def load_jobs(
 ) -> list[JobData]:
     """
     Load jobs from the metadata table. If chunk_ids provided, loads only those jobs.
-    This now loads from DEFAULT_TABLE_METADATA as the primary source for JobData.
+    This now loads from DEFAULT_TABLE_DATA as the primary source for JobData.
 
     Args:
         chunk_ids: Optional list of job IDs to retrieve
@@ -161,21 +160,20 @@ def load_jobs(
     with db_client:
         if chunk_ids:
             # Load specific jobs by their IDs from metadata table
-            metadata_rows = db_client.get_rows(DEFAULT_TABLE_METADATA, ids=chunk_ids)
+            metadata_rows = db_client.get_rows(DEFAULT_TABLE_DATA, ids=chunk_ids)
             jobs = [_metadata_row_to_jobdata(row) for row in metadata_rows]
         else:
             # Load all jobs from metadata table
-            metadata_rows = db_client.get_rows(DEFAULT_TABLE_METADATA)
+            metadata_rows = db_client.get_rows(DEFAULT_TABLE_DATA)
             jobs = [_metadata_row_to_jobdata(row) for row in metadata_rows]
 
-    logger.info(f"Loaded {len(jobs)} jobs from '{DEFAULT_TABLE_METADATA}' table")
+    logger.info(f"Loaded {len(jobs)} jobs from '{DEFAULT_TABLE_DATA}' table")
     return jobs
 
 
 def _metadata_row_to_jobdata(row: dict) -> JobData:
     """
     Convert a metadata table row directly to JobData.
-    Entities are no longer stored in jobs_meta; use load_job_entities() separately.
     """
     job_data: JobData = {
         "id": row.get("id", ""),
@@ -249,7 +247,7 @@ def load_job_entities(
 
 def load_jobs_list(
     db_client: PgVectorClient | None = None,
-    table_name: str = DEFAULT_TABLE_METADATA,
+    table_name: str = DEFAULT_TABLE_DATA,
     include_entities: bool = False,
     where_conditions: dict[str, Any] | None = None,
 ) -> list[JobData]:
@@ -368,7 +366,7 @@ def load_jobs_embeddings(
     """Load embeddings from the chunked data table."""
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-    return db_client.get_embeddings(DEFAULT_TABLE_DATA, ids=chunk_ids)
+    return db_client.get_embeddings(DEFAULT_TABLE_CHUNKS, ids=chunk_ids)
 
 
 def generate_embeddings(
@@ -403,8 +401,8 @@ def table_row_to_jobdata(
     row: TableJobRow, db_client: PgVectorClient | None = None
 ) -> JobData:
     """
-    Convert a chunk row from DEFAULT_TABLE_DATA back into a JobData object.
-    Loads full metadata from DEFAULT_TABLE_METADATA since chunk rows only contain
+    Convert a chunk row from DEFAULT_TABLE_CHUNKS back into a JobData object.
+    Loads full metadata from DEFAULT_TABLE_DATA since chunk rows only contain
     chunk-specific data. Entities must be loaded separately via load_job_entities().
     """
     chunk_meta = row.get("chunk_meta") or {}
@@ -491,9 +489,9 @@ def save_job_to_db(
     generate_embedding: bool = False,
 ) -> JobData:
     """
-    Save a job's metadata to DEFAULT_TABLE_METADATA only.
+    Save a job's metadata to DEFAULT_TABLE_DATA only.
     Entities are excluded — use save_job_entities() separately.
-    If generate_embedding is True, creates a single chunk in DEFAULT_TABLE_DATA.
+    If generate_embedding is True, creates a single chunk in DEFAULT_TABLE_CHUNKS.
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
@@ -546,7 +544,7 @@ def save_job_to_db(
             }
 
             db_client.create_or_update_row(
-                table_name=DEFAULT_TABLE_DATA,
+                table_name=DEFAULT_TABLE_CHUNKS,
                 row_data=chunk_row,
                 dimension=embedding_dimension,
             )
@@ -554,9 +552,7 @@ def save_job_to_db(
 
         db_client.commit()
         logger.success(f"Saved/updated job {job_id} in metadata table")
-        logger.info(
-            f"Saved metadata for job {job_id} to '{DEFAULT_TABLE_METADATA}' table"
-        )
+        logger.info(f"Saved metadata for job {job_id} to '{DEFAULT_TABLE_DATA}' table")
 
     return _metadata_row_to_jobdata({"id": job_id, **flat_metadata})
 
@@ -571,8 +567,8 @@ def save_job_embeddings(
     chunk_overlap: int = 0,
 ) -> dict:
     """
-    Save PDR chunked embeddings to DEFAULT_TABLE_DATA (children only),
-    parent content to job_parents, and full metadata to DEFAULT_TABLE_METADATA.
+    Save PDR chunked embeddings to DEFAULT_TABLE_CHUNKS (children only),
+    parent content to job_parents, and full metadata to DEFAULT_TABLE_DATA.
 
     PDR Architecture:
       - Parents: Full logical sections stored in job_parents (NOT embedded)
@@ -614,7 +610,7 @@ def save_job_embeddings(
     with db_client:
         # ── Ensure tables exist ──────────────────────────────────────────
         chunk_table_query = f"""
-        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
+        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_CHUNKS} (
             id              TEXT PRIMARY KEY,
             header          TEXT,
             parent_header   TEXT,
@@ -643,12 +639,14 @@ def save_job_embeddings(
         with db_client.conn.cursor() as cur:
             cur.execute(chunk_table_query)
             cur.execute(parent_table_query)
-        logger.debug(f"Ensured '{DEFAULT_TABLE_DATA}' and 'job_parents' tables exist.")
+        logger.debug(
+            f"Ensured '{DEFAULT_TABLE_CHUNKS}' and 'job_parents' tables exist."
+        )
 
         _ensure_metadata_table(db_client)
 
         # ── Load existing state for dedup ────────────────────────────────
-        existing_chunks = db_client.get_rows(DEFAULT_TABLE_DATA)
+        existing_chunks = db_client.get_rows(DEFAULT_TABLE_CHUNKS)
         existing_job_hashes: dict[str, str] = {}
         existing_text_hashes: dict[str, str] = {}
         for row in existing_chunks:
@@ -700,7 +698,7 @@ def save_job_embeddings(
         db_client.commit()
         logger.success(
             f"Saved metadata for {len(jobs_saved_metadata)} jobs to "
-            f"'{DEFAULT_TABLE_METADATA}' table."
+            f"'{DEFAULT_TABLE_DATA}' table."
         )
 
         # ── PDR Chunking ─────────────────────────────────────────────────
@@ -755,7 +753,7 @@ def save_job_embeddings(
                 cur.execute(
                     sql.SQL(
                         "DELETE FROM {} WHERE chunk_meta->>'doc_id' = ANY(%s)"
-                    ).format(sql.Identifier(DEFAULT_TABLE_DATA)),
+                    ).format(sql.Identifier(DEFAULT_TABLE_CHUNKS)),
                     (reprocessed_job_ids,),
                 )
                 deleted_children = cur.rowcount
@@ -808,7 +806,7 @@ def save_job_embeddings(
             if existing_text_hash is not None and existing_text_hash == text_hash:
                 # Reuse existing embedding if content unchanged
                 cached_emb = db_client.get_embedding_by_id(
-                    DEFAULT_TABLE_DATA, child["id"]
+                    DEFAULT_TABLE_CHUNKS, child["id"]
                 )
                 if cached_emb is not None:
                     existing_embeddings[child["id"]] = cached_emb
@@ -893,11 +891,11 @@ def save_job_embeddings(
             )
 
         if chunk_rows:
-            db_client.create_or_update_rows(DEFAULT_TABLE_DATA, chunk_rows)
+            db_client.create_or_update_rows(DEFAULT_TABLE_CHUNKS, chunk_rows)
             db_client.commit()
             logger.success(
                 f"Saved {len(chunk_rows)} child chunk records to "
-                f"'{DEFAULT_TABLE_DATA}' table"
+                f"'{DEFAULT_TABLE_CHUNKS}' table"
             )
 
     # ── Summary stats ────────────────────────────────────────────────────
@@ -1002,7 +1000,7 @@ def search_jobs(
 ) -> list[VectorSearchResult]:
     """
     Search for jobs based on a query string and return ranked results with data.
-    Searches against CHILD embeddings in DEFAULT_TABLE_DATA, resolves to
+    Searches against CHILD embeddings in DEFAULT_TABLE_CHUNKS, resolves to
     PARENT content from job_parents for full-context retrieval.
     """
     query_embedding = generate_embeddings([query], embed_model)[0]
@@ -1011,7 +1009,7 @@ def search_jobs(
 
     with db_client:
         results = db_client.search(
-            table_name=DEFAULT_TABLE_DATA,
+            table_name=DEFAULT_TABLE_CHUNKS,
             query_embedding=query_embedding,
             top_k=top_k,
             threshold=threshold,
@@ -1125,7 +1123,7 @@ def filter_jobs_by_metadata(
         )
 
         query = sql.SQL("SELECT id FROM {} WHERE {}").format(
-            sql.Identifier(DEFAULT_TABLE_METADATA),
+            sql.Identifier(DEFAULT_TABLE_DATA),
             full_where,
         )
         if limit:
@@ -1144,7 +1142,7 @@ def filter_jobs_by_metadata(
     else:
         # Use existing get_rows for exact-match-only filters
         rows = db_client.get_rows(
-            DEFAULT_TABLE_METADATA,
+            DEFAULT_TABLE_DATA,
             where_conditions=combined_where if combined_where else None,
             limit=limit,
         )
@@ -1204,7 +1202,7 @@ def hybrid_search_jobs(
     if candidate_ids is not None:
         # Load embeddings only for filtered candidates
         candidate_embeddings = db_client.get_embeddings(
-            DEFAULT_TABLE_DATA, ids=candidate_ids
+            DEFAULT_TABLE_CHUNKS, ids=candidate_ids
         )
         if not candidate_embeddings:
             logger.warning("No embeddings found for pre-filtered candidate IDs")
@@ -1216,7 +1214,7 @@ def hybrid_search_jobs(
             emb = candidate_embeddings.get(chunk_id)
             if emb is None:
                 continue
-            row = db_client.get_row(DEFAULT_TABLE_DATA, chunk_id)
+            row = db_client.get_row(DEFAULT_TABLE_CHUNKS, chunk_id)
             if not row:
                 continue
             raw_results.append(

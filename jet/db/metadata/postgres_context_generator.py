@@ -469,6 +469,8 @@ if __name__ == "__main__":
     import shutil
     from pathlib import Path
 
+    from shared.job_helpers import DEFAULT_TABLE_DATA, DEFAULT_TABLE_ENTITIES
+
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -476,7 +478,7 @@ if __name__ == "__main__":
     CONNECTION_STRING = "postgresql://jethroestrada:@localhost:5432/jobs_db3"
 
     # Example: Filter to specific tables
-    TABLES_FILTER = ["jobs_meta", "job_entities"]
+    TABLES_FILTER = [DEFAULT_TABLE_DATA, DEFAULT_TABLE_ENTITIES]
     # TABLES_FILTER = None  # Set to None to include all tables
 
     context = generate_rag_context(
