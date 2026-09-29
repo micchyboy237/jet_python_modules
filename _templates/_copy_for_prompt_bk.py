@@ -96,7 +96,7 @@ include_files = [
     r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm_utils_observed.py",
     # r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/chat_stream.py",
     r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/chat_stream_observability.py",
-    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/structured_output.py",
+    # r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/structured_output.py",
     r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/chat_stream_types.py",
     # r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/llama_cpp/usage/chat_stream_utils.py",
     r"",
