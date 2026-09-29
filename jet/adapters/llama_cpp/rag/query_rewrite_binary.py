@@ -52,10 +52,6 @@ from rich.table import Table
 
 console = Console()
 
-OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
 
 # ---------------------------------------------------------------------------
 # Structured Output Models
@@ -131,6 +127,7 @@ Return ONLY a JSON array of strings, e.g.: ["sub-query 1", "sub-query 2"]\
 def _analyze_intent(
     query: str,
     context: str = "",
+    output_dir: str | Path | None = None,
 ) -> RouterDecision:
     """Classify query complexity and select rewriting strategy."""
     user_content = f'Query: "{query}"'
@@ -147,7 +144,7 @@ def _analyze_intent(
         enable_thinking=False,
         response_format=RouterDecision,
         project_name=get_service_name(),
-        output_dir=OUTPUT_DIR,
+        output_dir=output_dir,
     )
 
     if result.structured and result.structured.success:
@@ -166,7 +163,11 @@ def _analyze_intent(
     name="refine_query",
     description="Rewrite a vague query into a single optimized query",
 )
-def _refine_query(original_query: str, context: str = "") -> str:
+def _refine_query(
+    original_query: str,
+    context: str = "",
+    output_dir: str | Path | None = None,
+) -> str:
     """Generate a single refined query via LLM."""
     user_content = f'Original query: "{original_query}"'
     if context:
@@ -181,7 +182,7 @@ def _refine_query(original_query: str, context: str = "") -> str:
         temperature=0.0,
         enable_thinking=False,
         project_name=get_service_name(),
-        output_dir=OUTPUT_DIR,
+        output_dir=output_dir,
     )
     return result.content.strip()
 
@@ -190,7 +191,11 @@ def _refine_query(original_query: str, context: str = "") -> str:
     name="decompose_query",
     description="Break a complex query into independent sub-queries",
 )
-def _decompose_query(original_query: str, context: str = "") -> list[str]:
+def _decompose_query(
+    original_query: str,
+    context: str = "",
+    output_dir: str | Path | None = None,
+) -> list[str]:
     """Generate multiple sub-queries via LLM."""
     user_content = f'Original query: "{original_query}"'
     if context:
@@ -205,7 +210,7 @@ def _decompose_query(original_query: str, context: str = "") -> list[str]:
         temperature=0.0,
         enable_thinking=False,
         project_name=get_service_name(),
-        output_dir=OUTPUT_DIR,
+        output_dir=output_dir,
     )
 
     try:
@@ -227,6 +232,7 @@ def _decompose_query(original_query: str, context: str = "") -> list[str]:
 def rewrite_query(
     query: str,
     context: str = "",
+    output_dir: str | Path | None = None,
 ) -> RewriteResult:
     """
     Execute the binary strategy rewriting pipeline.
@@ -239,7 +245,11 @@ def rewrite_query(
         RewriteResult with selected strategy and generated queries.
     """
     # Step 1: Analyze intent
-    decision = _analyze_intent(query, context)
+    decision = _analyze_intent(
+        query,
+        context,
+        output_dir=output_dir,
+    )
     console.print(
         f"[bold cyan]Strategy:[/bold cyan] {decision.strategy}  "
         f"[dim]({decision.reason})[/dim]"
@@ -247,10 +257,18 @@ def rewrite_query(
 
     # Step 2: Execute selected strategy
     if decision.strategy == "REFINE":
-        refined = _refine_query(query, context)
+        refined = _refine_query(
+            query,
+            context,
+            output_dir=output_dir,
+        )
         queries = [refined]
     elif decision.strategy == "DECOMPOSE":
-        queries = _decompose_query(query, context)
+        queries = _decompose_query(
+            query,
+            context,
+            output_dir=output_dir,
+        )
     else:
         queries = [query]
 
@@ -268,6 +286,10 @@ def rewrite_query(
 
 
 def get_args() -> argparse.Namespace:
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     parser = argparse.ArgumentParser(
         description="Binary Strategy RAG Query Rewriting Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -318,7 +340,9 @@ if __name__ == "__main__":
         )
     )
 
-    result = rewrite_query(query=args.query, context=args.context)
+    result = rewrite_query(
+        query=args.query, context=args.context, output_dir=args.output_dir
+    )
 
     # Display results table
     table = Table(

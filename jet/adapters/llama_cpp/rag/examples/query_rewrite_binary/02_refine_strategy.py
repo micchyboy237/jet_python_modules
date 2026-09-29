@@ -50,7 +50,7 @@ def run_demo():
         )
     )
 
-    result = rewrite_query(query=query, context=context)
+    result = rewrite_query(query=query, context=context, output_dir=OUTPUT_DIR)
 
     table = Table(
         title="Rewrite Results", show_header=True, header_style="bold magenta"

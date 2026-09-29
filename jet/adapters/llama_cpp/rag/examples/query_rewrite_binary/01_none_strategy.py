@@ -44,7 +44,7 @@ def run_demo():
         )
     )
 
-    result = rewrite_query(query=query)
+    result = rewrite_query(query=query, output_dir=OUTPUT_DIR)
 
     console.print(f"\n[bold cyan]Strategy:[/bold cyan] {result.strategy}")
     console.print(f"[bold cyan]Reason:[/bold cyan] {result.reason}")

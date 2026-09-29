@@ -49,7 +49,7 @@ def run_demo():
         )
     )
 
-    result = rewrite_query(query=query)
+    result = rewrite_query(query=query, output_dir=OUTPUT_DIR)
 
     table = Table(
         title="Decomposition Results", show_header=True, header_style="bold magenta"
