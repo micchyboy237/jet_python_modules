@@ -1,13 +1,13 @@
 """
 BERTopic Factory - Enhanced Representation Module
-
 Extends the base BERTopic factory with improved topic representation models:
 - KeyBERTInspired for better topic labeling
 - Stop word removal for cleaner keywords
 - Bigram support for phrase detection
-
 Provides reusable factory functions and classes for BERTopic integration
 with llama.cpp embedding servers.
+
+Reuses jet.adapters.llama_cpp.embed_utils for concurrent embedding.
 
 Key components:
 - LlamaCppEmbedder: BERTopic-compatible embedder wrapping llama.cpp server
@@ -30,11 +30,8 @@ from jet.adapters.llama_cpp.config import (
     EMBED_MODEL,
     EMBED_QUERY_PREFIX,
 )
+from jet.adapters.llama_cpp.embed_utils import embed as embed_batch
 from jet.adapters.llama_cpp.factory import get_embedding_client
-from jet.adapters.llama_cpp.token_utils import (
-    detokenize,
-    tokenize,
-)
 from numpy.typing import NDArray
 from openai import OpenAI
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
@@ -45,10 +42,6 @@ from bertopic.representation import KeyBERTInspired
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Configuration Constants
-# ---------------------------------------------------------------------------
-
 QUERY_PREFIX = EMBED_QUERY_PREFIX
 DOC_PREFIX = EMBED_DOC_PREFIX
 BATCH_SIZE = int(os.environ.get("BERTopic_BATCH_SIZE", "32"))
@@ -56,10 +49,6 @@ MAX_RETRIES = int(os.environ.get("BERTopic_MAX_RETRIES", "3"))
 MAX_MODEL_TOKENS = int(os.environ.get("LLAMA_CPP_CTX_SIZE", "512"))
 SAFETY_MARGIN_TOKENS = int(os.environ.get("BERTopic_SAFETY_MARGIN_TOKENS", "16"))
 TOKEN_BUDGET = MAX_MODEL_TOKENS - SAFETY_MARGIN_TOKENS
-
-# ---------------------------------------------------------------------------
-# Typed Definitions
-# ---------------------------------------------------------------------------
 
 
 class Topic(TypedDict):
@@ -81,15 +70,16 @@ class TopicExtractionResult(TypedDict):
     embeddings: NDArray[np.float32]
 
 
-# ---------------------------------------------------------------------------
-# LlamaCppEmbedder - BERTopic-compatible Embedding Backend
-# ---------------------------------------------------------------------------
-
-
 class LlamaCppEmbedder(BaseEmbedder):
     """
     BERTopic-compatible wrapper around a local llama.cpp OpenAI-compatible
     embeddings endpoint.
+
+    Reuses jet.adapters.llama_cpp.embed_utils for concurrent embedding with:
+    - ThreadPoolExecutor-based parallelism
+    - Automatic deduplication
+    - Progress tracking
+    - Batch optimization
 
     Implements the BaseEmbedder interface required by BERTopic, allowing
     seamless integration with locally hosted embedding models.
@@ -109,6 +99,8 @@ class LlamaCppEmbedder(BaseEmbedder):
         token_budget: Optional[int] = None,
         batch_size: Optional[int] = None,
         max_retries: Optional[int] = None,
+        max_workers: Optional[int] = None,
+        show_progress: bool = False,
     ):
         """
         Initialize the llama.cpp embedder.
@@ -121,6 +113,8 @@ class LlamaCppEmbedder(BaseEmbedder):
             token_budget: Max tokens per document (defaults to TOKEN_BUDGET)
             batch_size: Batch size for embedding (defaults to BATCH_SIZE)
             max_retries: Max retry attempts (defaults to MAX_RETRIES)
+            max_workers: Number of worker threads for concurrent embedding
+            show_progress: Whether to show progress bar during embedding
         """
         super().__init__()
         self.client = client or get_embedding_client()
@@ -130,10 +124,18 @@ class LlamaCppEmbedder(BaseEmbedder):
         self.token_budget = token_budget or TOKEN_BUDGET
         self.batch_size = batch_size or BATCH_SIZE
         self.max_retries = max_retries or MAX_RETRIES
+        self.max_workers = max_workers
+        self.show_progress = show_progress
 
     def embed(self, documents: List[str], verbose: bool = False) -> np.ndarray:
         """
-        Embed a list of documents using llama.cpp server.
+        Embed a list of documents using llama.cpp server with concurrency.
+
+        Reuses jet.adapters.llama_cpp.embed_utils.embed_batch() which provides:
+        - Concurrent batch processing via ThreadPoolExecutor
+        - Automatic text deduplication
+        - Progress tracking with Rich
+        - Network RTT optimization
 
         Args:
             documents: List of text documents to embed
@@ -145,136 +147,61 @@ class LlamaCppEmbedder(BaseEmbedder):
         Raises:
             RuntimeError: If embedding fails after max retries
         """
-        all_embeddings: List[List[float]] = []
-        n_batches = (len(documents) + self.batch_size - 1) // self.batch_size
+        if not documents:
+            return np.array([], dtype=np.float32).reshape(0, self.dims)
 
-        # Prepare documents (apply prefix + truncate if needed)
-        prepared_all, n_truncated = self._prepare_inputs(documents)
-
-        if n_truncated:
-            logger.warning(
-                "%d/%d documents exceeded the %d-token model budget and were "
-                "truncated (via the server's own tokenizer) before embedding.",
-                n_truncated,
-                len(documents),
-                self.token_budget,
-            )
-
-        # Process in batches
-        for i in range(0, len(prepared_all), self.batch_size):
-            batch_num = i // self.batch_size + 1
-            batch = prepared_all[i : i + self.batch_size]
-
-            if verbose:
-                logger.info(
-                    "Embedding batch %d/%d (%d texts)...",
-                    batch_num,
-                    n_batches,
-                    len(batch),
-                )
-
-            all_embeddings.extend(self._embed_batch_with_retry(batch, batch_num))
-
-        embeddings = np.array(all_embeddings, dtype=np.float32)
+        # Apply prefix to all documents
+        prefixed_docs = [f"{self.doc_prefix}{doc}" for doc in documents]
 
         logger.info(
-            "Embedded %d documents -> shape %s",
+            "Embedding %d documents with prefix '%s'...",
             len(documents),
-            embeddings.shape,
+            self.doc_prefix if self.doc_prefix else "(none)",
         )
 
-        # Validate dimensions
-        if embeddings.shape[1] != self.dims:
-            logger.warning(
-                "Embedding dim mismatch: server returned %d dims, "
-                "EMBED_DIMS says %d. Check your model/env var.",
-                embeddings.shape[1],
-                self.dims,
+        try:
+            # Use embed_utils.embed_batch for concurrent processing
+            embeddings = embed_batch(
+                text=prefixed_docs,
+                model=self.model,
+                max_workers=self.max_workers if self.max_workers is not None else 6,
+                show_progress=self.show_progress or verbose,
+                return_format="numpy",
+                batch_size=self.batch_size,
+                progress_description="Embedding documents for BERTopic",
             )
 
-        return embeddings
+            # Ensure correct shape
+            if embeddings.ndim == 1:
+                embeddings = embeddings.reshape(1, -1)
 
-    def _prepare_inputs(self, documents: List[str]) -> Tuple[List[str], int]:
-        """
-        Apply task prefix and truncate documents exceeding token budget.
+            logger.info(
+                "Embedded %d documents -> shape %s",
+                len(documents),
+                embeddings.shape,
+            )
 
-        Uses the llama.cpp server's tokenizer for accurate token counting
-        and truncation.
-
-        Args:
-            documents: Raw document texts
-
-        Returns:
-            Tuple of (prepared_texts, n_truncated)
-        """
-        prepared = []
-        n_truncated = 0
-
-        for doc in documents:
-            text = f"{self.doc_prefix}{doc}"
-            tokens = tokenize(text)["tokens"]
-
-            if len(tokens) > self.token_budget:
-                truncated_tokens = tokens[: self.token_budget]
-                text = detokenize(truncated_tokens)["content"]
-                n_truncated += 1
-
-            prepared.append(text)
-
-        return prepared, n_truncated
-
-    def _embed_batch_with_retry(
-        self, batch: List[str], batch_num: int
-    ) -> List[List[float]]:
-        """
-        Embed a single batch with retry logic.
-
-        Args:
-            batch: List of prepared document texts
-            batch_num: Batch number for logging
-
-        Returns:
-            List of embedding vectors
-
-        Raises:
-            RuntimeError: If all retry attempts fail
-        """
-        last_error = None
-
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                response = self.client.embeddings.create(
-                    input=batch,
-                    model=self.model,
-                    encoding_format="float",
-                )
-                return [item.embedding for item in response.data]
-
-            except Exception as exc:
-                last_error = exc
+            if embeddings.shape[1] != self.dims:
                 logger.warning(
-                    "Batch %d failed (attempt %d/%d): %s",
-                    batch_num,
-                    attempt,
-                    self.max_retries,
-                    exc,
+                    "Embedding dim mismatch: server returned %d dims, "
+                    "EMBED_DIMS says %d. Check your model/env var.",
+                    embeddings.shape[1],
+                    self.dims,
                 )
-                time.sleep(1.5 * attempt)
 
-        raise RuntimeError(
-            f"Batch {batch_num} failed after {self.max_retries} attempts"
-        ) from last_error
+            return embeddings.astype(np.float32)
 
-
-# ---------------------------------------------------------------------------
-# Factory Functions
-# ---------------------------------------------------------------------------
+        except Exception as e:
+            logger.error("Embedding failed: %s", e)
+            raise RuntimeError(f"Failed to embed documents: {e}") from e
 
 
 def create_bertopic_embedder(
     client: Optional[OpenAI] = None,
     model: Optional[str] = None,
     dims: Optional[int] = None,
+    max_workers: Optional[int] = None,
+    show_progress: bool = False,
     **kwargs,
 ) -> LlamaCppEmbedder:
     """
@@ -284,6 +211,8 @@ def create_bertopic_embedder(
         client: OpenAI client (auto-created if not provided)
         model: Model name (defaults to EMBED_MODEL env var)
         dims: Embedding dimensions (defaults to EMBED_DIMS env var)
+        max_workers: Number of worker threads for concurrent embedding
+        show_progress: Whether to show progress bar during embedding
         **kwargs: Additional arguments passed to LlamaCppEmbedder
 
     Returns:
@@ -297,6 +226,8 @@ def create_bertopic_embedder(
         client=client or get_embedding_client(),
         model=model or EMBED_MODEL,
         dims=dims or EMBED_DIMS,
+        max_workers=max_workers,
+        show_progress=show_progress,
         **kwargs,
     )
 
@@ -307,14 +238,29 @@ def create_topic_model(
     top_n_words: int = 5,
     remove_stop_words: bool = True,
     use_keybert: bool = True,
-    use_tfidf: bool = True,  # New parameter
+    use_tfidf: bool = True,
     verbose: bool = False,
     **kwargs,
 ) -> BERTopic:
+    """
+    Create a configured BERTopic model.
+
+    Args:
+        embedder: Embedding backend (auto-created if not provided)
+        min_topic_size: Minimum documents per topic
+        top_n_words: Number of keywords per topic
+        remove_stop_words: Remove English stop words for cleaner keywords
+        use_keybert: Use KeyBERT-inspired representation for better topics
+        use_tfidf: Use TF-IDF vectorizer instead of CountVectorizer
+        verbose: Enable progress logging
+        **kwargs: Additional arguments passed to BERTopic
+
+    Returns:
+        Configured BERTopic model
+    """
     if embedder is None:
         embedder = create_bertopic_embedder()
 
-    # Choose vectorizer based on parameter
     vectorizer_model = None
     if remove_stop_words:
         if use_tfidf:
@@ -322,7 +268,7 @@ def create_topic_model(
                 stop_words="english",
                 ngram_range=(1, 2),
                 max_features=10000,
-                sublinear_tf=True,  # Apply 1+log(tf) scaling for better distribution
+                sublinear_tf=True,
             )
         else:
             vectorizer_model = CountVectorizer(
@@ -331,7 +277,6 @@ def create_topic_model(
                 max_features=10000,
             )
 
-    # Better topic representation using KeyBERT
     representation_model = None
     if use_keybert:
         representation_model = KeyBERTInspired()
@@ -355,12 +300,19 @@ def extract_topics(
     remove_stop_words: bool = True,
     use_keybert: bool = True,
     verbose: bool = False,
-    n_representative_docs: Optional[int] = None,  # None = return all
+    n_representative_docs: Optional[int] = None,
+    max_workers: Optional[int] = None,
+    show_progress: bool = False,
 ) -> TopicExtractionResult:
     """
     Extract topics from documents using BERTopic with llama.cpp embeddings.
+
     This is the main high-level function for topic extraction. It handles
     the complete pipeline: embedding, topic modeling, and result formatting.
+
+    Uses concurrent embedding via jet.adapters.llama_cpp.embed_utils for
+    faster processing of large document sets.
+
     Args:
         documents: List of text documents to analyze
         embedder: Embedding backend (auto-created if not provided)
@@ -371,8 +323,12 @@ def extract_topics(
         verbose: Enable progress logging
         n_representative_docs: Max representative docs per topic.
             None (default) returns all available. Set to an int to cap.
+        max_workers: Number of worker threads for concurrent embedding
+        show_progress: Whether to show progress bar during embedding
+
     Returns:
         TopicExtractionResult containing structured topic data, sorted by size desc
+
     Example:
         docs = ["Document one text...", "Document two text..."]
         # Return all representative docs
@@ -383,7 +339,11 @@ def extract_topics(
             print(f"{topic['name']}: {topic['representative_docs'][:2]}")
     """
     if embedder is None:
-        embedder = create_bertopic_embedder()
+        embedder = create_bertopic_embedder(
+            max_workers=max_workers,
+            show_progress=show_progress,
+        )
+
     topic_model = create_topic_model(
         embedder=embedder,
         min_topic_size=min_topic_size,
@@ -392,14 +352,15 @@ def extract_topics(
         use_keybert=use_keybert,
         verbose=verbose,
     )
+
+    logger.info("Starting topic extraction with %d documents...", len(documents))
     topic_labels, embeddings = topic_model.fit_transform(documents)
     topic_info = topic_model.get_topic_info()
 
-    # Build mapping of topic_id -> list of document indices
-    # topic_labels is a list where each element is the topic ID for that document
+    # Build topic-to-document indices
     topic_doc_indices: dict[int, list[int]] = {}
     for doc_idx, topic_id in enumerate(topic_labels):
-        if topic_id == -1:  # Skip outlier topic
+        if topic_id == -1:
             continue
         if topic_id not in topic_doc_indices:
             topic_doc_indices[topic_id] = []
@@ -416,6 +377,7 @@ def extract_topics(
         if topic_id == -1:
             continue
 
+        # Extract keywords
         keywords = row["Representation"]
         if isinstance(keywords, str):
             keywords = [kw.strip() for kw in keywords.split(",")]
@@ -424,20 +386,16 @@ def extract_topics(
         else:
             keywords = []
 
-        # Get all documents assigned to this topic using the indices mapping
+        # Get representative documents
         doc_indices = topic_doc_indices.get(topic_id, [])
         if doc_indices:
-            # Get original document texts in order of assignment
             all_rep_docs = [documents[idx] for idx in doc_indices]
 
-            # Use c-TF-IDF scores to sort by representativeness if possible
-            # topic_model.get_topic(topic_id) returns [(word, score), ...] for keywords
-            # For document-level scores, we use the topic assignment probabilities
+            # Try to sort by probability if available
             try:
                 doc_info = topic_model.get_document_info(documents)
                 topic_doc_info = doc_info[doc_info["Topic"] == topic_id]
                 if "Probability" in topic_doc_info.columns:
-                    # Sort by probability (most representative first)
                     topic_doc_info = topic_doc_info.sort_values(
                         "Probability", ascending=False
                     )
@@ -466,7 +424,7 @@ def extract_topics(
                 topic_id,
             )
 
-        # Apply cap if configured
+        # Cap representative docs if requested
         if n_representative_docs is not None:
             rep_docs = all_rep_docs[:n_representative_docs]
             logger.debug(
@@ -493,8 +451,9 @@ def extract_topics(
             }
         )
 
-    # Sort topics by size in descending order
+    # Sort topics by size (descending)
     topics_list.sort(key=lambda t: t["size"], reverse=True)
+
     logger.info(
         "Topics sorted by size (descending): %s",
         [f"Topic {t['topic_id']} (size={t['size']})" for t in topics_list],
@@ -525,12 +484,10 @@ def sanity_check_embedder(embedder: Optional[LlamaCppEmbedder] = None) -> bool:
         embedder = create_bertopic_embedder()
 
     logger.info("Running embedding server sanity check...")
-
     try:
         test_vec = embedder.embed(["connectivity check"], verbose=False)
         logger.info("Sanity check OK: got vector of shape %s", test_vec.shape)
         return True
-
     except Exception as exc:
         logger.error(
             "Could not reach/embed via %s. Confirm llama-server is running "
@@ -540,7 +497,6 @@ def sanity_check_embedder(embedder: Optional[LlamaCppEmbedder] = None) -> bool:
         raise
 
 
-# NEW: Reusable search & hierarchy functions
 def find_topics(
     topic_model: BERTopic,
     search_term: str,
@@ -557,7 +513,9 @@ def find_topics(
             "BERTopic model does not support find_topics (embedding_model required)."
         )
         raise AttributeError("Model must be fitted with embedding_model.")
+
     similar_topics, similarities = topic_model.find_topics(search_term, top_n=top_n)
+
     if verbose:
         elapsed = time.time() - start
         logger.info(
@@ -586,6 +544,7 @@ def find_topics(
                 size,
                 len(rep_docs),
             )
+
     return similar_topics, similarities
 
 
@@ -607,6 +566,7 @@ def find_topics_with_data(
     similar_topics, similarities = find_topics(
         topic_model, search_term, top_n=top_n, verbose=False
     )
+
     topic_info = topic_model.get_topic_info()
     data = []
     for tid, sim in zip(similar_topics, similarities):
@@ -614,6 +574,7 @@ def find_topics_with_data(
         name = info_row["Name"].iloc[0] if not info_row.empty else f"Topic_{tid}"
         size = int(info_row["Count"].iloc[0]) if not info_row.empty else 0
         all_reps = topic_model.get_representative_docs(tid) or [] if tid != -1 else []
+
         row = {
             "Topic": tid,
             "Name": name,
@@ -624,10 +585,14 @@ def find_topics_with_data(
             else [],
             "Representative_Docs_Count": len(all_reps),
         }
+
         if include_reps and docs is not None:
             row["Representative_Docs"] = all_reps[:max_reps]
+
         data.append(row)
+
     df = pd.DataFrame(data)
+
     if verbose:
         elapsed = time.time() - start
         logger.info(
@@ -649,6 +614,7 @@ def find_topics_with_data(
                 r["Representative_Docs_Count"],
                 shown,
             )
+
     return df
 
 
@@ -656,7 +622,7 @@ def explore_hierarchy(
     topic_model: BERTopic,
     docs: List[str],
     use_ctfidf: bool = True,
-    linkage: Optional[str] = None,  # e.g. "ward", "single"
+    linkage: Optional[str] = None,
     verbose: bool = True,
 ) -> pd.DataFrame:
     """
@@ -668,7 +634,6 @@ def explore_hierarchy(
         raise ValueError("Provide original documents.")
 
     start = time.time()
-
     linkage_func = None
     if linkage:
         from scipy.cluster import hierarchy as sch
@@ -692,7 +657,6 @@ def explore_hierarchy(
                 index=False
             ),
         )
-
         try:
             tree_preview = topic_model.get_topic_tree(hier_df)[:600]
             logger.info("\nHierarchy Tree Preview:\n%s...", tree_preview)

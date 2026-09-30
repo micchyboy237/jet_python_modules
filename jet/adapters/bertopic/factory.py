@@ -4,6 +4,8 @@ BERTopic Factory Module
 Provides reusable factory functions and classes for BERTopic integration
 with llama.cpp embedding servers.
 
+Reuses jet.adapters.llama_cpp.embed_utils for concurrent embedding.
+
 Key components:
 - LlamaCppEmbedder: BERTopic-compatible embedder wrapping llama.cpp server
 - create_bertopic_embedder: Factory function to create the embedder
@@ -13,8 +15,7 @@ Key components:
 
 import logging
 import os
-import time
-from typing import List, Optional, Tuple, TypedDict
+from typing import List, Optional, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -23,11 +24,8 @@ from jet.adapters.llama_cpp.config import (
     EMBED_DIMS,
     EMBED_MODEL,
 )
+from jet.adapters.llama_cpp.embed_utils import embed as embed_batch
 from jet.adapters.llama_cpp.factory import get_embedding_client
-from jet.adapters.llama_cpp.token_utils import (
-    detokenize,
-    tokenize,
-)
 from numpy.typing import NDArray
 from openai import OpenAI
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -44,9 +42,6 @@ logger = logging.getLogger(__name__)
 DOC_PREFIX = os.environ.get("BERTopic_DOC_PREFIX", "search_document: ")
 BATCH_SIZE = int(os.environ.get("BERTopic_BATCH_SIZE", "32"))
 MAX_RETRIES = int(os.environ.get("BERTopic_MAX_RETRIES", "3"))
-MAX_MODEL_TOKENS = int(os.environ.get("LLAMA_CPP_CTX_SIZE", "512"))
-SAFETY_MARGIN_TOKENS = int(os.environ.get("BERTopic_SAFETY_MARGIN_TOKENS", "16"))
-TOKEN_BUDGET = MAX_MODEL_TOKENS - SAFETY_MARGIN_TOKENS
 
 # ---------------------------------------------------------------------------
 # Typed Definitions
@@ -82,6 +77,12 @@ class LlamaCppEmbedder(BaseEmbedder):
     BERTopic-compatible wrapper around a local llama.cpp OpenAI-compatible
     embeddings endpoint.
 
+    Reuses jet.adapters.llama_cpp.embed_utils for concurrent embedding with:
+    - ThreadPoolExecutor-based parallelism
+    - Automatic deduplication
+    - Progress tracking
+    - Batch optimization
+
     Implements the BaseEmbedder interface required by BERTopic, allowing
     seamless integration with locally hosted embedding models.
 
@@ -97,9 +98,10 @@ class LlamaCppEmbedder(BaseEmbedder):
         model: Optional[str] = None,
         dims: Optional[int] = None,
         doc_prefix: Optional[str] = None,
-        token_budget: Optional[int] = None,
         batch_size: Optional[int] = None,
         max_retries: Optional[int] = None,
+        max_workers: Optional[int] = None,
+        show_progress: bool = False,
     ):
         """
         Initialize the llama.cpp embedder.
@@ -109,22 +111,30 @@ class LlamaCppEmbedder(BaseEmbedder):
             model: Model name (defaults to EMBED_MODEL config)
             dims: Embedding dimensions (defaults to EMBED_DIMS config)
             doc_prefix: Task prefix for documents (defaults to DOC_PREFIX)
-            token_budget: Max tokens per document (defaults to TOKEN_BUDGET)
             batch_size: Batch size for embedding (defaults to BATCH_SIZE)
             max_retries: Max retry attempts (defaults to MAX_RETRIES)
+            max_workers: Number of worker threads for concurrent embedding
+            show_progress: Whether to show progress bar during embedding
         """
         super().__init__()
         self.client = client or get_embedding_client()
         self.model = model or EMBED_MODEL
         self.dims = dims or EMBED_DIMS
         self.doc_prefix = doc_prefix or DOC_PREFIX
-        self.token_budget = token_budget or TOKEN_BUDGET
         self.batch_size = batch_size or BATCH_SIZE
         self.max_retries = max_retries or MAX_RETRIES
+        self.max_workers = max_workers
+        self.show_progress = show_progress
 
     def embed(self, documents: List[str], verbose: bool = False) -> np.ndarray:
         """
-        Embed a list of documents using llama.cpp server.
+        Embed a list of documents using llama.cpp server with concurrency.
+
+        Reuses jet.adapters.llama_cpp.embed_utils.embed() which provides:
+        - Concurrent batch processing via ThreadPoolExecutor
+        - Automatic text deduplication
+        - Progress tracking with Rich
+        - Network RTT optimization
 
         Args:
             documents: List of text documents to embed
@@ -136,125 +146,54 @@ class LlamaCppEmbedder(BaseEmbedder):
         Raises:
             RuntimeError: If embedding fails after max retries
         """
-        all_embeddings: List[List[float]] = []
-        n_batches = (len(documents) + self.batch_size - 1) // self.batch_size
+        if not documents:
+            return np.array([], dtype=np.float32).reshape(0, self.dims)
 
-        # Prepare documents (apply prefix + truncate if needed)
-        prepared_all, n_truncated = self._prepare_inputs(documents)
-
-        if n_truncated:
-            logger.warning(
-                "%d/%d documents exceeded the %d-token model budget and were "
-                "truncated (via the server's own tokenizer) before embedding.",
-                n_truncated,
-                len(documents),
-                self.token_budget,
-            )
-
-        # Process in batches
-        for i in range(0, len(prepared_all), self.batch_size):
-            batch_num = i // self.batch_size + 1
-            batch = prepared_all[i : i + self.batch_size]
-
-            if verbose:
-                logger.info(
-                    "Embedding batch %d/%d (%d texts)...",
-                    batch_num,
-                    n_batches,
-                    len(batch),
-                )
-
-            all_embeddings.extend(self._embed_batch_with_retry(batch, batch_num))
-
-        embeddings = np.array(all_embeddings, dtype=np.float32)
+        # Apply prefix to all documents
+        prefixed_docs = [f"{self.doc_prefix}{doc}" for doc in documents]
 
         logger.info(
-            "Embedded %d documents -> shape %s",
+            "Embedding %d documents with prefix '%s'...",
             len(documents),
-            embeddings.shape,
+            self.doc_prefix if self.doc_prefix else "(none)",
         )
 
-        # Validate dimensions
-        if embeddings.shape[1] != self.dims:
-            logger.warning(
-                "Embedding dim mismatch: server returned %d dims, "
-                "EMBED_DIMS says %d. Check your model/env var.",
-                embeddings.shape[1],
-                self.dims,
+        try:
+            # Use embed_utils.embed for concurrent processing
+            # Note: embed() accepts 'text' parameter (not 'texts')
+            embeddings = embed_batch(
+                text=prefixed_docs,
+                model=self.model,
+                max_workers=self.max_workers if self.max_workers is not None else 6,
+                show_progress=self.show_progress or verbose,
+                return_format="numpy",
+                batch_size=self.batch_size,
+                progress_description="Embedding documents for BERTopic",
             )
 
-        return embeddings
+            # Ensure correct shape
+            if embeddings.ndim == 1:
+                embeddings = embeddings.reshape(1, -1)
 
-    def _prepare_inputs(self, documents: List[str]) -> Tuple[List[str], int]:
-        """
-        Apply task prefix and truncate documents exceeding token budget.
+            logger.info(
+                "Embedded %d documents -> shape %s",
+                len(documents),
+                embeddings.shape,
+            )
 
-        Uses the llama.cpp server's tokenizer for accurate token counting
-        and truncation.
-
-        Args:
-            documents: Raw document texts
-
-        Returns:
-            Tuple of (prepared_texts, n_truncated)
-        """
-        prepared = []
-        n_truncated = 0
-
-        for doc in documents:
-            text = f"{self.doc_prefix}{doc}"
-            tokens = tokenize(text, server="embed")["tokens"]
-
-            if len(tokens) > self.token_budget:
-                truncated_tokens = tokens[: self.token_budget]
-                text = detokenize(truncated_tokens, server="embed")["content"]
-                n_truncated += 1
-
-            prepared.append(text)
-
-        return prepared, n_truncated
-
-    def _embed_batch_with_retry(
-        self, batch: List[str], batch_num: int
-    ) -> List[List[float]]:
-        """
-        Embed a single batch with retry logic.
-
-        Args:
-            batch: List of prepared document texts
-            batch_num: Batch number for logging
-
-        Returns:
-            List of embedding vectors
-
-        Raises:
-            RuntimeError: If all retry attempts fail
-        """
-        last_error = None
-
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                response = self.client.embeddings.create(
-                    input=batch,
-                    model=self.model,
-                    encoding_format="float",
-                )
-                return [item.embedding for item in response.data]
-
-            except Exception as exc:
-                last_error = exc
+            if embeddings.shape[1] != self.dims:
                 logger.warning(
-                    "Batch %d failed (attempt %d/%d): %s",
-                    batch_num,
-                    attempt,
-                    self.max_retries,
-                    exc,
+                    "Embedding dim mismatch: server returned %d dims, "
+                    "EMBED_DIMS says %d. Check your model/env var.",
+                    embeddings.shape[1],
+                    self.dims,
                 )
-                time.sleep(1.5 * attempt)
 
-        raise RuntimeError(
-            f"Batch {batch_num} failed after {self.max_retries} attempts"
-        ) from last_error
+            return embeddings.astype(np.float32)
+
+        except Exception as e:
+            logger.error("Embedding failed: %s", e)
+            raise RuntimeError(f"Failed to embed documents: {e}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +205,8 @@ def create_bertopic_embedder(
     client: Optional[OpenAI] = None,
     model: Optional[str] = None,
     dims: Optional[int] = None,
+    max_workers: Optional[int] = None,
+    show_progress: bool = False,
     **kwargs,
 ) -> LlamaCppEmbedder:
     """
@@ -275,6 +216,8 @@ def create_bertopic_embedder(
         client: OpenAI client (auto-created if not provided)
         model: Model name (defaults to EMBED_MODEL env var)
         dims: Embedding dimensions (defaults to EMBED_DIMS env var)
+        max_workers: Number of worker threads for concurrent embedding
+        show_progress: Whether to show progress bar during embedding
         **kwargs: Additional arguments passed to LlamaCppEmbedder
 
     Returns:
@@ -288,6 +231,8 @@ def create_bertopic_embedder(
         client=client or get_embedding_client(),
         model=model or EMBED_MODEL,
         dims=dims or EMBED_DIMS,
+        max_workers=max_workers,
+        show_progress=show_progress,
         **kwargs,
     )
 
@@ -297,7 +242,7 @@ def create_topic_model(
     min_topic_size: int = 10,
     top_n_words: int = 5,
     verbose: bool = False,
-    use_tfidf: bool = True,  # Add this parameter
+    use_tfidf: bool = True,
     **kwargs,
 ) -> BERTopic:
     """
@@ -350,10 +295,20 @@ def extract_topics(
     min_topic_size: int = 3,
     top_n_words: int = 5,
     verbose: bool = False,
+    max_workers: Optional[int] = None,
+    show_progress: bool = False,
 ) -> TopicExtractionResult:
-    """Extract topics from documents using BERTopic with llama.cpp embeddings."""
+    """
+    Extract topics from documents using BERTopic with llama.cpp embeddings.
+
+    Uses concurrent embedding via jet.adapters.llama_cpp.embed_utils for
+    faster processing of large document sets.
+    """
     if embedder is None:
-        embedder = create_bertopic_embedder()
+        embedder = create_bertopic_embedder(
+            max_workers=max_workers,
+            show_progress=show_progress,
+        )
 
     topic_model = create_topic_model(
         embedder=embedder,
@@ -362,6 +317,7 @@ def extract_topics(
         verbose=verbose,
     )
 
+    logger.info("Starting topic extraction with %d documents...", len(documents))
     topics, embeddings = topic_model.fit_transform(documents)
     topic_info = topic_model.get_topic_info()
 
