@@ -97,7 +97,7 @@ def extract_entities_from_text(
                 temperature=current_temp,
                 project_name=current_service,
                 max_tokens=2000,
-                extra_body_params={"chat_template_kwargs": {"enable_thinking": False}},
+                enable_thinking=attempts_made > 1,
             )
 
             # Check if structured output was successful
