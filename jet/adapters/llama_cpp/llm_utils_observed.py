@@ -146,7 +146,15 @@ from typing import Any, Callable
 from jet.adapters.llama_cpp.config import PHOENIX_BASE_URL as PHOENIX_URL
 from jet.libs.llama_cpp.usage.chat_stream import MODEL
 from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
-from jet_telemetry import initialize_telemetry
+from jet_telemetry import (
+    display_all_resources,
+    get_project_name,
+    get_service_name,
+    get_spans_api_url,
+    get_trace_id,
+    get_trace_url,
+    initialize_telemetry,
+)
 from openai import AsyncOpenAI, OpenAI
 
 DEFAULT_CHAT_PROJECT_NAME = "chat-llm-utils-default"
@@ -521,6 +529,15 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
         )
     )
+
+    display_all_resources()
+
+    logger.info(f"get_project_name():", get_project_name())
+    logger.info(f"get_service_name():", get_service_name())
+    logger.info(f"get_trace_id():", get_trace_id())
+    logger.info(f"get_trace_url():", get_trace_url())
+    logger.info(f"get_spans_api_url():", get_spans_api_url())
+
     logger.info(
         f"📋 Result: {len(result.content)} chars, finish_reason={result.finish_reason}"
     )
