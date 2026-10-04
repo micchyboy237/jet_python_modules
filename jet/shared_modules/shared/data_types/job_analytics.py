@@ -10,12 +10,14 @@ class EmploymentType(str, Enum):
     PART_TIME = "part_time"
     CONTRACT = "contract"
     INTERNSHIP = "internship"
+    OTHER = "other"
 
 
 class WorkMode(str, Enum):
     REMOTE = "remote"
     ONSITE = "onsite"
     HYBRID = "hybrid"
+    OTHER = "other"
 
 
 class JobSourcePlatform(str, Enum):
@@ -34,16 +36,18 @@ class SalaryFrequency(str, Enum):
     SEMI_MONTHLY = "semi_monthly"
     MONTHLY = "monthly"
     ANNUAL = "annual"
+    OTHER = "other"
 
 
 class SeniorityLevel(str, Enum):
     INTERN = "intern"
-    JUNIOR = "junior"  # Covers "Entry Level", "Graduate", "Associate"
+    JUNIOR = "junior"
     MID = "mid"
     SENIOR = "senior"
     LEAD = "lead"
     PRINCIPAL = "principal"
     EXECUTIVE = "executive"
+    OTHER = "other"
 
 
 class JobAnalytics(BaseModel):
@@ -77,11 +81,11 @@ class JobAnalytics(BaseModel):
     )
     employment_type: Optional[EmploymentType] = Field(
         None,
-        description="Standardized employment type. MUST be one of: 'full_time', 'part_time', 'contract', 'internship'.",
+        description="Standardized employment type. MUST be one of: 'full_time', 'part_time', 'contract', 'internship', 'other'.",
     )
     work_mode: Optional[WorkMode] = Field(
         None,
-        description="Standardized work mode. MUST be one of: 'remote', 'onsite', 'hybrid'.",
+        description="Standardized work mode. MUST be one of: 'remote', 'onsite', 'hybrid', 'other'.",
     )
 
     # --- Compensation ---
@@ -102,13 +106,13 @@ class JobAnalytics(BaseModel):
     )
     salary_frequency: Optional[SalaryFrequency] = Field(
         None,
-        description="Pay frequency. MUST be one of: 'hourly', 'daily', 'weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual'.",
+        description="Pay frequency. MUST be one of: 'hourly', 'daily', 'weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual', 'other'.",
     )
 
     # --- Experience & Seniority ---
     seniority_level: Optional[SeniorityLevel] = Field(
         None,
-        description="Career level required. MUST be one of: 'intern', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive'. Note: 'Entry Level' maps to 'junior'.",
+        description="Career level required. MUST be one of: 'intern', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive', 'other'. Note: 'Entry Level' maps to 'junior'.",
     )
     years_experience_min: Optional[float] = Field(
         None,
@@ -165,8 +169,6 @@ class JobAnalytics(BaseModel):
             return None
         if isinstance(v, str):
             cleaned = v.lower().replace("-", "_").replace(" ", "_")
-
-            # Existing mappings
             mappings = {
                 "full_time": "full_time",
                 "fulltime": "full_time",
@@ -183,7 +185,6 @@ class JobAnalytics(BaseModel):
                 "online_jobs": "onlinejobs",
                 "onlinejobs": "onlinejobs",
                 "indeed": "indeed",
-                # Seniority mappings
                 "intern": "intern",
                 "internship": "intern",
                 # Map Entry/Graduate to Junior to avoid redundancy
