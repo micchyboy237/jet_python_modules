@@ -1,8 +1,9 @@
 import logging
 import os
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import psycopg2
 from psycopg2 import sql
@@ -16,6 +17,46 @@ SIMPLE_CATEGORIES = {"N", "D", "B"}
 BINARY_TYPES = {"bytea"}
 
 
+@dataclass
+class ContextSettings:
+    """All tunable options in one place. Defaults match the original behavior."""
+
+    # --- Sample data
+    sample_rows: int = 3  # rows shown per table
+    sample_chars: int = 50  # max characters per cell (longer values end with "…")
+    header_chars: int = 60  # max characters per column header in sample tables
+    # Per-column cell limits. Keys: "column" (any table) or "table.column" (most specific wins)
+    column_sample_chars: Dict[str, int] = field(default_factory=dict)
+    # Columns whose values are replaced by <hidden>. Keys: "column" or "table.column"
+    exclude_sample_columns: Set[str] = field(default_factory=set)
+
+    # --- Statistics
+    max_stats_tables: Optional[int] = 5  # None = all tables
+
+    # --- Safety
+    statement_timeout_ms: int = 30000  # per-query time limit
+
+    # --- Sections on/off
+    include_foreign_keys: bool = True
+    include_indexes: bool = True
+    include_stats: bool = True
+    include_samples: bool = True
+    include_query_guidance: bool = True
+    common_columns_limit: int = 20  # names listed in the guidance section
+
+    def __post_init__(self):
+        """Fail early on values that would produce broken SQL or empty output."""
+        if self.sample_rows < 0:
+            raise ValueError("sample_rows must be >= 0")
+        if self.sample_chars < 1 or self.header_chars < 1:
+            raise ValueError("sample_chars and header_chars must be >= 1")
+        if any(v < 1 for v in self.column_sample_chars.values()):
+            raise ValueError("column_sample_chars values must be >= 1")
+        if self.statement_timeout_ms < 0:
+            raise ValueError("statement_timeout_ms must be >= 0 (0 = no limit)")
+        logger.info("Settings: %s", self)
+
+
 class PostgresContextGenerator:
     """Generate comprehensive RAG context from a PostgreSQL database for LLM queries."""
 
@@ -23,26 +64,17 @@ class PostgresContextGenerator:
         self,
         connection_string: str,
         tables_filter: Optional[List[str]] = None,
-        sample_rows: int = 3,
-        sample_chars: int = 50,
-        max_stats_tables: Optional[int] = 5,
-        statement_timeout_ms: int = 30000,
+        settings: Optional[ContextSettings] = None,
     ):
         """
         Args:
             connection_string: PostgreSQL URI, e.g. "postgresql://user:pass@localhost:5432/db"
             tables_filter: Optional list of table names to include (None = all tables).
-            sample_rows: Number of sample rows per table.
-            sample_chars: Max characters shown per sample cell (longer values end with "…").
-            max_stats_tables: Max tables to compute column statistics for (None = all).
-            statement_timeout_ms: Per-query time limit, so one slow table cannot hang the run.
+            settings: ContextSettings instance (None = all defaults).
         """
         self.connection_string = connection_string
         self.tables_filter = tables_filter
-        self.sample_rows = sample_rows
-        self.sample_chars = sample_chars
-        self.max_stats_tables = max_stats_tables
-        self.statement_timeout_ms = statement_timeout_ms
+        self.settings = settings or ContextSettings()
         self.conn = None
 
     # ------------------------------------------------------------------ connection
@@ -52,7 +84,7 @@ class PostgresContextGenerator:
             self.conn = psycopg2.connect(
                 self.connection_string,
                 cursor_factory=RealDictCursor,
-                options=f"-c statement_timeout={int(self.statement_timeout_ms)}",
+                options=f"-c statement_timeout={int(self.settings.statement_timeout_ms)}",
             )
             self.conn.set_session(readonly=True, autocommit=True)
             logger.info("Connected to PostgreSQL (read-only, autocommit)")
@@ -96,6 +128,17 @@ class PostgresContextGenerator:
         was_cut = len(raw) > max_chars
         text = re.sub(r"\s+", " ", raw[:max_chars]).strip().replace("|", "\\|")
         return text + "…" if was_cut else text
+
+    def _chars_for(self, table: str, column: str) -> int:
+        """Cell limit: 'table.column' override > 'column' override > sample_chars."""
+        overrides = self.settings.column_sample_chars
+        return overrides.get(
+            f"{table}.{column}", overrides.get(column, self.settings.sample_chars)
+        )
+
+    def _is_hidden(self, table: str, column: str) -> bool:
+        hidden = self.settings.exclude_sample_columns
+        return f"{table}.{column}" in hidden or column in hidden
 
     # ------------------------------------------------------------------ metadata
     def get_all_tables(self, schema: str = "public") -> List[str]:
@@ -256,16 +299,15 @@ class PostgresContextGenerator:
         table_name: str,
         schema: str = "public",
         limit: Optional[int] = None,
-        max_chars: Optional[int] = None,
         columns: Optional[List[Dict]] = None,
     ) -> List[Dict]:
         """
         Sample rows. Every value is cut INSIDE PostgreSQL (LEFT(col::text, n+1)),
         so huge text/json/xml/array values never travel to Python.
-        bytea is replaced by its size. NULL stays NULL.
+        bytea is replaced by its size, hidden columns by <hidden>. NULL stays NULL.
+        Cell limits come from settings (default + per-column overrides).
         """
-        limit = limit if limit is not None else self.sample_rows
-        max_chars = max_chars if max_chars is not None else self.sample_chars
+        limit = limit if limit is not None else self.settings.sample_rows
         columns = (
             columns
             if columns is not None
@@ -277,7 +319,9 @@ class PostgresContextGenerator:
         select_parts = []
         for col in columns:
             ident = sql.Identifier(col["name"])
-            if col["base_type"] in BINARY_TYPES:
+            if self._is_hidden(table_name, col["name"]):
+                select_parts.append(sql.SQL("'<hidden>' AS {c}").format(c=ident))
+            elif col["base_type"] in BINARY_TYPES:
                 select_parts.append(
                     sql.SQL(
                         "'<binary ' || octet_length({c}) || ' bytes>' AS {c}"
@@ -285,9 +329,10 @@ class PostgresContextGenerator:
                 )
             else:
                 # n+1 characters lets _format_cell know the value was cut
+                n = self._chars_for(table_name, col["name"]) + 1
                 select_parts.append(
                     sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
-                        c=ident, n=sql.Literal(max_chars + 1)
+                        c=ident, n=sql.Literal(n)
                     )
                 )
 
@@ -303,13 +348,7 @@ class PostgresContextGenerator:
         except Exception as e:
             logger.warning("Sampling failed for %s.%s: %s", schema, table_name, e)
             return []
-        logger.info(
-            "Sampled %d rows from %s.%s (max %d chars/value)",
-            len(rows),
-            schema,
-            table_name,
-            max_chars,
-        )
+        logger.info("Sampled %d rows from %s.%s", len(rows), schema, table_name)
         return rows
 
     # ------------------------------------------------------------------ statistics
@@ -411,6 +450,7 @@ class PostgresContextGenerator:
             self.disconnect()
 
     def _build_context(self, schema: str) -> str:
+        s = self.settings
         out: List[str] = [
             "=" * 80,
             "POSTGRESQL DATABASE SCHEMA & METADATA CONTEXT",
@@ -450,7 +490,7 @@ class PostgresContextGenerator:
                 nullable = "" if col["notnull"] else " (nullable)"
                 out.append(f"- `{col['name']}`: {col['type']}{pk}{nullable}")
 
-            fks = self.get_foreign_keys(table, schema)
+            fks = self.get_foreign_keys(table, schema) if s.include_foreign_keys else []
             if fks:
                 out.append("\n**Foreign Keys:**")
                 for fk in fks:
@@ -459,7 +499,7 @@ class PostgresContextGenerator:
                         f"`{fk['target_schema']}.{fk['target_table']}.{fk['target_column']}`"
                     )
 
-            idxs = self.get_indexes(table, schema)
+            idxs = self.get_indexes(table, schema) if s.include_indexes else []
             if idxs:
                 out.append("\n**Indexes:**")
                 for idx in idxs:
@@ -468,10 +508,12 @@ class PostgresContextGenerator:
                     )
                     out.append(f"- `{idx['index_name']}`{flags}: {idx['definition']}")
 
-        out += ["", "## COLUMN STATISTICS SUMMARY", "-" * 80]
-        stats_tables = (
-            tables if self.max_stats_tables is None else tables[: self.max_stats_tables]
-        )
+        stats_tables: List[str] = []
+        if s.include_stats:
+            out += ["", "## COLUMN STATISTICS SUMMARY", "-" * 80]
+            stats_tables = (
+                tables if s.max_stats_tables is None else tables[: s.max_stats_tables]
+            )
         for table in stats_tables:
             col_stats = self.get_column_statistics(table, schema, cols_by_table[table])
             if not col_stats:
@@ -486,33 +528,37 @@ class PostgresContextGenerator:
                     f"| `{name}` | {s['type']} | {s['distinct_count']} | {s['null_percentage']}% |"
                 )
 
-        out += ["", "## SAMPLE DATA", "-" * 80]
-        for table in tables:
+        sample_tables = tables if s.include_samples and s.sample_rows > 0 else []
+        if sample_tables:
+            out += ["", "## SAMPLE DATA", "-" * 80]
+        for table in sample_tables:
             samples = self.get_sample_data(table, schema, columns=cols_by_table[table])
             if not samples:
                 continue
             names = list(samples[0].keys())
             out += [
                 f"\n### Table: {table} (first {len(samples)} rows)",
-                "| " + " | ".join(self._format_cell(n, 60) for n in names) + " |",
+                "| "
+                + " | ".join(self._format_cell(n, s.header_chars) for n in names)
+                + " |",
                 "| " + " | ".join(["---"] * len(names)) + " |",
             ]
             for row in samples:
-                out.append(
-                    "| "
-                    + " | ".join(
-                        self._format_cell(row[n], self.sample_chars) for n in names
-                    )
-                    + " |"
+                cells = (
+                    self._format_cell(row[n], self._chars_for(table, n)) for n in names
                 )
+                out.append("| " + " | ".join(cells) + " |")
 
         common = {}
         for table in tables:
             for col in cols_by_table[table]:
                 common.setdefault(col["name"], []).append(f"{table}.{col['type']}")
-        common_cols = ", ".join(list(common)[:20]) + ("..." if len(common) > 20 else "")
+        limit = s.common_columns_limit
+        common_cols = ", ".join(list(common)[:limit]) + (
+            "..." if len(common) > limit else ""
+        )
 
-        out += [
+        guidance = [
             "",
             "## QUERY GUIDANCE FOR DYNAMIC POSTGRESQL QUERIES",
             "-" * 80,
@@ -549,8 +595,10 @@ class PostgresContextGenerator:
             "- Leverage indexes shown above for better performance",
             "- Consider NULL handling in filters (IS NULL / IS NOT NULL)",
             "- Use LIMIT for large tables to avoid memory issues",
-            "=" * 80,
         ]
+        if s.include_query_guidance:
+            out += guidance
+        out.append("=" * 80)
         logger.info("Context built: %d tables, %d lines", len(tables), len(out))
         return "\n".join(out)
 
@@ -559,12 +607,11 @@ def generate_rag_context(
     connection_string: str,
     schema: str = "public",
     tables_filter: Optional[List[str]] = None,
-    **options,
+    settings: Optional[ContextSettings] = None,
 ) -> str:
-    """Standalone helper. Extra options (sample_rows, sample_chars, max_stats_tables,
-    statement_timeout_ms) are passed to PostgresContextGenerator."""
+    """Standalone helper. Pass a ContextSettings to change defaults."""
     generator = PostgresContextGenerator(
-        connection_string, tables_filter=tables_filter, **options
+        connection_string, tables_filter=tables_filter, settings=settings
     )
     return generator.generate_rag_context(schema=schema)
 
@@ -587,11 +634,21 @@ if __name__ == "__main__":
     )
     TABLES_FILTER = None  # e.g. ["jobs", "entities"]; None = all tables
 
+    # Defaults = 3 sample rows, 50 chars per cell, stats for first 5 tables. Override as needed:
+    SETTINGS = ContextSettings(
+        # sample_rows=5,
+        # sample_chars=80,
+        # column_sample_chars={"description": 300, "jobs.title": 100},
+        # exclude_sample_columns={"email", "users.phone"},
+        # max_stats_tables=None,
+        # include_indexes=False,
+    )
+
     context = generate_rag_context(
         CONNECTION_STRING,
         schema="public",
         tables_filter=TABLES_FILTER,
-        sample_chars=100,  # raise for description-like columns
+        settings=SETTINGS,
     )
     output_file = OUTPUT_DIR / "postgres_db_context.txt"
     output_file.write_text(context)
