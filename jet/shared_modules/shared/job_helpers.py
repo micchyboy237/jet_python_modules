@@ -220,26 +220,6 @@ def save_job_entities(
     )
 
 
-def load_job_entities(
-    job_id: str,
-    *,
-    db_client: PgVectorClient | None = None,
-    db_name: str = DEFAULT_JOBS_DB_NAME,
-) -> dict | None:
-    """Load entities for a single job. Returns None if not found."""
-    if db_client is None:
-        db_client = PgVectorClient(dbname=db_name)
-    try:
-        row = db_client.get_row(DEFAULT_TABLE_ENTITIES, job_id)
-        if row:
-            row.pop("id", None)
-            return row
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to load entities for job {job_id}: {e}")
-        return None
-
-
 def load_jobs_list(
     db_client: PgVectorClient | None = None,
     table_name: str = DEFAULT_TABLE_DATA,
@@ -371,6 +351,187 @@ def load_jobs_list(
     except Exception as e:
         logger.warning(f"Failed to load jobs from metadata table: {e}")
         return []
+
+
+def load_job_entities(
+    job_id: str | None = None,
+    *,
+    where_conditions: dict[str, Any] | None = None,
+    posted_after: datetime | None = None,
+    posted_before: datetime | None = None,
+    db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
+) -> list[dict] | dict | None:
+    """
+    Load entities.
+    If job_id is provided, returns a single dict or None.
+    If job_id is None, returns a list of dicts matching where_conditions/date filters.
+
+    Note: 'posted_after'/'posted_before' are mapped to 'extracted_at'
+    as the job_entities table uses extracted_at timestamp.
+    """
+    if db_client is None:
+        db_client = PgVectorClient(dbname=db_name)
+
+    try:
+        _ensure_entities_table(db_client)
+
+        query = sql.SQL("SELECT * FROM {}").format(
+            sql.Identifier(DEFAULT_TABLE_ENTITIES)
+        )
+        params: list[Any] = []
+        where_parts = []
+
+        if job_id:
+            where_parts.append(sql.SQL("id = %s"))
+            params.append(job_id)
+
+        if where_conditions:
+            for col, val in where_conditions.items():
+                if val == "NOT_NULL":
+                    where_parts.append(
+                        sql.SQL("{} IS NOT NULL").format(sql.Identifier(col))
+                    )
+                elif val == "IS_NULL":
+                    where_parts.append(
+                        sql.SQL("{} IS NULL").format(sql.Identifier(col))
+                    )
+                else:
+                    where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
+                    params.append(val)
+
+        # Map posted_after/before to extracted_at for this table
+        if posted_after is not None:
+            where_parts.append(sql.SQL("extracted_at >= %s"))
+            params.append(posted_after)
+
+        if posted_before is not None:
+            where_parts.append(sql.SQL("extracted_at <= %s"))
+            params.append(posted_before)
+
+        if where_parts:
+            query = query + sql.SQL(" WHERE ") + sql.SQL(" AND ").join(where_parts)
+
+        if job_id:
+            query = query + sql.SQL(" LIMIT 1")
+
+        with db_client.conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+            if not rows:
+                return None if job_id else []
+
+            results = []
+            cols = [desc[0] for desc in cur.description]
+            for row in rows:
+                d = dict(zip(cols, row))
+                # Mimic existing behavior: pop id if returning single item?
+                # Existing load_job_entities popped id.
+                # For consistency in list mode, we might keep it or pop it.
+                # Let's pop it to match the single-item return structure of the old function if needed,
+                # but usually lists keep IDs. I'll leave ID in for list mode, pop for single mode if desired.
+                # The old function returned: row.pop("id", None); return row.
+                if job_id:
+                    d.pop("id", None)
+
+                results.append(d)
+
+            if job_id:
+                return results[0] if results else None
+            else:
+                return results
+
+    except Exception as e:
+        logger.warning(f"Failed to load entities: {e}")
+        return None if job_id else []
+
+
+def load_job_summaries(
+    job_id: str | None = None,
+    *,
+    where_conditions: dict[str, Any] | None = None,
+    posted_after: datetime | None = None,
+    posted_before: datetime | None = None,
+    db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
+) -> list[dict] | dict | None:
+    """
+    Load job summaries.
+    If job_id is provided, returns a single dict or None.
+    If job_id is None, returns a list of dicts matching filters.
+
+    Note: 'posted_after'/'posted_before' are mapped to 'generated_at'
+    as the job_summaries table uses generated_at timestamp.
+    """
+    if db_client is None:
+        db_client = PgVectorClient(dbname=db_name)
+
+    try:
+        _ensure_summaries_table(db_client)
+
+        query = sql.SQL("SELECT * FROM {}").format(
+            sql.Identifier(DEFAULT_TABLE_SUMMARIES)
+        )
+        params: list[Any] = []
+        where_parts = []
+
+        if job_id:
+            where_parts.append(sql.SQL("job_id = %s"))
+            params.append(job_id)
+
+        if where_conditions:
+            for col, val in where_conditions.items():
+                if val == "NOT_NULL":
+                    where_parts.append(
+                        sql.SQL("{} IS NOT NULL").format(sql.Identifier(col))
+                    )
+                elif val == "IS_NULL":
+                    where_parts.append(
+                        sql.SQL("{} IS NULL").format(sql.Identifier(col))
+                    )
+                else:
+                    where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
+                    params.append(val)
+
+        # Map posted_after/before to generated_at for this table
+        if posted_after is not None:
+            where_parts.append(sql.SQL("generated_at >= %s"))
+            params.append(posted_after)
+
+        if posted_before is not None:
+            where_parts.append(sql.SQL("generated_at <= %s"))
+            params.append(posted_before)
+
+        if where_parts:
+            query = query + sql.SQL(" WHERE ") + sql.SQL(" AND ").join(where_parts)
+
+        if job_id:
+            query = query + sql.SQL(" LIMIT 1")
+
+        with db_client.conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+            if not rows:
+                return None if job_id else []
+
+            results = []
+            cols = [desc[0] for desc in cur.description]
+            for row in rows:
+                d = dict(zip(cols, row))
+                if job_id:
+                    d.pop("id", None)
+                results.append(d)
+
+            if job_id:
+                return results[0] if results else None
+            else:
+                return results
+
+    except Exception as e:
+        logger.warning(f"Failed to load summaries: {e}")
+        return None if job_id else []
 
 
 def load_jobs_embeddings(

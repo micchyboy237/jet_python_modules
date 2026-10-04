@@ -18,6 +18,7 @@ from .decorators import (
 )
 from .helpers import (
     export_spans_to_jsonl,
+    get_project_name,
     get_service_name,
     get_spans_api_url,
     get_trace_url,
@@ -44,6 +45,7 @@ __all__ = [
     "hash_prompt",
     "get_trace_url",
     "get_spans_api_url",
+    "get_project_name",
     "get_service_name",
     "export_spans_to_jsonl",
 ]

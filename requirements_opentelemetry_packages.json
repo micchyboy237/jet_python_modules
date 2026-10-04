@@ -21,8 +21,20 @@
     "version": "0.1.2"
   },
   {
+    "name": "openinference-instrumentation",
+    "version": "0.1.66"
+  },
+  {
+    "name": "openinference-instrumentation-openai",
+    "version": "0.1.53"
+  },
+  {
+    "name": "openinference-semantic-conventions",
+    "version": "0.1.39"
+  },
+  {
     "name": "opentelemetry-api",
-    "version": "1.45.0"
+    "version": "1.44.0"
   },
   {
     "name": "opentelemetry-exporter-http-transport",
@@ -30,7 +42,7 @@
   },
   {
     "name": "opentelemetry-exporter-otlp",
-    "version": "1.45.0"
+    "version": "1.44.0"
   },
   {
     "name": "opentelemetry-exporter-otlp-common",
@@ -38,23 +50,23 @@
   },
   {
     "name": "opentelemetry-exporter-otlp-proto-common",
-    "version": "1.45.0"
+    "version": "1.44.0"
   },
   {
     "name": "opentelemetry-exporter-otlp-proto-grpc",
-    "version": "1.45.0"
+    "version": "1.44.0"
   },
   {
     "name": "opentelemetry-exporter-otlp-proto-http",
-    "version": "1.45.0"
+    "version": "1.44.0"
   },
   {
     "name": "opentelemetry-instrumentation",
-    "version": "0.65b0"
+    "version": "0.66b0"
   },
   {
     "name": "opentelemetry-instrumentation-httpx",
-    "version": "0.65b0"
+    "version": "0.66b0"
   },
   {
     "name": "opentelemetry-instrumentation-openai-v2",
@@ -62,23 +74,23 @@
   },
   {
     "name": "opentelemetry-instrumentation-requests",
-    "version": "0.65b0"
+    "version": "0.66b0"
   },
   {
     "name": "opentelemetry-instrumentation-sqlalchemy",
-    "version": "0.65b0"
+    "version": "0.66b0"
   },
   {
     "name": "opentelemetry-proto",
-    "version": "1.45.0"
+    "version": "1.44.0"
   },
   {
     "name": "opentelemetry-sdk",
-    "version": "1.45.0"
+    "version": "1.44.0"
   },
   {
     "name": "opentelemetry-semantic-conventions",
-    "version": "0.66b0"
+    "version": "0.65b0"
   },
   {
     "name": "opentelemetry-util-genai",
@@ -86,6 +98,6 @@
   },
   {
     "name": "opentelemetry-util-http",
-    "version": "0.65b0"
+    "version": "0.66b0"
   }
 ]

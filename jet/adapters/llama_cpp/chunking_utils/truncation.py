@@ -91,9 +91,9 @@ def truncate_texts(
 
         if original_tokens <= max_tokens:
             results.append(text.strip())
-            logger.debug(
-                f"Text fits within limit ({original_tokens}/{max_tokens} tokens), no truncation needed"
-            )
+            # logger.debug(
+            #     f"Text fits within limit ({original_tokens}/{max_tokens} tokens), no truncation needed"
+            # )
             continue
 
         if not strict_sentences:
