@@ -97,7 +97,7 @@ def extract_entities_from_text(
                 temperature=current_temp,
                 project_name=current_service,
                 max_tokens=2000,
-                enable_thinking=attempts_made > 1,
+                enable_thinking=attempts_made > 2,
             )
 
             # Check if structured output was successful
