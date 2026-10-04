@@ -50,15 +50,15 @@ def _ensure_metadata_table(
     the base table exists with id, created_at, and updated_at.
     """
     query = sql.SQL("""
-        CREATE TABLE IF NOT EXISTS {} (
-            id              TEXT PRIMARY KEY,
-            created_at      TIMESTAMPTZ DEFAULT NOW(),
-            updated_at      TIMESTAMPTZ DEFAULT NOW()
-        );
+    CREATE TABLE IF NOT EXISTS {} (
+        id              TEXT PRIMARY KEY,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+    );
     """).format(sql.Identifier(table_name))
     with db_client.conn.cursor() as cur:
         cur.execute(query)
-        logger.debug(f"Ensured metadata table '{table_name}' exists.")
+    logger.debug(f"Ensured metadata table '{table_name}' exists.")
 
 
 def _ensure_entities_table(
@@ -69,19 +69,19 @@ def _ensure_entities_table(
     Stores extracted entities with provenance metadata.
     """
     query = sql.SQL("""
-        CREATE TABLE IF NOT EXISTS {} (
-            id              TEXT PRIMARY KEY,
-            model_name      TEXT,
-            temperature     NUMERIC,
-            extracted_at    TIMESTAMPTZ,
-            entities        JSONB,
-            created_at      TIMESTAMPTZ DEFAULT NOW(),
-            updated_at      TIMESTAMPTZ DEFAULT NOW()
-        );
+    CREATE TABLE IF NOT EXISTS {} (
+        id              TEXT PRIMARY KEY,
+        model_name      TEXT,
+        temperature     NUMERIC,
+        extracted_at    TIMESTAMPTZ,
+        entities        JSONB,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+    );
     """).format(sql.Identifier(table_name))
     with db_client.conn.cursor() as cur:
         cur.execute(query)
-        logger.debug(f"Ensured entities table '{table_name}' exists.")
+    logger.debug(f"Ensured entities table '{table_name}' exists.")
 
 
 def _save_metadata_to_table(
@@ -95,7 +95,6 @@ def _save_metadata_to_table(
     Each key in metadata becomes a column.
     """
     _ensure_metadata_table(db_client, table_name)
-
     flat_metadata = {}
     for key, value in metadata.items():
         if isinstance(value, (dict, list)):
@@ -104,7 +103,6 @@ def _save_metadata_to_table(
             flat_metadata[key] = value
 
     row_data = {"id": job_id, **flat_metadata}
-
     db_client.create_or_update_row(table_name, row_data)
     logger.debug(f"Saved metadata for job {job_id} to '{table_name}' table.")
 
@@ -124,7 +122,6 @@ def _load_metadata_from_table(
             row.pop("id", None)
             row.pop("created_at", None)
             row.pop("updated_at", None)
-            # logger.debug(f"Loaded metadata for job {job_id} from '{table_name}' table.")
             return row
         else:
             logger.debug(f"No metadata found for job {job_id} in '{table_name}' table.")
@@ -134,9 +131,11 @@ def _load_metadata_from_table(
         return {}
 
 
-def get_jobs_db_summary(db_client: PgVectorClient | None = None):
+def get_jobs_db_summary(
+    db_client: PgVectorClient | None = None, db_name: str = DEFAULT_JOBS_DB_NAME
+):
     if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
     db_summary = db_client.get_database_summary()
     return db_summary
 
@@ -170,13 +169,17 @@ def save_job_entities(
     model_name: str = "qwen3.5-uncensored:2b",
     temperature: float = 0.0,
     db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> None:
     """
     Save or update extracted entities for a job in the dedicated job_entities table.
     Includes provenance metadata (model, temperature, extraction timestamp).
     """
     if db_client is None:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
+
+    # Ensure the table exists before trying to insert/update
+    _ensure_entities_table(db_client)
 
     row_data = {
         "id": job_id,
@@ -185,11 +188,9 @@ def save_job_entities(
         "extracted_at": datetime.now().astimezone(),
         "entities": _serialize_for_jsonb(entities),
     }
-
     with db_client:
         db_client.create_or_update_row(DEFAULT_TABLE_ENTITIES, row_data)
         db_client.commit()
-
     logger.success(
         f"Saved entities for job {job_id} (model={model_name}, temp={temperature})"
     )
@@ -199,11 +200,11 @@ def load_job_entities(
     job_id: str,
     *,
     db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> dict | None:
     """Load entities for a single job. Returns None if not found."""
     if db_client is None:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-
+        db_client = PgVectorClient(dbname=db_name)
     try:
         row = db_client.get_row(DEFAULT_TABLE_ENTITIES, job_id)
         if row:
@@ -220,25 +221,26 @@ def load_jobs_list(
     table_name: str = DEFAULT_TABLE_DATA,
     include_entities: bool = False,
     where_conditions: dict[str, Any] | None = None,
-    posted_after: datetime | None = None,  # NEW
-    posted_before: datetime | None = None,  # NEW
+    posted_after: datetime | None = None,
+    posted_before: datetime | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> list[JobData]:
     """
     Load jobs with optional DB-level filtering including date ranges and null checks.
-
     Args:
         posted_after: Only return jobs posted on or after this datetime.
         posted_before: Only return jobs posted on or before this datetime.
         where_conditions: Dict of column filters.
-            - Use {"column": "NOT_NULL"} for non-null/non-empty values.
-            - Use {"column": "IS_NULL"} for null/empty values.       # NEW
-            - Use {"column": value} for exact match.
+        - Use {"column": "NOT_NULL"} for non-null/non-empty values.
+        - Use {"column": "IS_NULL"} for null/empty values.       # NEW
+        - Use {"column": value} for exact match.
     """
     if db_client is None:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
     try:
         if include_entities:
             _ensure_entities_table(db_client)
+
         with db_client:
             if include_entities:
                 base_query = sql.SQL("""
@@ -257,7 +259,6 @@ def load_jobs_list(
             params: list[Any] = []
             where_parts = []
 
-            # Handle where_conditions with IS_NULL support
             if where_conditions:
                 for col, val in where_conditions.items():
                     if val == "NOT_NULL":
@@ -266,7 +267,7 @@ def load_jobs_list(
                                 sql.Identifier(col), sql.Identifier(col)
                             )
                         )
-                    elif val == "IS_NULL":  # NEW
+                    elif val == "IS_NULL":
                         where_parts.append(
                             sql.SQL("({} IS NULL OR {} = '')").format(
                                 sql.Identifier(col), sql.Identifier(col)
@@ -278,10 +279,10 @@ def load_jobs_list(
                         )
                         params.append(val)
 
-            # Handle date range filters                               # NEW
             if posted_after is not None:
                 where_parts.append(sql.SQL("posted_date >= %s"))
                 params.append(posted_after.isoformat())
+
             if posted_before is not None:
                 where_parts.append(sql.SQL("posted_date <= %s"))
                 params.append(posted_before.isoformat())
@@ -299,48 +300,50 @@ def load_jobs_list(
                 cur.execute(base_query, params)
                 raw_rows = cur.fetchall()
 
-            logger.debug(f"[DEBUG load_jobs_list] raw_rows count: {len(raw_rows)}")
-            if raw_rows:
-                first = raw_rows[0]
-                logger.debug(f"[DEBUG load_jobs_list] first row type: {type(first)}")
-                if isinstance(first, dict):
+                logger.debug(f"[DEBUG load_jobs_list] raw_rows count: {len(raw_rows)}")
+                if raw_rows:
+                    first = raw_rows[0]
                     logger.debug(
-                        f"[DEBUG load_jobs_list] first row keys: {list(first.keys())}"
+                        f"[DEBUG load_jobs_list] first row type: {type(first)}"
                     )
-                else:
-                    cols = [d[0] for d in cur.description]
-                    logger.debug(f"[DEBUG load_jobs_list] columns: {cols}")
+                    if isinstance(first, dict):
+                        logger.debug(
+                            f"[DEBUG load_jobs_list] first row keys: {list(first.keys())}"
+                        )
+                    else:
+                        cols = [d[0] for d in cur.description]
+                        logger.debug(f"[DEBUG load_jobs_list] columns: {cols}")
 
-            processed_rows = []
-            for row in raw_rows:
-                if isinstance(row, dict):
-                    d = dict(row)
-                    if include_entities:
-                        d["entities"] = d.pop("_joined_entities", None)
-                else:
-                    columns = [desc[0] for desc in cur.description]
-                    d = dict(zip(columns, row))
-                    if include_entities:
-                        d["entities"] = d.pop("_joined_entities", None)
-                processed_rows.append(d)
+                processed_rows = []
+                for row in raw_rows:
+                    if isinstance(row, dict):
+                        d = dict(row)
+                        if include_entities:
+                            d["entities"] = d.pop("_joined_entities", None)
+                    else:
+                        columns = [desc[0] for desc in cur.description]
+                        d = dict(zip(columns, row))
+                        if include_entities:
+                            d["entities"] = d.pop("_joined_entities", None)
+                    processed_rows.append(d)
 
-            jobs: list[JobData] = []
-            for row in processed_rows:
-                try:
-                    job = _metadata_row_to_jobdata(row)
-                    if include_entities and row.get("entities") is not None:
-                        job["entities"] = row["entities"]
-                    jobs.append(job)
-                except (KeyError, TypeError, ValueError) as e:
-                    logger.warning(
-                        f"Skipping invalid metadata row (id={row.get('id', 'unknown')}): {e}"
-                    )
+                jobs: list[JobData] = []
+                for row in processed_rows:
+                    try:
+                        job = _metadata_row_to_jobdata(row)
+                        if include_entities and row.get("entities") is not None:
+                            job["entities"] = row["entities"]
+                        jobs.append(job)
+                    except (KeyError, TypeError, ValueError) as e:
+                        logger.warning(
+                            f"Skipping invalid metadata row (id={row.get('id', 'unknown')}): {e}"
+                        )
 
-            logger.info(
-                f"Loaded {len(jobs)} jobs from '{table_name}'"
-                f"{' with entities' if include_entities else ''}"
-            )
-            return jobs
+                logger.info(
+                    f"Loaded {len(jobs)} jobs from '{table_name}'"
+                    f"{' with entities' if include_entities else ''}"
+                )
+                return jobs
     except Exception as e:
         logger.warning(f"Failed to load jobs from metadata table: {e}")
         return []
@@ -349,10 +352,11 @@ def load_jobs_list(
 def load_jobs_embeddings(
     chunk_ids: list[str] | None = None,
     db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> dict[str, NDArray[np.float64]]:
     """Load embeddings from the chunked data table."""
     if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
     return db_client.get_embeddings(DEFAULT_TABLE_CHUNKS, ids=chunk_ids)
 
 
@@ -387,12 +391,13 @@ def compute_text_hash(text: str) -> str:
 def load_job_metadata(
     job_id: str,
     db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> TableJobMetadata:
     """
     Load metadata for a specific job from the metadata table.
     """
     if db_client is None:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
     return _load_metadata_from_table(db_client, job_id)
 
 
@@ -401,6 +406,7 @@ def save_job_to_db(
     db_client: PgVectorClient | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     generate_embedding: bool = False,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> JobData:
     """
     Save a job's metadata to DEFAULT_TABLE_DATA only.
@@ -408,11 +414,9 @@ def save_job_to_db(
     If generate_embedding is True, creates a single chunk in DEFAULT_TABLE_CHUNKS.
     """
     if db_client is None:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
 
     job_id = job["id"]
-
-    # Exclude entities from metadata save — they live in job_entities table now
     flat_metadata = {
         key: _serialize_for_jsonb(value)
         for key, value in job.items()
@@ -429,6 +433,7 @@ def save_job_to_db(
             text = f"{job['title'].strip()}\n{job['details'].strip()}".strip()
             embedding_array = generate_embeddings([text], embed_model=embed_model)[0]
             num_tokens = count_tokens(text, model=embed_model)
+
             company = job.get("company", "").strip()
             job_hash = compute_job_hash(job)
 
@@ -480,16 +485,16 @@ def save_job_embeddings(
     child_chunk_size: int | None = None,
     chunk_overlap: int = 0,
     embedding_dimension: int | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> dict:
     f"""
     Save PDR chunked embeddings to DEFAULT_TABLE_CHUNKS (children only),
     parent content to {DEFAULT_TABLE_PARENTS}, and full metadata to DEFAULT_TABLE_DATA.
-
     PDR Architecture:
-      - Parents: Full logical sections stored in {DEFAULT_TABLE_PARENTS} (NOT embedded)
-      - Children: Granular sentence chunks stored in jobs (embedded for search)
-      - Retrieval: Match children → resolve to unique parents → full context for LLM
-
+    - Parents: Full logical sections stored in {DEFAULT_TABLE_PARENTS} (NOT embedded)
+    - Children: Granular sentence chunks stored in jobs (embedded for search)
+    - Retrieval: Match children → resolve to unique parents → full context for LLM
+    
     Args:
         jobs: List of JobData dicts to process.
         embed_model: Embedding model key for child embeddings.
@@ -499,7 +504,8 @@ def save_job_embeddings(
         child_chunk_size: Max tokens per child. None → auto-derive from parent // 8.
         chunk_overlap: Overlap between consecutive children. Recommended: 0.
         embedding_dimension: Embedding dimension for the embeddings. None → auto-derive from model.
-
+        db_name: Name of the database to use if db_client is not provided.
+        
     Returns:
         Dict with processing summary including parent/child counts.
     """
@@ -507,17 +513,12 @@ def save_job_embeddings(
     from jet.adapters.llama_cpp.config import LLM_MODEL
 
     if not db_client:
-        db_client = PgVectorClient(
-            dbname=DEFAULT_JOBS_DB_NAME, overwrite_db=overwrite_db
-        )
+        db_client = PgVectorClient(dbname=db_name, overwrite_db=overwrite_db)
 
     if embedding_dimension is None:
         ctx_embd_size = get_model_ctx_embd_size(embed_model)
         embedding_dimension = ctx_embd_size["embd_dims"]
 
-    # ✅ FIX: Use LLM_MODEL for parent sizing, NOT embed_model
-    # embed_model (nomic-embed:2-moe) has 512 ctx → would produce parent=128, child=64
-    # LLM_MODEL (qwen3.5-uncensored:2b) has 16384 ctx → produces parent=1024, child=128
     pdr_chunker = ParentDocumentChunker(model=LLM_MODEL)
     logger.info(
         f"PDR chunker initialized: parent_size={parent_chunk_size or 'auto'}, "
@@ -525,7 +526,6 @@ def save_job_embeddings(
     )
 
     with db_client:
-        # ── Ensure tables exist ──────────────────────────────────────────
         chunk_table_query = f"""
         CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_CHUNKS} (
             id              TEXT PRIMARY KEY,
@@ -551,7 +551,7 @@ def save_job_embeddings(
             updated_at      TIMESTAMPTZ DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_job_parents_job_id
-            ON {DEFAULT_TABLE_PARENTS}(job_id);
+        ON {DEFAULT_TABLE_PARENTS}(job_id);
         """
         with db_client.conn.cursor() as cur:
             cur.execute(chunk_table_query)
@@ -562,7 +562,6 @@ def save_job_embeddings(
 
         _ensure_metadata_table(db_client)
 
-        # ── Load existing state for dedup ────────────────────────────────
         existing_chunks = db_client.get_rows(DEFAULT_TABLE_CHUNKS)
         existing_job_hashes: dict[str, str] = {}
         existing_text_hashes: dict[str, str] = {}
@@ -578,7 +577,6 @@ def save_job_embeddings(
             f"text hashes: {len(existing_text_hashes)}"
         )
 
-        # ── Filter to new/changed jobs ───────────────────────────────────
         jobs_to_process: list[tuple[JobData, str]] = []
         for job in jobs:
             job_hash = compute_job_hash(job)
@@ -600,7 +598,6 @@ def save_job_embeddings(
                 "summary": {"parent_count": 0, "child_count": 0},
             }
 
-        # ── Save metadata for all jobs being processed ───────────────────
         jobs_saved_metadata: set[str] = set()
         for job, _ in jobs_to_process:
             job_id = job["id"]
@@ -612,21 +609,19 @@ def save_job_embeddings(
                 }
                 _save_metadata_to_table(db_client, job_id, flat_metadata)
                 jobs_saved_metadata.add(job_id)
+
         db_client.commit()
         logger.success(
             f"Saved metadata for {len(jobs_saved_metadata)} jobs to "
             f"'{DEFAULT_TABLE_DATA}' table."
         )
 
-        # ── PDR Chunking ─────────────────────────────────────────────────
         all_parents: list[dict] = []
         all_children: list[dict] = []
         job_by_child_id: dict[str, tuple[JobData, str]] = {}
 
         for job, job_hash in jobs_to_process:
             job_id = job["id"]
-
-            # Build composite text (same structure as before)
             text_parts = [f"Details\n{job['details']}\n"]
             text_parts.append(f"Company: {job['company']}\n")
             if job.get("keywords"):
@@ -637,9 +632,9 @@ def save_job_embeddings(
                 text_parts.append(f"Salary: {job['salary']}\n")
             if job.get("hours_per_week"):
                 text_parts.append(f"Hours per Week: {job['hours_per_week']}\n")
+
             job_text = "".join(text_parts)
 
-            # Generate PDR parent-child pairs
             pdr_result = pdr_chunker.chunk_pdr(
                 text=job_text,
                 parent_chunk_size=parent_chunk_size,
@@ -647,7 +642,6 @@ def save_job_embeddings(
                 chunk_overlap=chunk_overlap,
             )
 
-            # Tag parents/children with job_id for DB storage
             for parent in pdr_result["parents"]:
                 parent["job_id"] = job_id
                 all_parents.append(parent)
@@ -662,11 +656,9 @@ def save_job_embeddings(
             f"{len(all_children)} children from {len(jobs_to_process)} jobs"
         )
 
-        # ── Clean up stale data for re-processed jobs ────────────────────
         reprocessed_job_ids = [j["id"] for j, _ in jobs_to_process]
         if reprocessed_job_ids:
             with db_client.conn.cursor() as cur:
-                # Delete old children
                 cur.execute(
                     sql.SQL(
                         "DELETE FROM {} WHERE chunk_meta->>'doc_id' = ANY(%s)"
@@ -674,7 +666,7 @@ def save_job_embeddings(
                     (reprocessed_job_ids,),
                 )
                 deleted_children = cur.rowcount
-                # Delete old parents
+
                 cur.execute(
                     sql.SQL(
                         f"DELETE FROM {DEFAULT_TABLE_PARENTS} WHERE job_id = ANY(%s)"
@@ -682,13 +674,13 @@ def save_job_embeddings(
                     (reprocessed_job_ids,),
                 )
                 deleted_parents = cur.rowcount
+
             db_client.commit()
             logger.info(
                 f"Cleaned up {deleted_children} old children and "
                 f"{deleted_parents} old parents for {len(reprocessed_job_ids)} jobs"
             )
 
-        # ── Save parents to {DEFAULT_TABLE_PARENTS} ──────────────────────────────────
         parent_rows = []
         for parent in all_parents:
             parent_rows.append(
@@ -709,7 +701,6 @@ def save_job_embeddings(
                 f"Saved {len(parent_rows)} parent records to '{DEFAULT_TABLE_PARENTS}' table"
             )
 
-        # ── Prepare children for embedding ───────────────────────────────
         chunks_to_embed: list[dict] = []
         embedding_texts: list[str] = []
         existing_embeddings: dict[str, list[float]] = {}
@@ -723,7 +714,6 @@ def save_job_embeddings(
 
             existing_text_hash = existing_text_hashes.get(child["id"])
             if existing_text_hash is not None and existing_text_hash == text_hash:
-                # Reuse existing embedding if content unchanged
                 cached_emb = db_client.get_embedding_by_id(
                     DEFAULT_TABLE_CHUNKS, child["id"]
                 )
@@ -747,7 +737,6 @@ def save_job_embeddings(
             f"(reused {len(all_children) - len(chunks_to_embed)})"
         )
 
-        # ── Batch embed children ─────────────────────────────────────────
         new_embeddings = (
             generate_embeddings(embedding_texts, embed_model)
             if embedding_texts
@@ -760,8 +749,8 @@ def save_job_embeddings(
                 f"{len(new_embeddings)} embeddings"
             )
 
-        # Map embeddings back to all children
         new_emb_map = {c["id"]: emb for c, emb in zip(chunks_to_embed, new_embeddings)}
+
         child_embedding_map: dict[str, np.ndarray] = {}
         for child in all_children:
             if child["id"] in new_emb_map:
@@ -773,7 +762,6 @@ def save_job_embeddings(
             else:
                 raise ValueError(f"No embedding found for child {child['id']}")
 
-        # ── Save child chunks to jobs table ──────────────────────────────
         chunk_rows = []
         for child in all_children:
             job, job_hash = job_by_child_id[child["id"]]
@@ -817,39 +805,37 @@ def save_job_embeddings(
                 f"'{DEFAULT_TABLE_CHUNKS}' table"
             )
 
-    # ── Summary stats ────────────────────────────────────────────────────
-    child_token_counts = [c["num_tokens"] for c in all_children]
-    parent_token_counts = [p["num_tokens"] for p in all_parents]
+        child_token_counts = [c["num_tokens"] for c in all_children]
+        parent_token_counts = [p["num_tokens"] for p in all_parents]
 
-    summary = {
-        "parent_count": len(all_parents),
-        "child_count": len(all_children),
-        "jobs_processed": len(jobs_to_process),
-        "parent_tokens": {
-            "min": min(parent_token_counts) if parent_token_counts else 0,
-            "avg": math.ceil(sum(parent_token_counts) / len(parent_token_counts))
-            if parent_token_counts
-            else 0,
-            "max": max(parent_token_counts) if parent_token_counts else 0,
-        },
-        "child_tokens": {
-            "min": min(child_token_counts) if child_token_counts else 0,
-            "avg": math.ceil(sum(child_token_counts) / len(child_token_counts))
-            if child_token_counts
-            else 0,
-            "max": max(child_token_counts) if child_token_counts else 0,
-        },
-    }
+        summary = {
+            "parent_count": len(all_parents),
+            "child_count": len(all_children),
+            "jobs_processed": len(jobs_to_process),
+            "parent_tokens": {
+                "min": min(parent_token_counts) if parent_token_counts else 0,
+                "avg": math.ceil(sum(parent_token_counts) / len(parent_token_counts))
+                if parent_token_counts
+                else 0,
+                "max": max(parent_token_counts) if parent_token_counts else 0,
+            },
+            "child_tokens": {
+                "min": min(child_token_counts) if child_token_counts else 0,
+                "avg": math.ceil(sum(child_token_counts) / len(child_token_counts))
+                if child_token_counts
+                else 0,
+                "max": max(child_token_counts) if child_token_counts else 0,
+            },
+        }
 
-    logger.info(f"PDR embedding summary: {summary}")
-
-    return {
-        "parents": all_parents,
-        "children": all_children,
-        "embedding_texts": embedding_texts,
-        "embeddings": new_embeddings,
-        "summary": summary,
-    }
+        logger.info(f"PDR embedding summary: {summary}")
+        return {
+            "parents": all_parents,
+            "children": all_children,
+            "embedding_texts": embedding_texts,
+            "embeddings": new_embeddings,
+            "summary": summary,
+        }
 
 
 def is_valid_score(score) -> bool:
@@ -869,14 +855,13 @@ def _resolve_parents_from_children(
 ) -> dict[str, str]:
     f"""
     Resolve child search results to their parent content.
-
     Extracts unique parent_ids from chunk_meta, batch-fetches from
     {DEFAULT_TABLE_PARENTS} table, and returns a mapping of parent_id → content.
-
+    
     Args:
         results: List of search result dicts with chunk_meta containing parent_id.
         db_client: Active PgVectorClient instance.
-
+        
     Returns:
         Dict mapping parent_id to full parent content string.
     """
@@ -916,6 +901,7 @@ def search_jobs(
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
     enrich_with_metadata: bool = True,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> list[VectorSearchResult]:
     f"""
     Search for jobs based on a query string and return ranked results with data.
@@ -924,7 +910,7 @@ def search_jobs(
     """
     query_embedding = generate_embeddings([query], embed_model)[0]
     if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
 
     with db_client:
         results = db_client.search(
@@ -933,29 +919,27 @@ def search_jobs(
             top_k=top_k,
             threshold=threshold,
         )
+
         filtered_results = [r for r in results if is_valid_score(r["score"])]
         removed_count = len(results) - len(filtered_results)
         if removed_count > 0:
             logger.debug(f"Filtered out {removed_count} results with invalid scores")
 
         if enrich_with_metadata:
-            # ← NEW: Resolve parent content for all child hits
             parent_map = _resolve_parents_from_children(filtered_results, db_client)
-
             enriched_results = []
-            # <--- Wrap loop with tqdm
             for result in tqdm(filtered_results, desc="Enriching results"):
                 chunk_meta = result.get("chunk_meta", {})
                 job_id = chunk_meta.get("doc_id", result.get("id", ""))
+
                 metadata = _load_metadata_from_table(db_client, job_id)
                 entity_row = load_job_entities(job_id, db_client=db_client)
 
-                # ← NEW: Attach parent content (falls back to child content)
                 parent_id = chunk_meta.get("parent_id")
                 parent_content = parent_map.get(parent_id, result.get("content", ""))
 
                 enriched = {**result}
-                enriched["parent_content"] = parent_content  # ← NEW
+                enriched["parent_content"] = parent_content
 
                 if metadata:
                     enriched.update(
@@ -977,16 +961,10 @@ def search_jobs(
                         }
                     )
                 enriched_results.append(enriched)
-
-            # logger.debug( # <--- Optional: Remove or keep this summary log
-            #     f"Enriched {len(enriched_results)} search results with metadata + parent content"
-            # )
             return enriched_results
-
         return filtered_results
 
 
-# Job-Level Result Type
 class JobSearchResult(TypedDict, total=False):
     """Job-level search result derived from public.jobs + public.job_entities."""
 
@@ -1014,21 +992,19 @@ def search_full_jobs(
     threshold: float | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
-    posted_after: datetime | None = None,  # NEW
-    posted_before: datetime | None = None,  # NEW
-    where_conditions: dict[str, Any] | None = None,  # NEW
+    posted_after: datetime | None = None,
+    posted_before: datetime | None = None,
+    where_conditions: dict[str, Any] | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> list[JobSearchResult]:
     """
     Search for jobs and return unique Job-Level results.
     Now supports date range and null/non-null filtering at the DB level.
     """
     if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
 
-    # 1. Use existing search_jobs to get chunk-level matches
-    # Fetch extra to account for deduplication reducing count
     fetch_limit = (top_k * 3) if top_k else 100
-
     chunk_results = search_jobs(
         query=query,
         top_k=fetch_limit,
@@ -1041,7 +1017,6 @@ def search_full_jobs(
     if not chunk_results:
         return []
 
-    # 2. Deduplicate by doc_id, keeping highest score per job
     best_scores: dict[str, float] = {}
     for result in chunk_results:
         chunk_meta = result.get("chunk_meta", {})
@@ -1055,15 +1030,12 @@ def search_full_jobs(
     if not best_scores:
         return []
 
-    # 3. Sort by score and apply top_k limit
     sorted_job_ids = sorted(
         best_scores.keys(), key=lambda jid: best_scores[jid], reverse=True
     )
     if top_k:
         sorted_job_ids = sorted_job_ids[:top_k]
 
-    # 4. Batch load jobs WITH entities from DB
-    # This ensures we get the canonical job record, not chunk artifacts
     jobs_with_entities = load_jobs_list(
         db_client=db_client,
         include_entities=True,
@@ -1071,10 +1043,8 @@ def search_full_jobs(
         posted_before=posted_before,
         where_conditions=where_conditions,
     )
-
     jobs_map = {job["id"]: job for job in jobs_with_entities}
 
-    # 5. Construct Job-Level Results
     final_results: list[JobSearchResult] = []
     for rank, job_id in enumerate(sorted_job_ids, start=1):
         job = jobs_map.get(job_id)
@@ -1117,6 +1087,7 @@ def filter_jobs_by_metadata(
     details_ilike: str | None = None,
     limit: int | None = None,
     db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> list[str]:
     """
     Filter jobs at the DB level using metadata columns and optional text search.
@@ -1128,17 +1099,15 @@ def filter_jobs_by_metadata(
         details_ilike: Case-insensitive LIKE pattern for details column
         limit: Max number of job IDs to return
         db_client: Optional PgVectorClient instance
+        db_name: Name of the database to use if db_client is not provided.
 
     Returns:
         List of job IDs matching the filters
     """
     if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
 
-    # Build combined where conditions
     combined_where = dict(where_conditions) if where_conditions else {}
-
-    # For ILIKE filters, we need raw SQL since get_rows only supports exact match
     has_text_filter = title_ilike or details_ilike
 
     if has_text_filter:
@@ -1166,7 +1135,6 @@ def filter_jobs_by_metadata(
         full_where = (
             sql.SQL(" AND ").join(where_parts) if where_parts else sql.SQL("TRUE")
         )
-
         query = sql.SQL("SELECT id FROM {} WHERE {}").format(
             sql.Identifier(DEFAULT_TABLE_DATA),
             full_where,
@@ -1178,14 +1146,14 @@ def filter_jobs_by_metadata(
         with db_client.conn.cursor() as cur:
             cur.execute(query, params)
             rows = cur.fetchall()
-        job_ids = [row["id"] for row in rows]
+            job_ids = [row["id"] for row in rows]
+
         logger.info(
             f"DB metadata filter: {len(job_ids)} jobs matched "
             f"(where={combined_where}, title_ilike={title_ilike}, details_ilike={details_ilike})"
         )
         return job_ids
     else:
-        # Use existing get_rows for exact-match-only filters
         rows = db_client.get_rows(
             DEFAULT_TABLE_DATA,
             where_conditions=combined_where if combined_where else None,
@@ -1208,6 +1176,7 @@ def hybrid_search_jobs(
     metadata_filters: dict[str, Any] | None = None,
     title_ilike: str | None = None,
     details_ilike: str | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> list[HybridSearchResult]:
     """
     Hybrid search combining vector search with BM25 reranking.
@@ -1215,16 +1184,15 @@ def hybrid_search_jobs(
 
     NEW ARGS:
         metadata_filters: Dict of exact-match column filters applied via SQL WHERE
-                          before vector search (e.g., {"job_type": "Full-time"})
+        before vector search (e.g., {"job_type": "Full-time"})
         title_ilike: Case-insensitive LIKE pattern for title pre-filtering
         details_ilike: Case-insensitive LIKE pattern for details pre-filtering
     """
     from jet.vectors.reranker.bm25 import rerank_bm25
 
     if not db_client:
-        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+        db_client = PgVectorClient(dbname=db_name)
 
-    # --- NEW: Pre-filter at DB level if filters provided ---
     candidate_ids: list[str] | None = None
     if metadata_filters or title_ilike or details_ilike:
         candidate_ids = filter_jobs_by_metadata(
@@ -1243,9 +1211,7 @@ def hybrid_search_jobs(
             f"Pre-filtered to {len(candidate_ids)} candidate job IDs for hybrid search"
         )
 
-    # If we have candidate IDs, search only those; otherwise standard search
     if candidate_ids is not None:
-        # Load embeddings only for filtered candidates
         candidate_embeddings = db_client.get_embeddings(
             DEFAULT_TABLE_CHUNKS, ids=candidate_ids
         )
@@ -1253,7 +1219,6 @@ def hybrid_search_jobs(
             logger.warning("No embeddings found for pre-filtered candidate IDs")
             return []
 
-        # Build documents/metadata from candidate chunks
         raw_results = []
         for chunk_id in candidate_ids:
             emb = candidate_embeddings.get(chunk_id)
@@ -1269,7 +1234,7 @@ def hybrid_search_jobs(
                     "header": row.get("header", ""),
                     "parent_header": row.get("parent_header", ""),
                     "chunk_meta": row.get("chunk_meta", {}),
-                    "score": 1.0,  # placeholder; rerank will re-score
+                    "score": 1.0,
                 }
             )
     else:
@@ -1282,7 +1247,6 @@ def hybrid_search_jobs(
             enrich_with_metadata=False,
         )
 
-    # --- Existing BM25 rerank logic (unchanged) ---
     ids = [result["id"] for result in raw_results]
     documents = [f"{result['content']}" for result in raw_results]
     metadatas = [
@@ -1311,29 +1275,24 @@ def hybrid_search_jobs(
         )
 
     if enrich_with_metadata and db_client:
-        # ← NEW: Resolve parent content for all child hits
         parent_map = _resolve_parents_from_children(filtered_results, db_client)
-
         enriched_results = []
         for result in filtered_results:
             chunk_meta = result.get("metadata", {})
             doc_id = chunk_meta.get("doc_id", "")
             if not doc_id:
                 doc_id = result.get("id", "")
+
             metadata = _load_metadata_from_table(db_client, doc_id)
             entity_row = load_job_entities(doc_id, db_client=db_client)
 
-            # ← Attach parent content
             parent_id = chunk_meta.get("parent_id")
             parent_content = parent_map.get(parent_id, result.get("text", ""))
 
             enriched = {**result}
             enriched["parent_content"] = parent_content
-
-            # Extract header/parent_header from metadata to top-level
             enriched["header"] = chunk_meta.pop("header", "")
             enriched["parent_header"] = chunk_meta.pop("parent_header", "")
-
             enriched["metadata"] = chunk_meta
 
             if metadata:
