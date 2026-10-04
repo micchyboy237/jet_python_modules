@@ -10,6 +10,9 @@ from pathlib import Path
 
 from opentelemetry import trace as otel_trace
 
+# Global storage for the last known trace context (Thread-safe via simple assignment for now)
+_last_trace_context = {"trace_id": None, "project_name": None}
+
 try:
     from phoenix.client import Client
 
@@ -20,12 +23,23 @@ except ImportError:
 PII_PATTERNS = ["ssn", "password", "api_key", "secret", "token"]
 
 
+def _update_last_trace_context(trace_id_hex: str | None):
+    """Internal helper to remember the last active trace."""
+    if trace_id_hex:
+        _last_trace_context["trace_id"] = trace_id_hex
+        # Also try to grab the project name while we're at it
+        from .setup import get_tracer_provider
+
+        provider = get_tracer_provider()
+        if provider:
+            _last_trace_context["project_name"] = provider.resource.attributes.get(
+                "openinference.project.name"
+            )
+
+
 def get_provider_resource():
     """
     Retrieves the entire Resource object from the current tracer provider.
-
-    Returns:
-        The Resource object, or None if not initialized.
     """
     from .setup import get_tracer_provider
 
@@ -36,15 +50,7 @@ def get_provider_resource():
 
 
 def get_resource(attribute: str) -> str | None:
-    """
-    Retrieves a specific resource value from the current tracer provider.
-
-    Args:
-        attribute: The resource attribute key (e.g., "service.name").
-
-    Returns:
-        The resource value, or None if not initialized or key not found.
-    """
+    """Retrieves a specific resource value from the current tracer provider."""
     resource = get_provider_resource()
     if resource:
         return resource.attributes.get(attribute)
@@ -52,44 +58,32 @@ def get_resource(attribute: str) -> str | None:
 
 
 def get_service_name() -> str | None:
-    """
-    Retrieves the current service name from tracer provider.
-    Returns:
-        The service name, or None if not initialized.
-    """
     return get_resource("service.name")
 
 
 def get_project_name() -> str | None:
-    """
-    Retrieves the current Phoenix project name from tracer provider.
-    Returns:
-        The project name, or None if not initialized.
-    """
-    return get_resource("openinference.project.name")
+    # Prefer live resource, fall back to last known
+    live = get_resource("openinference.project.name")
+    return live or _last_trace_context.get("project_name")
 
 
 def get_trace_id() -> str | None:
     """
-    Retrieves the current active Trace ID in hex format.
-
-    Returns:
-        The 32-character hex Trace ID, or None if no span is active.
+    Retrieves the current active Trace ID.
+    If no span is active, returns the last known Trace ID from this session.
     """
     current_span = otel_trace.get_current_span()
-    if not current_span.is_recording():
-        return None
-    trace_id = current_span.get_span_context().trace_id
-    return format(trace_id, "032x")
+    if current_span.is_recording():
+        trace_id = current_span.get_span_context().trace_id
+        trace_id_hex = format(trace_id, "032x")
+        _update_last_trace_context(trace_id_hex)
+        return trace_id_hex
+
+    # Lazy fallback: Return the last captured trace ID
+    return _last_trace_context.get("trace_id")
 
 
 def _derive_phoenix_base_url() -> str:
-    """
-    Determines the Phoenix Base URL by checking:
-    1. Explicit env var LLM_OBS_PHOENIX_URL
-    2. Collector endpoint env var PHOENIX_COLLECTOR_ENDPOINT (stripping /v1/traces)
-    3. Default localhost
-    """
     ui_url = os.getenv("LLM_OBS_PHOENIX_URL")
     if ui_url:
         return ui_url.rstrip("/")
@@ -105,7 +99,6 @@ def _derive_phoenix_base_url() -> str:
 
 
 def redact(text: str) -> str:
-    """Redact sensitive content from text before tracing."""
     lower = text.lower()
     for pattern in PII_PATTERNS:
         if pattern in lower:
@@ -114,18 +107,11 @@ def redact(text: str) -> str:
 
 
 def hash_prompt(prompt: str) -> str:
-    """Create a short deterministic hash of a prompt for version tracking."""
     return hashlib.sha256(prompt.encode()).hexdigest()[:12]
 
 
 def get_trace_url(phoenix_base_url: str | None = None) -> str | None:
-    """
-    Generates a shareable Phoenix trace URL for the current active span.
-    Args:
-        phoenix_base_url: Optional override. If not provided, it automatically
-                          detects the URL from PHOENIX_COLLECTOR_ENDPOINT or defaults
-                          to http://localhost:6006.
-    """
+    """Generates a shareable Phoenix trace URL using the lazy trace ID."""
     trace_id_hex = get_trace_id()
     if not trace_id_hex:
         return None
@@ -140,24 +126,14 @@ def get_spans_api_url(
     trace_id: str | None = None,
     limit: int = 1000,
 ) -> str | None:
-    """
-    Generates a Phoenix REST API URL for manual inspection.
-    Args:
-        phoenix_base_url: Optional override for the Phoenix UI base URL.
-        project_name: Optional project name. Defaults to current active project.
-        trace_id: Optional trace ID to filter spans.
-        limit: Maximum number of spans to return.
-    Returns:
-        The formatted API URL, or None if project name cannot be resolved.
-    """
     if project_name is None:
         project_name = get_project_name()
     if not project_name:
-        print("⚠️ Cannot generate spans API URL: No project name available.")
         return None
-    # Use provided trace_id or fall back to current active trace
+
     if trace_id is None:
         trace_id = get_trace_id()
+
     base = (phoenix_base_url or _derive_phoenix_base_url()).rstrip("/")
     url = f"{base}/v1/projects/{project_name}/spans?limit={limit}"
     if trace_id:
@@ -173,38 +149,32 @@ def export_spans_to_jsonl(
     limit: int = 1000,
     wait_for_flush: bool = True,
 ) -> Path:
-    """
-    Export spans as RAW JSON objects (preserving nesting, events, and all attributes).
-    Performs a single fetch attempt after flushing traces.
-    Args:
-        project_name: Optional project name. Defaults to current active project.
-        trace_id: Optional trace ID to filter by. Exports all recent spans if None.
-        output_path: Destination file path for the JSONL export.
-        phoenix_base_url: Optional override for the Phoenix UI base URL.
-        limit: Maximum number of spans to fetch.
-        wait_for_flush: Whether to force flush traces before exporting.
-    """
     if not PHOENIX_CLIENT_AVAILABLE:
         raise ImportError("arize-phoenix-client is required for span export.")
+
     resolved_project = project_name or get_project_name()
     if not resolved_project:
         print("❌ Export failed: No project name provided and no active project found.")
         output_path = Path(output_path)
         output_path.write_text("")
         return output_path
+
     from datetime import datetime, timedelta
 
     if phoenix_base_url is None:
         phoenix_base_url = _derive_phoenix_base_url()
+
     if wait_for_flush:
         force_flush_traces()
+
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     client = Client(base_url=phoenix_base_url)
+
     try:
-        # Use provided trace_id or fall back to current active trace
         if trace_id is None:
             trace_id = get_trace_id()
+
         trace_ids = [trace_id] if trace_id else None
         spans_list = client.spans.get_spans(
             project_identifier=resolved_project,
@@ -212,16 +182,19 @@ def export_spans_to_jsonl(
             limit=limit,
             start_time=datetime.now() - timedelta(days=7),
         )
+
         if not spans_list:
             print(
                 f"⚠️ No spans found for project '{resolved_project}' (trace: {trace_id})."
             )
             output_path.write_text("")
             return output_path
+
         spans_list.sort(key=lambda s: s.get("start_time", ""))
         with open(output_path, "w") as f:
             for span in spans_list:
                 f.write(json.dumps(span) + "\n")
+
         print(f"✅ Exported {len(spans_list)} spans to {output_path.name}")
         return output_path
     except Exception as e:
@@ -231,7 +204,6 @@ def export_spans_to_jsonl(
 
 
 def force_flush_traces(timeout_ms: int = 5000):
-    """Forces the OpenTelemetry tracer provider to flush all pending spans."""
     try:
         from .setup import get_tracer_provider
 
@@ -247,10 +219,6 @@ def force_flush_traces(timeout_ms: int = 5000):
 
 
 def display_all_resources():
-    """
-    Displays all current resource attributes from the tracer provider.
-    Uses the Resource.attributes property for efficient access.
-    """
     resource = get_provider_resource()
     if not resource:
         print("⚠️ No tracer provider initialized. Call initialize_telemetry() first.")
@@ -260,7 +228,6 @@ def display_all_resources():
     if not resource.attributes:
         print("  (No attributes found)")
     else:
-        # Sort keys for consistent output
         for key in sorted(resource.attributes.keys()):
             value = resource.attributes[key]
             print(f"  {key}: {value}")

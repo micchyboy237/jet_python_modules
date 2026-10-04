@@ -296,15 +296,54 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
 def chain(func=None, *, name: Optional[str] = None):
     """
     Decorator for orchestration logic (RAG pipelines, Memory updates).
+    Automatically remembers the Trace ID upon completion for lazy access.
     """
 
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
-        try:
-            return tracer.chain(name=span_name)(f)
-        except AttributeError:
-            return f
+        is_async = inspect.iscoroutinefunction(f)
+
+        if is_async:
+
+            @wraps(f)
+            async def async_wrapper(*args, **kwargs):
+                with tracer.start_as_current_span(span_name) as span:
+                    # Explicitly set the span kind to CHAIN for Phoenix/OpenInference
+                    if span.is_recording():
+                        span.set_attribute(
+                            SpanAttributes.OPENINFERENCE_SPAN_KIND, "CHAIN"
+                        )
+                    try:
+                        return await f(*args, **kwargs)
+                    finally:
+                        ctx = span.get_span_context()
+                        if ctx.trace_id != 0:
+                            from .helpers import _update_last_trace_context
+
+                            _update_last_trace_context(format(ctx.trace_id, "032x"))
+
+            return async_wrapper
+        else:
+
+            @wraps(f)
+            def sync_wrapper(*args, **kwargs):
+                with tracer.start_as_current_span(span_name) as span:
+                    # Explicitly set the span kind to CHAIN for Phoenix/OpenInference
+                    if span.is_recording():
+                        span.set_attribute(
+                            SpanAttributes.OPENINFERENCE_SPAN_KIND, "CHAIN"
+                        )
+                    try:
+                        return f(*args, **kwargs)
+                    finally:
+                        ctx = span.get_span_context()
+                        if ctx.trace_id != 0:
+                            from .helpers import _update_last_trace_context
+
+                            _update_last_trace_context(format(ctx.trace_id, "032x"))
+
+            return sync_wrapper
 
     if func is not None:
         return decorator(func)

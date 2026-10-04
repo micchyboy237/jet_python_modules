@@ -8,6 +8,7 @@ import logging
 import os
 
 import phoenix.otel as pxtl
+from opentelemetry.sdk.resources import Resource
 
 logger = logging.getLogger(__name__)
 _initialized = False
@@ -63,6 +64,11 @@ def initialize_telemetry(
     os.environ["PHOENIX_COLLECTOR_ENDPOINT"] = collector_endpoint
     os.environ["PHOENIX_PROJECT_NAME"] = service_name
 
+    # Create a custom Resource with both standard OTel and Phoenix attributes
+    custom_resource = Resource.create(
+        {"service.name": service_name, "openinference.project.name": service_name}
+    )
+
     try:
         _tracer_provider = pxtl.register(
             project_name=service_name,
@@ -70,6 +76,7 @@ def initialize_telemetry(
             protocol=protocol,
             auto_instrument=auto_instrument,
             batch=batch,
+            resource=custom_resource,  # Pass the custom resource here
         )
         _initialized = True
         print(
@@ -82,9 +89,6 @@ def initialize_telemetry(
                 "Tracing may still work, but debug details might be incomplete. "
                 "Consider upgrading arize-phoenix-otel or downgrading opentelemetry packages."
             )
-            # Attempt to initialize without the failing debug path if possible,
-            # or re-raise if critical. In this case, pxtl.register fails internally.
-            # We can try to manually set up the provider if pxtl.register is too rigid.
             raise RuntimeError(
                 "Compatibility error between arize-phoenix-otel and opentelemetry-exporter-otlp-proto-http 1.45.0. "
                 "Please upgrade arize-phoenix-otel to a version supporting OTel 1.45+."
