@@ -1,8 +1,10 @@
+import argparse
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 import psycopg2
@@ -450,7 +452,7 @@ class PostgresContextGenerator:
             self.disconnect()
 
     def _build_context(self, schema: str) -> str:
-        s = self.settings
+        cfg = self.settings
         out: List[str] = [
             "=" * 80,
             "POSTGRESQL DATABASE SCHEMA & METADATA CONTEXT",
@@ -490,7 +492,9 @@ class PostgresContextGenerator:
                 nullable = "" if col["notnull"] else " (nullable)"
                 out.append(f"- `{col['name']}`: {col['type']}{pk}{nullable}")
 
-            fks = self.get_foreign_keys(table, schema) if s.include_foreign_keys else []
+            fks = (
+                self.get_foreign_keys(table, schema) if cfg.include_foreign_keys else []
+            )
             if fks:
                 out.append("\n**Foreign Keys:**")
                 for fk in fks:
@@ -499,7 +503,7 @@ class PostgresContextGenerator:
                         f"`{fk['target_schema']}.{fk['target_table']}.{fk['target_column']}`"
                     )
 
-            idxs = self.get_indexes(table, schema) if s.include_indexes else []
+            idxs = self.get_indexes(table, schema) if cfg.include_indexes else []
             if idxs:
                 out.append("\n**Indexes:**")
                 for idx in idxs:
@@ -509,10 +513,12 @@ class PostgresContextGenerator:
                     out.append(f"- `{idx['index_name']}`{flags}: {idx['definition']}")
 
         stats_tables: List[str] = []
-        if s.include_stats:
+        if cfg.include_stats:
             out += ["", "## COLUMN STATISTICS SUMMARY", "-" * 80]
             stats_tables = (
-                tables if s.max_stats_tables is None else tables[: s.max_stats_tables]
+                tables
+                if cfg.max_stats_tables is None
+                else tables[: cfg.max_stats_tables]
             )
         for table in stats_tables:
             col_stats = self.get_column_statistics(table, schema, cols_by_table[table])
@@ -525,10 +531,10 @@ class PostgresContextGenerator:
             ]
             for name, s in col_stats.items():
                 out.append(
-                    f"| `{name}` | {s['type']} | {s['distinct_count']} | {s['null_percentage']}% |"
+                    f"| `{self._format_cell(name, 200)}` | {s['type']} | {s['distinct_count']} | {s['null_percentage']}% |"
                 )
 
-        sample_tables = tables if s.include_samples and s.sample_rows > 0 else []
+        sample_tables = tables if cfg.include_samples and cfg.sample_rows > 0 else []
         if sample_tables:
             out += ["", "## SAMPLE DATA", "-" * 80]
         for table in sample_tables:
@@ -539,7 +545,7 @@ class PostgresContextGenerator:
             out += [
                 f"\n### Table: {table} (first {len(samples)} rows)",
                 "| "
-                + " | ".join(self._format_cell(n, s.header_chars) for n in names)
+                + " | ".join(self._format_cell(n, cfg.header_chars) for n in names)
                 + " |",
                 "| " + " | ".join(["---"] * len(names)) + " |",
             ]
@@ -553,7 +559,7 @@ class PostgresContextGenerator:
         for table in tables:
             for col in cols_by_table[table]:
                 common.setdefault(col["name"], []).append(f"{table}.{col['type']}")
-        limit = s.common_columns_limit
+        limit = cfg.common_columns_limit
         common_cols = ", ".join(list(common)[:limit]) + (
             "..." if len(common) > limit else ""
         )
@@ -596,7 +602,7 @@ class PostgresContextGenerator:
             "- Consider NULL handling in filters (IS NULL / IS NOT NULL)",
             "- Use LIMIT for large tables to avoid memory issues",
         ]
-        if s.include_query_guidance:
+        if cfg.include_query_guidance:
             out += guidance
         out.append("=" * 80)
         logger.info("Context built: %d tables, %d lines", len(tables), len(out))
@@ -616,42 +622,222 @@ def generate_rag_context(
     return generator.generate_rag_context(schema=schema)
 
 
-if __name__ == "__main__":
-    import shutil
-    from pathlib import Path
+# ====================================================================== CLI
+DEFAULT_DB_URL = "postgresql://jethroestrada:@localhost:5432/jobs_db3"
+DEFAULT_OUTPUT = (
+    Path(__file__).parent
+    / "generated"
+    / Path(__file__).stem
+    / "postgres_db_context.txt"
+)
 
+
+def _parse_limit(value: str) -> Optional[int]:
+    """'all' (or 'none') -> None (no limit), otherwise a positive integer."""
+    if value.lower() in {"all", "none"}:
+        return None
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number or 'all', got '{value}'")
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be >= 1 (or 'all')")
+    return number
+
+
+def _parse_column_limit(value: str):
+    """'description=300' or 'jobs.title=100' -> ('description', 300)."""
+    name, sep, number = value.rpartition("=")
+    if not sep or not name or not number.isdigit() or int(number) < 1:
+        raise argparse.ArgumentTypeError(
+            f"expected COLUMN=CHARS (e.g. description=300), got '{value}'"
+        )
+    return name, int(number)
+
+
+def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """
+    Parse command-line arguments. Defaults come from ContextSettings, so the CLI and
+    the Python API always agree. Returns a Namespace with a ready-to-use `args.settings`.
+    """
+    d = ContextSettings()
+    parser = argparse.ArgumentParser(
+        prog="postgres_context_generator",
+        description="Generate PostgreSQL schema/sample context text for LLM (RAG) prompts.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  %(prog)s                                        # all defaults\n"
+            "  %(prog)s -t jobs entities -r 5 -c 80            # two tables, 5 rows, 80 chars\n"
+            "  %(prog)s -C description=300 -C jobs.title=100   # per-column cell limits\n"
+            "  %(prog)s -x email users.phone -m all            # hide columns, stats for all tables\n"
+            "  %(prog)s --no-indexes --no-guidance -p 0        # smaller output, no preview\n"
+        ),
+    )
+
+    conn = parser.add_argument_group("connection and output")
+    conn.add_argument(
+        "-u",
+        "--db-url",
+        default=None,
+        help="PostgreSQL URI (default: $DATABASE_URL, else the local jobs_db3 URI)",
+    )
+    conn.add_argument(
+        "-s",
+        "--schema",
+        default="public",
+        help="Schema to analyze (default: %(default)s)",
+    )
+    conn.add_argument(
+        "-t",
+        "--tables",
+        nargs="+",
+        metavar="TABLE",
+        default=None,
+        help="Only include these tables (default: all tables)",
+    )
+    conn.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+        help="Output file path (default: %(default)s)",
+    )
+    conn.add_argument(
+        "-p",
+        "--preview-chars",
+        type=int,
+        default=2000,
+        help="Characters of the result printed to the terminal, 0 = none (default: %(default)s)",
+    )
+    conn.add_argument(
+        "-l",
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log level (default: %(default)s)",
+    )
+
+    samples = parser.add_argument_group("sample data")
+    samples.add_argument(
+        "-r",
+        "--sample-rows",
+        type=int,
+        default=d.sample_rows,
+        help="Sample rows per table, 0 = none (default: %(default)s)",
+    )
+    samples.add_argument(
+        "-c",
+        "--sample-chars",
+        type=int,
+        default=d.sample_chars,
+        help="Max characters per sample cell (default: %(default)s)",
+    )
+    samples.add_argument(
+        "-H",
+        "--header-chars",
+        type=int,
+        default=d.header_chars,
+        help="Max characters per sample column header (default: %(default)s)",
+    )
+    samples.add_argument(
+        "-C",
+        "--column-chars",
+        dest="column_sample_chars",
+        action="append",
+        type=_parse_column_limit,
+        metavar="COLUMN=CHARS",
+        default=None,
+        help="Cell limit for one column; repeatable. Use 'table.column' to target one table",
+    )
+    samples.add_argument(
+        "-x",
+        "--hide-columns",
+        dest="exclude_sample_columns",
+        nargs="+",
+        metavar="COLUMN",
+        default=None,
+        help="Show <hidden> instead of values for these columns ('column' or 'table.column')",
+    )
+
+    stats = parser.add_argument_group("statistics and safety")
+    stats.add_argument(
+        "-m",
+        "--max-stats-tables",
+        type=_parse_limit,
+        default=d.max_stats_tables,
+        metavar="N|all",
+        help="Tables that get column statistics (default: %(default)s)",
+    )
+    stats.add_argument(
+        "-T",
+        "--timeout-ms",
+        dest="statement_timeout_ms",
+        type=int,
+        default=d.statement_timeout_ms,
+        help="Per-query time limit in milliseconds, 0 = no limit (default: %(default)s)",
+    )
+    stats.add_argument(
+        "-n",
+        "--common-columns",
+        dest="common_columns_limit",
+        type=int,
+        default=d.common_columns_limit,
+        help="Column names listed in the guidance section (default: %(default)s)",
+    )
+
+    sections = parser.add_argument_group("sections (turn off with --no-<name>)")
+    for flag, name, label in [
+        ("foreign-keys", "include_foreign_keys", "foreign keys"),
+        ("indexes", "include_indexes", "indexes"),
+        ("stats", "include_stats", "column statistics"),
+        ("samples", "include_samples", "sample data"),
+        ("guidance", "include_query_guidance", "query guidance"),
+    ]:
+        sections.add_argument(
+            f"--{flag}",
+            dest=name,
+            action=argparse.BooleanOptionalAction,
+            default=getattr(d, name),
+            help=f"Include {label} (default: %(default)s)",
+        )
+
+    args = parser.parse_args(argv)
+    try:
+        args.settings = build_settings(args)
+    except ValueError as e:
+        parser.error(str(e))  # clean message and exit code 2
+    return args
+
+
+def build_settings(args: argparse.Namespace) -> ContextSettings:
+    """Turn parsed arguments into ContextSettings (argument names match the field names)."""
+    values = {f.name: getattr(args, f.name) for f in fields(ContextSettings)}
+    values["column_sample_chars"] = dict(values["column_sample_chars"] or [])
+    values["exclude_sample_columns"] = set(values["exclude_sample_columns"] or [])
+    return ContextSettings(**values)
+
+
+def main(argv: Optional[List[str]] = None) -> None:
+    args = get_args(argv)
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        level=args.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    logger.info("Settings: %s", args.settings)
 
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Prefer an environment variable so the password is not stored in code
-    CONNECTION_STRING = os.getenv(
-        "DATABASE_URL", "postgresql://jethroestrada:@localhost:5432/jobs_db3"
-    )
-    TABLES_FILTER = None  # e.g. ["jobs", "entities"]; None = all tables
-
-    # Defaults = 3 sample rows, 50 chars per cell, stats for first 5 tables. Override as needed:
-    SETTINGS = ContextSettings(
-        # sample_rows=5,
-        # sample_chars=80,
-        # column_sample_chars={"description": 300, "jobs.title": 100},
-        # exclude_sample_columns={"email", "users.phone"},
-        # max_stats_tables=None,
-        # include_indexes=False,
-    )
-
+    db_url = args.db_url or os.getenv("DATABASE_URL") or DEFAULT_DB_URL
     context = generate_rag_context(
-        CONNECTION_STRING,
-        schema="public",
-        tables_filter=TABLES_FILTER,
-        settings=SETTINGS,
+        db_url, schema=args.schema, tables_filter=args.tables, settings=args.settings
     )
-    output_file = OUTPUT_DIR / "postgres_db_context.txt"
-    output_file.write_text(context)
 
-    print(f"\nPreview (first 2000 chars):\n{context[:2000]}...")
-    logger.info("Context saved to %s", output_file)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(context)
+    if args.preview_chars > 0:
+        print(
+            f"\nPreview (first {args.preview_chars} chars):\n{context[: args.preview_chars]}..."
+        )
+    logger.info("Context saved to %s", args.output)
+
+
+if __name__ == "__main__":
+    main()
