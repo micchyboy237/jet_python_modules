@@ -27,6 +27,7 @@ DEFAULT_TABLE_CHUNKS = "job_chunks"
 DEFAULT_TABLE_PARENTS = "job_parents"
 DEFAULT_TABLE_DATA = "jobs"
 DEFAULT_TABLE_ENTITIES = "job_entities"
+DEFAULT_TABLE_SUMMARIES = "job_summaries"
 DEFAULT_BUFFER = 32
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
@@ -82,6 +83,29 @@ def _ensure_entities_table(
     with db_client.conn.cursor() as cur:
         cur.execute(query)
     logger.debug(f"Ensured entities table '{table_name}' exists.")
+
+
+def _ensure_summaries_table(db_client: PgVectorClient) -> None:
+    query = sql.SQL("""
+    CREATE TABLE IF NOT EXISTS {} (
+        id              TEXT PRIMARY KEY,
+        job_id          TEXT NOT NULL,
+        model_name      TEXT,
+        temperature     NUMERIC,
+        generated_at    TIMESTAMPTZ,
+        summary_text    TEXT,
+        summary_type    TEXT,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_summaries_job_id ON {}(job_id);
+    """).format(
+        sql.Identifier(DEFAULT_TABLE_SUMMARIES), sql.Identifier(DEFAULT_TABLE_SUMMARIES)
+    )
+
+    with db_client.conn.cursor() as cur:
+        cur.execute(query)
+    logger.debug(f"Ensured summaries table '{DEFAULT_TABLE_SUMMARIES}' exists.")
 
 
 def _save_metadata_to_table(
@@ -1322,3 +1346,75 @@ def hybrid_search_jobs(
         return enriched_results
 
     return filtered_results
+
+
+def _ensure_summaries_table(db_client: PgVectorClient) -> None:
+    query = sql.SQL("""
+    CREATE TABLE IF NOT EXISTS {} (
+        id              TEXT PRIMARY KEY,
+        job_id          TEXT NOT NULL,
+        model_name      TEXT,
+        temperature     NUMERIC,
+        generated_at    TIMESTAMPTZ,
+        summary_text    TEXT,
+        summary_type    TEXT,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_summaries_job_id ON {}(job_id);
+    """).format(
+        sql.Identifier(DEFAULT_TABLE_SUMMARIES), sql.Identifier(DEFAULT_TABLE_SUMMARIES)
+    )
+
+    with db_client.conn.cursor() as cur:
+        cur.execute(query)
+    logger.debug(f"Ensured summaries table '{DEFAULT_TABLE_SUMMARIES}' exists.")
+
+
+def save_job_summary(
+    job_id: str,
+    summary_text: str,
+    *,
+    model_name: str = "qwen3.5-uncensored:2b",
+    temperature: float = 0.0,
+    summary_type: str = "brief",
+    db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
+) -> None:
+    if db_client is None:
+        db_client = PgVectorClient(dbname=db_name)
+
+    _ensure_summaries_table(db_client)
+
+    # Use job_id as the primary key for the summary if you only want one per job,
+    # or generate a new ID if you want history. Let's use job_id for simplicity.
+    row_data = {
+        "id": job_id,
+        "job_id": job_id,
+        "model_name": model_name,
+        "temperature": temperature,
+        "generated_at": datetime.now().astimezone(),
+        "summary_text": summary_text,
+        "summary_type": summary_type,
+    }
+
+    with db_client:
+        db_client.create_or_update_row(DEFAULT_TABLE_SUMMARIES, row_data)
+        db_client.commit()
+    logger.success(f"Saved summary for job {job_id}")
+
+
+def load_job_summary(
+    job_id: str,
+    *,
+    db_client: PgVectorClient | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
+) -> str | None:
+    if db_client is None:
+        db_client = PgVectorClient(dbname=db_name)
+    try:
+        row = db_client.get_row(DEFAULT_TABLE_SUMMARIES, job_id)
+        return row["summary_text"] if row else None
+    except Exception as e:
+        logger.warning(f"Failed to load summary for job {job_id}: {e}")
+        return None
