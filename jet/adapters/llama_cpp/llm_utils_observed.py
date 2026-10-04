@@ -149,13 +149,18 @@ from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from jet_telemetry import initialize_telemetry
 from openai import AsyncOpenAI, OpenAI
 
+DEFAULT_CHAT_PROJECT_NAME = "chat-llm-utils-default"
+DEFAULT_ACHAT_PROJECT_NAME = "achat-llm-utils-default"
+DEFAULT_GENERATE_PROJECT_NAME = "generate-llm-utils-default"
+DEFAULT_AGENERATE_PROJECT_NAME = "agenerate-llm-utils-default"
+
 
 def chat(
     prompt_or_messages: str
     | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    project_name: str = "chat-llm-utils-obs",
+    project_name: str = DEFAULT_CHAT_PROJECT_NAME,
     phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: OpenAI | None = None,
@@ -183,6 +188,9 @@ def chat(
 ) -> StreamCompletionResult:
     """Synchronous multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
+
+    if project_name is None:
+        project_name = DEFAULT_CHAT_PROJECT_NAME
 
     initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
 
@@ -236,7 +244,7 @@ async def achat(
     | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    project_name: str = "achat-llm-utils-obs",
+    project_name: str = DEFAULT_ACHAT_PROJECT_NAME,
     phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
@@ -264,6 +272,9 @@ async def achat(
 ) -> StreamCompletionResult:
     """Async multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
+
+    if project_name is None:
+        project_name = DEFAULT_ACHAT_PROJECT_NAME
 
     initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
     from jet.libs.llama_cpp.usage.chat_stream_observability import (
@@ -315,7 +326,7 @@ def generate(
     prompt: str,
     model: str = MODEL,
     *,
-    project_name: str = "generate-llm-utils-obs",
+    project_name: str = DEFAULT_GENERATE_PROJECT_NAME,
     phoenix_url: str = PHOENIX_URL,
     client: OpenAI | None = None,
     max_tokens: int = 16384,
@@ -335,6 +346,9 @@ def generate(
 ) -> StreamCompletionResult:
     """Synchronous raw text generation alternative to chat()."""
     from jet.logger import logger
+
+    if project_name is None:
+        project_name = DEFAULT_GENERATE_PROJECT_NAME
 
     initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
     from jet.libs.llama_cpp.usage.chat_stream_observability import (
@@ -377,7 +391,7 @@ async def agenerate(
     prompt: str,
     model: str = MODEL,
     *,
-    project_name: str = "agenerate-llm-utils-obs",
+    project_name: str = DEFAULT_AGENERATE_PROJECT_NAME,
     phoenix_url: str = PHOENIX_URL,
     client: AsyncOpenAI | None = None,
     max_tokens: int = 16384,
@@ -397,6 +411,9 @@ async def agenerate(
 ) -> StreamCompletionResult:
     """Asynchronous raw text generation alternative to achat()."""
     from jet.logger import logger
+
+    if project_name is None:
+        project_name = DEFAULT_AGENERATE_PROJECT_NAME
 
     initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
     from jet.libs.llama_cpp.usage.chat_stream_observability import (
@@ -469,7 +486,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--project",
         type=str,
-        default="achat-llm-utils-obs",
+        default="achat-llm-utils-default",
         help="Phoenix project name to log traces under.",
     )
     parser.add_argument(
