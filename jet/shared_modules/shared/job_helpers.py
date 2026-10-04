@@ -1538,7 +1538,7 @@ def save_job_summary(
     *,
     model_name: str = "qwen3.5-uncensored:2b",
     temperature: float = 0.0,
-    summary_type: str = "brief",
+    summary_type: str = "bullet_points",
     db_client: PgVectorClient | None = None,
     db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> None:
