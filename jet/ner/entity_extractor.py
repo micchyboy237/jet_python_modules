@@ -52,7 +52,7 @@ def extract_entities_from_text(
     model_class: Type[T],
     temperature: float = 0.3,
     timeout: float = 30.0,
-    max_retries: int = 2,  # Allow 1 initial attempt + 2 retries
+    max_retries: int = 5,  # Allow 1 initial attempt + 5 retries
 ) -> T:
     """
     Extract structured entities from text using local LLM with full observability.
