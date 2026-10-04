@@ -22,15 +22,13 @@ from shared.data_types.job import (
 from tqdm import tqdm
 
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
-_ctx_embd_size = get_model_ctx_embd_size(DEFAULT_EMBED_MODEL)
-DEFAULT_EMBEDDING_DIM = _ctx_embd_size["embd_dims"]
 DEFAULT_JOBS_DB_NAME = "jobs_db3"
 DEFAULT_TABLE_CHUNKS = "job_chunks"
 DEFAULT_TABLE_PARENTS = "job_parents"
 DEFAULT_TABLE_DATA = "jobs"
 DEFAULT_TABLE_ENTITIES = "job_entities"
 DEFAULT_BUFFER = 32
-DEFAULT_CHUNK_SIZE = _ctx_embd_size["ctx"] - DEFAULT_BUFFER
+DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
 
 
@@ -481,6 +479,7 @@ def save_job_embeddings(
     parent_chunk_size: int | None = None,
     child_chunk_size: int | None = None,
     chunk_overlap: int = 0,
+    embedding_dimension: int | None = None,
 ) -> dict:
     f"""
     Save PDR chunked embeddings to DEFAULT_TABLE_CHUNKS (children only),
@@ -499,6 +498,7 @@ def save_job_embeddings(
         parent_chunk_size: Max tokens per parent. None → auto-derive from LLM context.
         child_chunk_size: Max tokens per child. None → auto-derive from parent // 8.
         chunk_overlap: Overlap between consecutive children. Recommended: 0.
+        embedding_dimension: Embedding dimension for the embeddings. None → auto-derive from model.
 
     Returns:
         Dict with processing summary including parent/child counts.
@@ -511,8 +511,9 @@ def save_job_embeddings(
             dbname=DEFAULT_JOBS_DB_NAME, overwrite_db=overwrite_db
         )
 
-    ctx_embd_size = get_model_ctx_embd_size(embed_model)
-    embedding_dimension = ctx_embd_size["embd_dims"]
+    if embedding_dimension is None:
+        ctx_embd_size = get_model_ctx_embd_size(embed_model)
+        embedding_dimension = ctx_embd_size["embd_dims"]
 
     # ✅ FIX: Use LLM_MODEL for parent sizing, NOT embed_model
     # embed_model (nomic-embed:2-moe) has 512 ctx → would produce parent=128, child=64
