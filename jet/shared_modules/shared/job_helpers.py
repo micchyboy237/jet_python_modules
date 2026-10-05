@@ -1246,7 +1246,6 @@ def search_full_jobs(
         threshold=threshold,
         embed_model=embed_model,
         db_client=db_client,
-        enrich_with_metadata=False,
     )
 
     if not chunk_results:
