@@ -125,11 +125,11 @@ def truncate_texts(
             sentence_len = len(sentence_tokens)
 
             if current_tokens + sentence_len > max_tokens:
-                logger.debug(
-                    f"Truncating at sentence boundary: {current_tokens}/{max_tokens} tokens, "
-                    f"next sentence adds {sentence_len} tokens "
-                    f"(kept {len(kept_sentences)}/{total_sentences} sentences)"
-                )
+                # logger.debug(
+                #     f"Truncating at sentence boundary: {current_tokens}/{max_tokens} tokens, "
+                #     f"next sentence adds {sentence_len} tokens "
+                #     f"(kept {len(kept_sentences)}/{total_sentences} sentences)"
+                # )
                 break
 
             kept_sentences.append(sentence)
@@ -138,10 +138,10 @@ def truncate_texts(
         if kept_sentences:
             truncated = "".join(kept_sentences).strip()
             results.append(truncated)
-            logger.debug(
-                f"Sentence-boundary truncation: {original_tokens} → {current_tokens} tokens, "
-                f"{len(kept_sentences)}/{total_sentences} sentences kept"
-            )
+            # logger.debug(
+            #     f"Sentence-boundary truncation: {original_tokens} → {current_tokens} tokens, "
+            #     f"{len(kept_sentences)}/{total_sentences} sentences kept"
+            # )
         else:
             logger.debug(
                 f"No complete sentence fits within {max_tokens} tokens, "

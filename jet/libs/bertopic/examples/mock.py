@@ -4,6 +4,7 @@ from jet.adapters.llama_cpp.chunking_utils import (
     ChunkResult,
     chunk_texts,
     chunk_texts_with_data,
+    truncate_texts,
 )
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.code.html_utils import convert_dl_blocks_to_md, preprocess_html
@@ -17,7 +18,6 @@ from jet.code.markdown_utils._converters import (
 )
 from jet.file.utils import load_file
 from jet.logger import logger
-from jet.wordnet.text_chunker import truncate_texts
 from sklearn.datasets import fetch_20newsgroups
 
 _sample_data_cache = None
@@ -308,25 +308,29 @@ def load_sample_data_with_info(
 
 def load_sample_jobs(
     model: str = EMBED_MODEL,
-    chunk_size: int = 128,
-    chunk_overlap: int = 0,
-    truncate: bool = False,
-    convert_plain_text: bool = False,
-    includes: list[str] = [],
+    max_tokens: int | None = 150,
+    limit: int | None = 200,
 ) -> list[str]:
-    """Load sample jobs from local for topic modeling."""
-    from shared.data_types.job import JobData
+    """Load scraped jobs from DB"""
+    from shared.job_helpers import load_jobs_list
 
-    data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/saved/jobs.json"
-    data: list[JobData] = load_file(data_file)
+    all_jobs = load_jobs_list(include_entities=False)
+    logger.info("Loaded all %d jobs", len(all_jobs))
 
-    sentences = ["\n".join([f"{item['title']}\n", item["details"]]) for item in data]
-    logger.info(f"Number of sentences: {len(sentences)}")
+    docs = [f"{j.get('title', '')}\n{j.get('details', '')}" for j in all_jobs]
+    logger.info("Prepared %d documents for topic extraction", len(docs))
 
-    # texts = [token['content'] for sentence in sentences for token in base_parse_markdown(sentence)]
-    texts = sentences
+    if max_tokens:
+        # Token managment
+        docs = truncate_texts(
+            texts=docs,
+            max_tokens=max_tokens,  # Force truncation
+            strict_sentences=True,  # Preserve sentence boundaries
+            show_progress=True,
+            model=model,
+        )
 
-    return texts
+    return docs[:limit]
 
 
 def load_sample_jobs_ai_llm_python(

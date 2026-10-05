@@ -1,5 +1,3 @@
-# jet/libs/bertopic/rag_bertopic.py
-
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -7,11 +5,10 @@ import numpy as np
 from jet.adapters.bertopic import BERTopic
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
-from sklearn.feature_extraction.text import TfidfVectorizer  # Changed import
+from sklearn.feature_extraction.text import TfidfVectorizer
 from umap import UMAP
 
 logger = logging.getLogger(__name__)
-
 try:
     import faiss
 
@@ -26,7 +23,6 @@ class TopicIndex:
         self.embeddings = embeddings
         self.texts = texts
         self.doc_ids = list(range(len(texts)))
-
         if _HAS_FAISS:
             self.index = faiss.IndexFlatIP(embeddings.shape[1])
             self.index.add(embeddings)
@@ -41,48 +37,41 @@ class TopicRAG:
         self.topic_indexes: Dict[int, TopicIndex] = {}
         self.embedder = LlamacppEmbedding(model=model_name)
 
+        # Hybrid Search Components
+        self.tfidf_vectorizer = TfidfVectorizer(stop_words="english")
+        self.tfidf_matrix = None
+        self.all_docs_for_tfidf: List[str] = []
+
     def _create_vectorizer(self, n_docs: int) -> TfidfVectorizer:
-        """
-        Create a TfidfVectorizer with parameters optimized for dataset size.
-
-        Args:
-            n_docs: Number of documents in the corpus
-
-        Returns:
-            Configured TfidfVectorizer instance
-        """
-        # Adjust parameters based on corpus size
+        """Create a TfidfVectorizer with parameters optimized for dataset size."""
         if n_docs <= 10:
-            # Tiny corpus - be more permissive
             return TfidfVectorizer(
                 stop_words="english",
                 ngram_range=(1, 2),
                 max_features=5000,
                 sublinear_tf=True,
-                min_df=1,  # Keep all terms for tiny datasets
-                max_df=0.95,  # Only filter extremely common terms
+                min_df=1,
+                max_df=0.95,
                 norm="l2",
             )
         elif n_docs <= 100:
-            # Small corpus
             return TfidfVectorizer(
                 stop_words="english",
                 ngram_range=(1, 2),
                 max_features=10000,
                 sublinear_tf=True,
-                min_df=2,  # Filter terms appearing only once
-                max_df=0.85,  # Filter terms in >85% of docs
+                min_df=2,
+                max_df=0.85,
                 norm="l2",
             )
         else:
-            # Medium to large corpus
             return TfidfVectorizer(
                 stop_words="english",
                 ngram_range=(1, 2),
                 max_features=10000,
                 sublinear_tf=True,
-                min_df=3,  # More aggressive filtering
-                max_df=0.8,  # Filter terms in >80% of docs
+                min_df=3,
+                max_df=0.8,
                 norm="l2",
             )
 
@@ -96,60 +85,29 @@ class TopicRAG:
         return valid_docs
 
     def _safe_umap(self, docs: List[str]) -> UMAP:
-        """
-        Create a UMAP instance that safely handles very small and normal datasets.
-
-        - Always returns a valid UMAP (never None) to prevent AttributeError.
-        - Automatically adjusts parameters based on corpus size.
-        - For small datasets, uses init='random' and minimal n_components
-        to avoid ARPACK eigsh (k >= N) failures.
-        """
-
+        """Create a UMAP instance that safely handles very small and normal datasets."""
         n_docs = len(docs)
-
-        # Adjust parameters dynamically
         if n_docs <= 3:
-            # Extremely tiny corpus
-            n_neighbors = 2
-            n_components = 1
-            init = "random"
-            self._log(
-                f"_safe_umap: Extremely tiny corpus detected (n_docs={n_docs}); "
-                f"Setting n_neighbors={n_neighbors}, n_components={n_components}, init={init}",
-                logging.DEBUG,
-            )
+            n_neighbors, n_components, init = 2, 1, "random"
         elif n_docs <= 10:
-            # Small corpus
-            n_neighbors = max(2, n_docs - 1)
-            n_components = min(2, n_docs - 1)
-            init = "random"
-            self._log(
-                f"_safe_umap: Small corpus detected (n_docs={n_docs}); "
-                f"Setting n_neighbors={n_neighbors}, n_components={n_components}, init={init}",
-                logging.DEBUG,
+            n_neighbors, n_components, init = (
+                max(2, n_docs - 1),
+                min(2, n_docs - 1),
+                "random",
             )
         elif n_docs <= 30:
-            # Medium-small corpus
-            n_neighbors = min(10, n_docs - 1)
-            n_components = min(5, n_docs - 1)
-            init = "random"
-            self._log(
-                f"_safe_umap: Medium-small corpus detected (n_docs={n_docs}); "
-                f"Setting n_neighbors={n_neighbors}, n_components={n_components}, init={init}",
-                logging.DEBUG,
+            n_neighbors, n_components, init = (
+                min(10, n_docs - 1),
+                min(5, n_docs - 1),
+                "random",
             )
         else:
-            # Normal or large corpus
-            n_neighbors = 15
-            n_components = 5
-            init = "spectral"
-            self._log(
-                f"_safe_umap: Normal/large corpus detected (n_docs={n_docs}); "
-                f"Setting n_neighbors={n_neighbors}, n_components={n_components}, init={init}",
-                logging.DEBUG,
-            )
+            n_neighbors, n_components, init = 15, 5, "spectral"
 
-        # Always safe configuration
+        self._log(
+            f"_safe_umap: Setting n_neighbors={n_neighbors}, n_components={n_components}, init={init}",
+            logging.DEBUG,
+        )
         return UMAP(
             n_neighbors=n_neighbors,
             n_components=n_components,
@@ -167,119 +125,31 @@ class TopicRAG:
 
         docs = self._preprocess_and_filter(docs)
         n_docs = len(docs)
+        self.all_docs_for_tfidf = docs  # Store for hybrid search
+
         self._log(f"Starting topic fitting on {n_docs} docs")
-
-        # Create vectorizer optimized for corpus size
         vectorizer_model = self._create_vectorizer(n_docs)
-        self._log(
-            f"Using TfidfVectorizer (min_df={vectorizer_model.min_df}, "
-            f"max_df={vectorizer_model.max_df}, sublinear_tf=True)",
-            logging.DEBUG,
-        )
 
-        # Embeddings
+        # Fit TF-IDF for hybrid search
+        self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(docs)
+
         embeddings = self.embedder(docs, show_progress=True)
-
         umap_model = self._safe_umap(docs)
-        if umap_model is None:
-            self._log(
-                "Falling back to BERTopic without UMAP (document-level clustering only).",
-                logging.WARNING,
-            )
-            self.model = BERTopic(
-                embedding_model=None,
-                calculate_probabilities=True,
-                nr_topics=nr_topics,
-                min_topic_size=min_topic_size,
-                vectorizer_model=vectorizer_model,  # Use TF-IDF vectorizer
-                umap_model=None,
-            )
-        else:
-            self.model = BERTopic(
-                embedding_model=None,
-                calculate_probabilities=True,
-                nr_topics=nr_topics,
-                min_topic_size=min_topic_size,
-                vectorizer_model=vectorizer_model,  # Use TF-IDF vectorizer
-                umap_model=umap_model,
-            )
+
+        self.model = BERTopic(
+            embedding_model=None,
+            calculate_probabilities=True,
+            nr_topics=nr_topics,
+            min_topic_size=min_topic_size,
+            vectorizer_model=vectorizer_model,
+            umap_model=umap_model,
+        )
 
         try:
             topics, _ = self.model.fit_transform(docs, embeddings)
-
-        except ValueError:
-            # For very small datasets, use fallback clustering
-            self._log(
-                f"Too few samples ({embeddings.shape[0]}). Using safe single-cluster fallback.",
-                logging.WARNING,
-            )
+        except (ValueError, TypeError) as e:
+            self._log(f"Fallback triggered due to: {e}", logging.WARNING)
             topics = [0] * len(docs)
-            self.model = BERTopic(
-                embedding_model=None,
-                calculate_probabilities=False,
-                vectorizer_model=vectorizer_model,  # Use TF-IDF vectorizer
-                umap_model=None,
-            )
-            self._build_indexes(docs, embeddings, topics)
-            return
-
-        except TypeError as e:
-            if "k >= N" in str(e):
-                self._log(f"ARPACK eigsh failure detected: {e}", logging.WARNING)
-                # Force random init UMAP fallback
-                safe_umap = UMAP(
-                    n_neighbors=max(2, len(docs) - 1),
-                    n_components=min(2, len(docs) - 1),
-                    metric="cosine",
-                    init="random",
-                    random_state=42,
-                    low_memory=True,
-                )
-                self.model = BERTopic(
-                    umap_model=safe_umap,
-                    vectorizer_model=vectorizer_model,  # Use TF-IDF vectorizer
-                )
-                topics, _ = self.model.fit_transform(docs, embeddings)
-            else:
-                raise
-
-        # 🔍 Add diagnostic logging here
-        topic_info = self.model.get_topic_info()
-        # Limit to key columns and top N topics
-        max_topics_to_log = 5
-        max_docs_per_topic = 3
-        max_doc_length = 100  # Characters
-        if not topic_info.empty:
-            # Select key columns and limit rows
-            limited_topic_info = topic_info[["Topic", "Count", "Name"]].head(
-                max_topics_to_log
-            )
-            self._log(
-                f"Topic summary (top {max_topics_to_log}):\n{limited_topic_info.to_string(index=False)}",
-                logging.DEBUG,
-            )
-        else:
-            self._log("No topic information available.", logging.DEBUG)
-
-        # Log limited topic details
-        topic_map = {}
-        for doc, topic in zip(docs, topics):
-            topic_map.setdefault(topic, []).append(doc)
-        for tid, td in list(topic_map.items())[:max_topics_to_log]:
-            # Truncate documents and limit number of documents logged
-            truncated_docs = [
-                (doc[:max_doc_length] + "..." if len(doc) > max_doc_length else doc)
-                for doc in td[:max_docs_per_topic]
-            ]
-            self._log(
-                f"Topic {tid}: {len(td)} docs\n - " + "\n - ".join(truncated_docs),
-                logging.DEBUG,
-            )
-        if len(topic_map) > max_topics_to_log:
-            self._log(
-                f"...and {len(topic_map) - max_topics_to_log} more topics not shown.",
-                logging.DEBUG,
-            )
 
         self._build_indexes(docs, embeddings, topics)
 
@@ -290,8 +160,6 @@ class TopicRAG:
         topic_vecs: Dict[int, List[np.ndarray]] = {}
 
         for doc, topic, emb in zip(docs, topics, embeddings):
-            # if topic == -1:
-            #     continue
             topic_docs.setdefault(topic, []).append(doc)
             topic_vecs.setdefault(topic, []).append(emb)
 
@@ -299,23 +167,24 @@ class TopicRAG:
             self.topic_indexes[tid] = TopicIndex(
                 topic_id=tid, embeddings=np.vstack(vecs), texts=topic_docs[tid]
             )
-
         self._log(f"Built {len(self.topic_indexes)} topic partitions")
 
     def retrieve_for_query(
         self,
         query: str,
-        top_topics: int = 1,
-        top_k: int = 3,
+        top_topics: int = 3,
+        top_k: int = 5,
         unique_by: Optional[str] = None,
+        alpha: float = 0.7,  # Weight for vector search (1-alpha for keyword)
     ) -> List[Dict[str, Any]]:
         if not self.model or not self.topic_indexes:
             raise RuntimeError("TopicRAG not yet fitted.")
 
-        qvec = self.embedder(query, show_progress=True)
+        # 1. Vector Search Preparation
+        qvec = self.embedder(query, show_progress=False)
+        if qvec.ndim == 1:
+            qvec = qvec.reshape(1, -1)
 
-        # --- replaced old find_topics() call ---
-        # topic_scores, _ = self.model.find_topics(query, top_n=top_topics)
         topic_centroids = {
             tid: np.mean(ti.embeddings, axis=0)
             for tid, ti in self.topic_indexes.items()
@@ -324,6 +193,7 @@ class TopicRAG:
             tid: v / np.linalg.norm(v) for tid, v in topic_centroids.items()
         }
         q_norm = qvec / np.linalg.norm(qvec)
+
         similarities = {
             tid: float(np.dot(v, q_norm.T).squeeze())
             for tid, v in centroid_norms.items()
@@ -331,39 +201,60 @@ class TopicRAG:
         sorted_topics = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[
             :top_topics
         ]
-        # --- end replacement ---
+
+        # 2. Keyword Search Preparation
+        query_tfidf = self.tfidf_vectorizer.transform([query])
 
         results = []
         seen = set()
+
         for topic, _ in sorted_topics:
             if topic not in self.topic_indexes:
                 continue
-            hits = self._search_topic(self.topic_indexes[topic], qvec, top_k)
-            for idx, score in hits:
-                text = self.topic_indexes[topic].texts[idx]
+
+            ti = self.topic_indexes[topic]
+
+            # Get indices of docs in this topic relative to the global list
+            # Note: This assumes we can map back. For simplicity, we'll search locally within the topic
+
+            # A. Local Vector Scores
+            local_scores_vec = []
+            if _HAS_FAISS and ti.index is not None:
+                scores, idxs = ti.index.search(qvec, min(top_k * 2, len(ti.texts)))
+                local_scores_vec = [
+                    (int(i), float(s)) for i, s in zip(idxs[0], scores[0])
+                ]
+
+            # B. Local Keyword Scores
+            local_texts = ti.texts
+            local_tfidf_matrix = self.tfidf_matrix[
+                [self.all_docs_for_tfidf.index(t) for t in local_texts]
+            ]
+            keyword_scores = (local_tfidf_matrix * query_tfidf.T).toarray().flatten()
+            local_scores_kw = [(i, float(s)) for i, s in enumerate(keyword_scores)]
+
+            # C. Hybrid Fusion
+            # Normalize scores to 0-1 range for fair weighting
+            max_vec = max([s for _, s in local_scores_vec], default=1)
+            max_kw = max([s for _, s in local_scores_kw], default=1)
+
+            score_map = {}
+            for i, s in local_scores_vec:
+                score_map[i] = score_map.get(i, 0) + alpha * (s / max_vec)
+            for i, s in local_scores_kw:
+                score_map[i] = score_map.get(i, 0) + (1 - alpha) * (s / max_kw)
+
+            # Sort by combined score
+            sorted_local = sorted(score_map.items(), key=lambda x: x[1], reverse=True)[
+                :top_k
+            ]
+
+            for idx, score in sorted_local:
+                text = ti.texts[idx]
                 if unique_by == "text" and text in seen:
                     continue
                 seen.add(text)
-                results.append(
-                    {
-                        "topic": topic,
-                        "text": text,
-                        "score": float(score),
-                    }
-                )
+                results.append({"topic": topic, "text": text, "score": float(score)})
 
         results.sort(key=lambda r: r["score"], reverse=True)
         return results
-
-    def _search_topic(self, topic_index: TopicIndex, qvec: np.ndarray, top_k: int):
-        if _HAS_FAISS and topic_index.index is not None:
-            scores, idxs = topic_index.index.search(qvec, top_k)
-            return [(int(i), float(s)) for i, s in zip(idxs[0], scores[0])]
-
-        emb_norm = topic_index.embeddings / np.linalg.norm(
-            topic_index.embeddings, axis=1, keepdims=True
-        )
-        q_norm = qvec / np.linalg.norm(qvec)
-        scores = np.dot(emb_norm, q_norm.T).squeeze()
-        top_idx = np.argsort(scores)[::-1][:top_k]
-        return [(int(i), float(scores[i])) for i in top_idx]
