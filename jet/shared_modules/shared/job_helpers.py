@@ -15,6 +15,7 @@ from numpy.typing import NDArray
 from psycopg import sql
 from shared.data_types.job import (
     HybridSearchResult,
+    JobChunkData,
     JobData,
     TableJobMetadata,
     VectorSearchResult,
@@ -351,6 +352,203 @@ def load_jobs_list(
     except Exception as e:
         logger.warning(f"Failed to load jobs from metadata table: {e}")
         return []
+
+
+def load_job_chunks(
+    db_client: PgVectorClient | None = None,
+    table_name: str = DEFAULT_TABLE_CHUNKS,
+    where_conditions: dict[str, Any] | None = None,
+    posted_after: datetime | None = None,
+    posted_before: datetime | None = None,
+    job_ids: list[str] | None = None,
+    limit: int | None = None,
+    db_name: str = DEFAULT_JOBS_DB_NAME,
+    include_embeddings: bool = False,
+) -> list[JobChunkData] | tuple[list[JobChunkData], NDArray[np.float64]]:
+    """
+    Load job chunks with optional filtering.
+    """
+    if db_client is None:
+        db_client = PgVectorClient(dbname=db_name)
+
+    try:
+        # Determine columns to select
+        if include_embeddings:
+            select_cols = sql.SQL("*")
+        else:
+            cols = [
+                "id",
+                "header",
+                "parent_header",
+                "content",
+                "posted_date",
+                "chunk_meta",
+                "created_at",
+                "updated_at",
+            ]
+            select_cols = sql.SQL(", ").join(map(sql.Identifier, cols))
+
+        query = sql.SQL("SELECT {} FROM {}").format(
+            select_cols, sql.Identifier(table_name)
+        )
+        params: list[Any] = []
+        where_parts = []
+
+        # Standard column filters
+        if where_conditions:
+            for col, val in where_conditions.items():
+                if val == "NOT_NULL":
+                    where_parts.append(
+                        sql.SQL("{} IS NOT NULL AND {} != ''").format(
+                            sql.Identifier(col), sql.Identifier(col)
+                        )
+                    )
+                elif val == "IS_NULL":
+                    where_parts.append(
+                        sql.SQL("({} IS NULL OR {} = '')").format(
+                            sql.Identifier(col), sql.Identifier(col)
+                        )
+                    )
+                else:
+                    where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
+                    params.append(val)
+
+        # Date range filters on posted_date
+        if posted_after is not None:
+            logger.debug(
+                f"[DEBUG load_job_chunks] Filtering posted_after: {posted_after}"
+            )
+            where_parts.append(sql.SQL("posted_date >= %s"))
+            params.append(posted_after)
+        if posted_before is not None:
+            where_parts.append(sql.SQL("posted_date <= %s"))
+            params.append(posted_before)
+
+        # Job ID filter via JSONB chunk_meta->>'doc_id'
+        if job_ids:
+            where_parts.append(sql.SQL("chunk_meta->>'doc_id' = ANY(%s)"))
+            params.append(job_ids)
+
+        if where_parts:
+            query = query + sql.SQL(" WHERE ") + sql.SQL(" AND ").join(where_parts)
+
+        # Ordering and limit
+        query = query + sql.SQL(" ORDER BY posted_date DESC")
+        if limit is not None:
+            query = query + sql.SQL(" LIMIT %s")
+            params.append(limit)
+
+        logger.debug(
+            f"[DEBUG load_job_chunks] Executing Query: {query.as_string(db_client.conn)}"
+        )
+
+        with db_client.conn.cursor() as cur:
+            cur.execute(query, params)
+            raw_rows = cur.fetchall()
+
+        logger.debug(
+            f"[DEBUG load_job_chunks] Raw rows fetched from DB: {len(raw_rows)}"
+        )
+
+        # Debug: Inspect the first row's embedding
+        if raw_rows:
+            first_row = raw_rows[0]
+            if isinstance(first_row, dict):
+                emb_val = first_row.get("embedding")
+                logger.debug(
+                    f"[DEBUG load_job_chunks] First row embedding type: {type(emb_val)}"
+                )
+                logger.debug(
+                    f"[DEBUG load_job_chunks] First row embedding value (preview): {str(emb_val)[:100]}"
+                )
+            else:
+                # If it's a tuple, find the index of 'embedding'
+                cols = [desc[0] for desc in cur.description]
+                if "embedding" in cols:
+                    idx = cols.index("embedding")
+                    emb_val = first_row[idx]
+                    logger.debug(
+                        f"[DEBUG load_job_chunks] First row embedding type: {type(emb_val)}"
+                    )
+                    logger.debug(
+                        f"[DEBUG load_job_chunks] First row embedding value (preview): {str(emb_val)[:100]}"
+                    )
+
+        processed_rows: list[JobChunkData] = []
+        embeddings_list: list[NDArray[np.float64]] = []
+
+        skipped_no_emb = 0
+        for row in raw_rows:
+            if isinstance(row, dict):
+                d = dict(row)
+            else:
+                cols = [desc[0] for desc in cur.description]
+                d = dict(zip(cols, row))
+
+            if include_embeddings:
+                emb = d.get("embedding")
+
+                # Strictly filter out null or empty embeddings
+                if emb is None:
+                    skipped_no_emb += 1
+                    continue
+
+                # Handle different types returned by pgvector/psycopg
+                valid_emb = None
+                if hasattr(emb, "tolist"):
+                    # Already a numpy array
+                    if emb.size > 0:
+                        valid_emb = emb
+                elif isinstance(emb, list):
+                    arr = np.array(emb)
+                    if arr.size > 0:
+                        valid_emb = arr
+                elif isinstance(emb, str):
+                    # Sometimes pgvector returns a string representation like '[0.1, 0.2...]'
+                    try:
+                        import json
+
+                        parsed = json.loads(emb)
+                        if isinstance(parsed, list) and len(parsed) > 0:
+                            valid_emb = np.array(parsed)
+                    except:
+                        pass
+
+                if valid_emb is not None:
+                    embeddings_list.append(valid_emb)
+                else:
+                    skipped_no_emb += 1
+                    continue
+
+            processed_rows.append(d)
+
+        logger.info(
+            f"Loaded {len(processed_rows)} chunks from '{table_name}' "
+            f"(Skipped {skipped_no_emb} due to missing/empty embeddings)"
+        )
+
+        if include_embeddings:
+            if not embeddings_list:
+                return processed_rows, np.array([])
+
+            try:
+                emb_array = np.stack(embeddings_list)
+            except ValueError:
+                logger.warning(
+                    "Embeddings have inconsistent dimensions. Returning empty array."
+                )
+                return processed_rows, np.array([])
+
+            return processed_rows, emb_array
+        else:
+            return processed_rows
+
+    except Exception as e:
+        logger.warning(f"Failed to load job chunks: {e}")
+        import traceback
+
+        logger.error(traceback.format_exc())
+        return [] if not include_embeddings else ([], np.array([]))
 
 
 def load_job_entities(

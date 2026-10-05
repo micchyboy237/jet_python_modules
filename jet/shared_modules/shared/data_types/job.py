@@ -47,6 +47,27 @@ class ChunkMeta(TypedDict, total=False):
     content_hash: str
     parent_level: int
     header_doc_id: str
+    # Additional fields observed in save_job_embeddings
+    chunk_role: str
+    parent_chunk_index: int
+    child_index_within_parent: int
+
+
+class JobChunkData(TypedDict, total=False):
+    """
+    Represents a single row from the public.job_chunks table (excluding embeddings).
+    Matches the schema: id, header, parent_header, content, posted_date,
+    chunk_meta (jsonb), created_at, updated_at.
+    """
+
+    id: str
+    header: str | None
+    parent_header: str | None
+    content: str | None
+    posted_date: str | None
+    chunk_meta: ChunkMeta | None
+    created_at: str | None
+    updated_at: str | None
 
 
 class HybridMatchInfo(TypedDict, total=False):
