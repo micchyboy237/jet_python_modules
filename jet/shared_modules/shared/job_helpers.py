@@ -1085,69 +1085,119 @@ def search_jobs(
     threshold: float | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
-    enrich_with_metadata: bool = True,
+    posted_after: datetime | None = None,
+    posted_before: datetime | None = None,
+    where_conditions: dict[str, Any] | None = None,
     db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> list[VectorSearchResult]:
-    f"""
+    """
     Search for jobs based on a query string and return ranked results with data.
     Searches against CHILD embeddings in DEFAULT_TABLE_CHUNKS, resolves to
     PARENT content from {DEFAULT_TABLE_PARENTS} for full-context retrieval.
+
+    Filters are applied at the Job level (public.jobs) before restricting chunk results.
     """
-    query_embedding = generate_embeddings([query], embed_model)[0]
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
+
+    # 1. Filter Jobs first to get valid doc_ids
+    matching_jobs = load_jobs_list(
+        db_client=db_client,
+        include_entities=False,  # We only need IDs for filtering here
+        posted_after=posted_after,
+        posted_before=posted_before,
+        where_conditions=where_conditions,
+        db_name=db_name,
+    )
+
+    valid_doc_ids = {job["id"] for job in matching_jobs}
+
+    if not valid_doc_ids:
+        return []
+
+    # 2. Perform Vector Search
+    query_embedding = generate_embeddings([query], embed_model)[0]
+
+    # Note: db_client.search doesn't support ID filtering directly in SQL efficiently
+    # without modifying the underlying vector engine.
+    # We will fetch top_k * 3 candidates and filter them.
+    fetch_limit = (top_k * 5) if top_k else 50
 
     with db_client:
         results = db_client.search(
             table_name=DEFAULT_TABLE_CHUNKS,
             query_embedding=query_embedding,
-            top_k=top_k,
+            top_k=fetch_limit,
             threshold=threshold,
         )
 
-        filtered_results = [r for r in results if is_valid_score(r["score"])]
-        removed_count = len(results) - len(filtered_results)
-        if removed_count > 0:
-            logger.debug(f"Filtered out {removed_count} results with invalid scores")
+    # 3. Filter results by valid_doc_ids
+    filtered_results = [
+        r
+        for r in results
+        if is_valid_score(r["score"])
+        and r.get("chunk_meta", {}).get("doc_id") in valid_doc_ids
+    ]
 
-        if enrich_with_metadata:
-            parent_map = _resolve_parents_from_children(filtered_results, db_client)
-            enriched_results = []
-            for result in tqdm(filtered_results, desc="Enriching results"):
-                chunk_meta = result.get("chunk_meta", {})
-                job_id = chunk_meta.get("doc_id", result.get("id", ""))
+    # Limit to top_k after filtering
+    if top_k:
+        filtered_results = filtered_results[:top_k]
 
-                metadata = _load_metadata_from_table(db_client, job_id)
-                entity_row = load_job_entities(job_id, db_client=db_client)
+    # 4. Enrich with Metadata (Always enriched now)
+    parent_map = _resolve_parents_from_children(filtered_results, db_client)
+    enriched_results = []
 
-                parent_id = chunk_meta.get("parent_id")
-                parent_content = parent_map.get(parent_id, result.get("content", ""))
+    for result in tqdm(filtered_results, desc="Enriching results"):
+        chunk_meta = result.get("chunk_meta", {})
+        job_id = chunk_meta.get("doc_id", result.get("id", ""))
 
-                enriched = {**result}
-                enriched["parent_content"] = parent_content
+        # Load metadata for this specific job
+        # Note: We already loaded matching_jobs, but we might want fresh data or specific fields.
+        # To avoid N+1 queries, we could map from matching_jobs, but load_jobs_list returns JobData.
+        # Let's use the cached matching_jobs if possible, or load individually if needed.
+        # For simplicity and consistency with existing code, we'll load metadata.
+        # Optimization: Create a map from matching_jobs
+        pass
 
-                if metadata:
-                    enriched.update(
-                        {
-                            "job_title": metadata.get(
-                                "title", result.get("header", "")
-                            ),
-                            "company": metadata.get(
-                                "company", result.get("parent_header", "")
-                            ),
-                            "link": metadata.get("link", ""),
-                            "keywords": metadata.get("keywords", []),
-                            "entities": entity_row["entities"] if entity_row else None,
-                            "domain": metadata.get("domain"),
-                            "salary": metadata.get("salary"),
-                            "job_type": metadata.get("job_type"),
-                            "tags": metadata.get("tags"),
-                            "hours_per_week": metadata.get("hours_per_week"),
-                        }
-                    )
-                enriched_results.append(enriched)
-            return enriched_results
-        return filtered_results
+    # Optimization: Use matching_jobs map
+    job_metadata_map = {job["id"]: job for job in matching_jobs}
+
+    for result in tqdm(filtered_results, desc="Enriching results"):
+        chunk_meta = result.get("chunk_meta", {})
+        job_id = chunk_meta.get("doc_id", result.get("id", ""))
+
+        metadata = job_metadata_map.get(job_id)
+        if not metadata:
+            # Fallback if somehow missed, though it shouldn't happen due to filtering
+            metadata = _load_metadata_from_table(db_client, job_id)
+
+        entity_row = load_job_entities(job_id, db_client=db_client)
+
+        parent_id = chunk_meta.get("parent_id")
+        parent_content = parent_map.get(parent_id, result.get("content", ""))
+
+        enriched = {**result}
+        enriched["parent_content"] = parent_content
+
+        if metadata:
+            enriched.update(
+                {
+                    "job_title": metadata.get("title", result.get("header", "")),
+                    "company": metadata.get("company", result.get("parent_header", "")),
+                    "link": metadata.get("link", ""),
+                    "keywords": metadata.get("keywords", []),
+                    "entities": entity_row["entities"] if entity_row else None,
+                    "domain": metadata.get("domain"),
+                    "salary": metadata.get("salary"),
+                    "job_type": metadata.get("job_type"),
+                    "tags": metadata.get("tags"),
+                    "hours_per_week": metadata.get("hours_per_week"),
+                }
+            )
+
+        enriched_results.append(enriched)
+
+    return enriched_results
 
 
 class JobSearchResult(TypedDict, total=False):
@@ -1266,247 +1316,173 @@ def search_full_jobs(
     return final_results
 
 
-def filter_jobs_by_metadata(
-    where_conditions: dict[str, Any] | None = None,
-    title_ilike: str | None = None,
-    details_ilike: str | None = None,
-    limit: int | None = None,
-    db_client: PgVectorClient | None = None,
-    db_name: str = DEFAULT_JOBS_DB_NAME,
-) -> list[str]:
-    """
-    Filter jobs at the DB level using metadata columns and optional text search.
-    Returns list of matching job IDs.
-
-    Args:
-        where_conditions: Exact-match column filters (e.g., {"job_type": "Full-time"})
-        title_ilike: Case-insensitive LIKE pattern for title column (e.g., "%junior%")
-        details_ilike: Case-insensitive LIKE pattern for details column
-        limit: Max number of job IDs to return
-        db_client: Optional PgVectorClient instance
-        db_name: Name of the database to use if db_client is not provided.
-
-    Returns:
-        List of job IDs matching the filters
-    """
-    if not db_client:
-        db_client = PgVectorClient(dbname=db_name)
-
-    combined_where = dict(where_conditions) if where_conditions else {}
-    has_text_filter = title_ilike or details_ilike
-
-    if has_text_filter:
-        ilike_clauses = []
-        params: list[Any] = []
-        if title_ilike:
-            ilike_clauses.append("title ILIKE %s")
-            params.append(title_ilike)
-        if details_ilike:
-            ilike_clauses.append("details ILIKE %s")
-            params.append(details_ilike)
-
-        where_parts = []
-        for col, val in combined_where.items():
-            where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
-            params.append(val)
-
-        if ilike_clauses:
-            where_parts.append(
-                sql.SQL("(")
-                + sql.SQL(" OR ").join(map(sql.SQL, ilike_clauses))
-                + sql.SQL(")")
-            )
-
-        full_where = (
-            sql.SQL(" AND ").join(where_parts) if where_parts else sql.SQL("TRUE")
-        )
-        query = sql.SQL("SELECT id FROM {} WHERE {}").format(
-            sql.Identifier(DEFAULT_TABLE_DATA),
-            full_where,
-        )
-        if limit:
-            query = sql.SQL("{} LIMIT %s").format(query)
-            params.append(limit)
-
-        with db_client.conn.cursor() as cur:
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            job_ids = [row["id"] for row in rows]
-
-        logger.info(
-            f"DB metadata filter: {len(job_ids)} jobs matched "
-            f"(where={combined_where}, title_ilike={title_ilike}, details_ilike={details_ilike})"
-        )
-        return job_ids
-    else:
-        rows = db_client.get_rows(
-            DEFAULT_TABLE_DATA,
-            where_conditions=combined_where if combined_where else None,
-            limit=limit,
-        )
-        job_ids = [row["id"] for row in rows]
-        logger.info(
-            f"DB metadata filter: {len(job_ids)} jobs matched (where={combined_where})"
-        )
-        return job_ids
-
-
 def hybrid_search_jobs(
     query: str,
     top_k: int | None = 10,
     threshold: float | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
-    enrich_with_metadata: bool = True,
-    metadata_filters: dict[str, Any] | None = None,
-    title_ilike: str | None = None,
-    details_ilike: str | None = None,
+    posted_after: datetime | None = None,
+    posted_before: datetime | None = None,
+    where_conditions: dict[str, Any] | None = None,
     db_name: str = DEFAULT_JOBS_DB_NAME,
 ) -> list[HybridSearchResult]:
     """
     Hybrid search combining vector search with BM25 reranking.
-    Optionally pre-filters candidates at the DB metadata level before vector search.
-
-    NEW ARGS:
-        metadata_filters: Dict of exact-match column filters applied via SQL WHERE
-        before vector search (e.g., {"job_type": "Full-time"})
-        title_ilike: Case-insensitive LIKE pattern for title pre-filtering
-        details_ilike: Case-insensitive LIKE pattern for details pre-filtering
+    Pre-filters candidates at the DB job level before vector search.
     """
     from jet.vectors.reranker.bm25 import rerank_bm25
 
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
-    candidate_ids: list[str] | None = None
-    if metadata_filters or title_ilike or details_ilike:
-        candidate_ids = filter_jobs_by_metadata(
-            where_conditions=metadata_filters,
-            title_ilike=title_ilike,
-            details_ilike=details_ilike,
-            limit=top_k * 5 if top_k else None,
-            db_client=db_client,
+    # 1. Filter Jobs to get candidate IDs
+    matching_jobs = load_jobs_list(
+        db_client=db_client,
+        include_entities=False,
+        posted_after=posted_after,
+        posted_before=posted_before,
+        where_conditions=where_conditions,
+        db_name=db_name,
+    )
+
+    candidate_ids = [job["id"] for job in matching_jobs]
+
+    if not candidate_ids:
+        logger.warning("DB pre-filter returned 0 candidates; returning empty results")
+        return []
+
+    logger.info(
+        f"Pre-filtered to {len(candidate_ids)} candidate job IDs for hybrid search"
+    )
+
+    # 2. Get Embeddings for these candidates
+    # Note: candidate_ids are Job IDs. We need Chunk IDs.
+    # We need to find all chunks associated with these job IDs.
+    # current db_client.get_embeddings takes chunk IDs.
+    # We need a way to get chunk IDs from job IDs.
+    # Looking at schema: job_chunks.chunk_meta->>'doc_id' is the job ID.
+    # QueryExecutor.get_rows supports where_conditions but not JSONB querying easily in the generic helper.
+    # However, we can use execute_raw_query or adjust logic.
+
+    # Alternative: Fetch all chunks for these job IDs using raw SQL or helper.
+    # Let's use a raw query to get chunk IDs and content for these jobs.
+
+    with db_client.conn.cursor() as cur:
+        # Get chunk IDs and content for candidate jobs
+        cur.execute(
+            """
+            SELECT id, content, header, parent_header, chunk_meta 
+            FROM job_chunks 
+            WHERE chunk_meta->>'doc_id' = ANY(%s)
+        """,
+            (candidate_ids,),
         )
-        if not candidate_ids:
-            logger.warning(
-                "DB pre-filter returned 0 candidates; returning empty results"
-            )
-            return []
-        logger.info(
-            f"Pre-filtered to {len(candidate_ids)} candidate job IDs for hybrid search"
+        rows = cur.fetchall()
+
+    if not rows:
+        logger.warning("No chunks found for pre-filtered candidate IDs")
+        return []
+
+    raw_results = []
+    chunk_ids = []
+    documents = []
+    metadatas = []
+
+    for row in rows:
+        chunk_id = row["id"]
+        chunk_ids.append(chunk_id)
+        raw_results.append(
+            {
+                "id": chunk_id,
+                "content": row["content"],
+                "header": row["header"],
+                "parent_header": row["parent_header"],
+                "chunk_meta": row["chunk_meta"],
+                "score": 1.0,  # Placeholder
+            }
+        )
+        documents.append(row["content"])
+        metadatas.append(
+            {
+                "parent_id": row["chunk_meta"].get("parent_id"),
+                "doc_id": row["chunk_meta"].get("doc_id"),
+                "chunk_index": row["chunk_meta"].get("chunk_index"),
+                "start_idx": row["chunk_meta"].get("start_idx"),
+                "end_idx": row["chunk_meta"].get("end_idx"),
+                "num_tokens": row["chunk_meta"].get("num_tokens"),
+                "header": row["header"],
+                "parent_header": row["parent_header"],
+            }
         )
 
-    if candidate_ids is not None:
-        candidate_embeddings = db_client.get_embeddings(
-            DEFAULT_TABLE_CHUNKS, ids=candidate_ids
-        )
-        if not candidate_embeddings:
-            logger.warning("No embeddings found for pre-filtered candidate IDs")
-            return []
+    # 3. Rerank with BM25
+    # Note: BM25 reranker usually takes query, docs, ids.
+    # The previous implementation called rerank_bm25(query, documents, ids, metadatas).
 
-        raw_results = []
-        for chunk_id in candidate_ids:
-            emb = candidate_embeddings.get(chunk_id)
-            if emb is None:
-                continue
-            row = db_client.get_row(DEFAULT_TABLE_CHUNKS, chunk_id)
-            if not row:
-                continue
-            raw_results.append(
-                {
-                    "id": chunk_id,
-                    "content": row.get("content", ""),
-                    "header": row.get("header", ""),
-                    "parent_header": row.get("parent_header", ""),
-                    "chunk_meta": row.get("chunk_meta", {}),
-                    "score": 1.0,
-                }
-            )
-    else:
-        raw_results = search_jobs(
-            query=query,
-            top_k=top_k,
-            threshold=threshold,
-            embed_model=embed_model,
-            db_client=db_client,
-            enrich_with_metadata=False,
-        )
-
-    ids = [result["id"] for result in raw_results]
-    documents = [f"{result['content']}" for result in raw_results]
-    metadatas = [
-        {
-            "parent_id": result["chunk_meta"].get("parent_id"),
-            "doc_id": result["chunk_meta"].get("doc_id"),
-            "chunk_index": result["chunk_meta"].get("chunk_index"),
-            "start_idx": result["chunk_meta"].get("start_idx"),
-            "end_idx": result["chunk_meta"].get("end_idx"),
-            "num_tokens": result["chunk_meta"].get("num_tokens"),
-            "header": result.get("header", ""),
-            "parent_header": result.get("parent_header", ""),
-        }
-        for result in raw_results
-    ]
-
-    query_candidates, reranked_results = rerank_bm25(query, documents, ids, metadatas)
+    query_candidates, reranked_results = rerank_bm25(
+        query, documents, chunk_ids, metadatas
+    )
 
     filtered_results = [
         result for result in reranked_results if is_valid_score(result.get("score"))
     ]
-    removed_count = len(reranked_results) - len(filtered_results)
-    if removed_count > 0:
-        logger.debug(
-            f"Filtered out {removed_count} reranked results with invalid scores"
-        )
 
-    if enrich_with_metadata and db_client:
-        parent_map = _resolve_parents_from_children(filtered_results, db_client)
-        enriched_results = []
-        for result in filtered_results:
-            chunk_meta = result.get("metadata", {})
-            doc_id = chunk_meta.get("doc_id", "")
-            if not doc_id:
-                doc_id = result.get("id", "")
+    # Limit to top_k
+    if top_k:
+        filtered_results = filtered_results[:top_k]
 
+    # 4. Enrich with Metadata
+    # We already have matching_jobs map
+    job_metadata_map = {job["id"]: job for job in matching_jobs}
+
+    parent_map = _resolve_parents_from_children(filtered_results, db_client)
+    enriched_results = []
+
+    for result in filtered_results:
+        chunk_meta = result.get(
+            "metadata", {}
+        )  # BM25 result structure might differ slightly
+        doc_id = chunk_meta.get("doc_id", "")
+        if not doc_id:
+            doc_id = result.get("id", "")  # Fallback, though unlikely for hybrid
+
+        metadata = job_metadata_map.get(doc_id)
+        if not metadata:
             metadata = _load_metadata_from_table(db_client, doc_id)
-            entity_row = load_job_entities(doc_id, db_client=db_client)
 
-            parent_id = chunk_meta.get("parent_id")
-            parent_content = parent_map.get(parent_id, result.get("text", ""))
+        entity_row = load_job_entities(doc_id, db_client=db_client)
 
-            enriched = {**result}
-            enriched["parent_content"] = parent_content
-            enriched["header"] = chunk_meta.pop("header", "")
-            enriched["parent_header"] = chunk_meta.pop("parent_header", "")
-            enriched["metadata"] = chunk_meta
+        parent_id = chunk_meta.get("parent_id")
+        parent_content = parent_map.get(parent_id, result.get("text", ""))
 
-            if metadata:
-                enriched.update(
-                    {
-                        "job_title": metadata.get("title", ""),
-                        "company": metadata.get("company", ""),
-                        "link": metadata.get("link", ""),
-                        "keywords": metadata.get("keywords", []),
-                        "entities": entity_row["entities"] if entity_row else None,
-                        "domain": metadata.get("domain"),
-                        "salary": metadata.get("salary"),
-                        "job_type": metadata.get("job_type"),
-                        "tags": metadata.get("tags"),
-                        "hours_per_week": metadata.get("hours_per_week"),
-                    }
-                )
-            else:
-                logger.warning(
-                    f"No metadata found for doc_id='{doc_id}' (chunk_id={result.get('id')})"
-                )
-            enriched_results.append(enriched)
+        enriched = {**result}
+        enriched["parent_content"] = parent_content
+        enriched["header"] = chunk_meta.pop("header", "")
+        enriched["parent_header"] = chunk_meta.pop("parent_header", "")
+        enriched["metadata"] = chunk_meta
 
-        logger.debug(
-            f"Enriched {len(enriched_results)} hybrid search results with metadata + parent content"
-        )
-        return enriched_results
+        if metadata:
+            enriched.update(
+                {
+                    "job_title": metadata.get("title", ""),
+                    "company": metadata.get("company", ""),
+                    "link": metadata.get("link", ""),
+                    "keywords": metadata.get("keywords", []),
+                    "entities": entity_row["entities"] if entity_row else None,
+                    "domain": metadata.get("domain"),
+                    "salary": metadata.get("salary"),
+                    "job_type": metadata.get("job_type"),
+                    "tags": metadata.get("tags"),
+                    "hours_per_week": metadata.get("hours_per_week"),
+                }
+            )
+        else:
+            logger.warning(f"No metadata found for doc_id='{doc_id}'")
 
-    return filtered_results
+        enriched_results.append(enriched)
+
+    return enriched_results
 
 
 def _ensure_summaries_table(db_client: PgVectorClient) -> None:
