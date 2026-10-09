@@ -1,11 +1,44 @@
+"""
+PostgreSQL Context Generator for RAG (Retrieval-Augmented Generation)
+
+Generates comprehensive database schema, metadata, sample data, and query guidance
+from PostgreSQL databases. The output is formatted as markdown text suitable for
+inclusion in LLM prompts to provide context about database structure and content.
+
+Usage Examples:
+    # Generate context for all tables in public schema
+    from jet.db.metadata.postgres_context_generator import generate_rag_context
+    context = generate_rag_context("postgresql://user:pass@localhost:5432/db")
+
+    # Generate context for specific tables only (comma-separated)
+    context = generate_rag_context(
+        "postgresql://user:pass@localhost:5432/db",
+        tables_filter=["users", "orders", "products"]
+    )
+
+    # With custom settings
+    from jet.db.metadata.postgres_context_generator import ContextSettings
+    settings = ContextSettings(sample_rows=5, include_stats=False)
+    context = generate_rag_context(
+        "postgresql://user:pass@localhost:5432/db",
+        tables_filter=["jobs", "entities"],
+        settings=settings
+    )
+
+    # Command line usage:
+    # python postgres_context_generator.py -t jobs,entities -r 5 -c 80
+    # python postgres_context_generator.py --tables users,orders,products
+"""
+
 import argparse
+import json
 import logging
 import os
 import re
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import psycopg2
 from psycopg2 import sql
@@ -13,8 +46,6 @@ from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger(__name__)
 
-# Postgres type categories (pg_type.typcategory) that are cheap and safe to COUNT(DISTINCT).
-# N = numeric, D = date/time, B = boolean. Everything else is hashed via md5(col::text).
 SIMPLE_CATEGORIES = {"N", "D", "B"}
 BINARY_TYPES = {"bytea"}
 
@@ -23,28 +54,20 @@ BINARY_TYPES = {"bytea"}
 class ContextSettings:
     """All tunable options in one place. Defaults match the original behavior."""
 
-    # --- Sample data
-    sample_rows: int = 3  # rows shown per table
-    sample_chars: int = 50  # max characters per cell (longer values end with "…")
-    header_chars: int = 60  # max characters per column header in sample tables
-    # Per-column cell limits. Keys: "column" (any table) or "table.column" (most specific wins)
+    sample_rows: int = 3
+    sample_chars: int = 50
+    header_chars: int = 60
     column_sample_chars: Dict[str, int] = field(default_factory=dict)
-    # Columns whose values are replaced by <hidden>. Keys: "column" or "table.column"
     exclude_sample_columns: Set[str] = field(default_factory=set)
-
-    # --- Statistics
-    max_stats_tables: Optional[int] = 5  # None = all tables
-
-    # --- Safety
-    statement_timeout_ms: int = 30000  # per-query time limit
-
-    # --- Sections on/off
+    max_stats_tables: Optional[int] = 5
+    statement_timeout_ms: int = 30000
     include_foreign_keys: bool = True
     include_indexes: bool = True
     include_stats: bool = True
     include_samples: bool = True
     include_query_guidance: bool = True
-    common_columns_limit: int = 20  # names listed in the guidance section
+    include_jsonb_metadata: bool = True
+    common_columns_limit: int = 20
 
     def __post_init__(self):
         """Fail early on values that would produce broken SQL or empty output."""
@@ -79,7 +102,6 @@ class PostgresContextGenerator:
         self.settings = settings or ContextSettings()
         self.conn = None
 
-    # ------------------------------------------------------------------ connection
     def connect(self):
         """Open a read-only, autocommit connection (a failed query can't poison later ones)."""
         try:
@@ -106,7 +128,6 @@ class PostgresContextGenerator:
     def __exit__(self, *exc):
         self.disconnect()
 
-    # ------------------------------------------------------------------ helpers
     @staticmethod
     def _table(schema: str, table: str) -> sql.Composed:
         """Safely quoted schema.table identifier."""
@@ -142,7 +163,6 @@ class PostgresContextGenerator:
         hidden = self.settings.exclude_sample_columns
         return f"{table}.{column}" in hidden or column in hidden
 
-    # ------------------------------------------------------------------ metadata
     def get_all_tables(self, schema: str = "public") -> List[str]:
         with self.conn.cursor() as cursor:
             cursor.execute(
@@ -295,7 +315,6 @@ class PostgresContextGenerator:
             )
             return [dict(row) for row in cursor.fetchall()]
 
-    # ------------------------------------------------------------------ sample data
     def get_sample_data(
         self,
         table_name: str,
@@ -317,7 +336,6 @@ class PostgresContextGenerator:
         )
         if not columns:
             return []
-
         select_parts = []
         for col in columns:
             ident = sql.Identifier(col["name"])
@@ -330,14 +348,12 @@ class PostgresContextGenerator:
                     ).format(c=ident)
                 )
             else:
-                # n+1 characters lets _format_cell know the value was cut
                 n = self._chars_for(table_name, col["name"]) + 1
                 select_parts.append(
                     sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
                         c=ident, n=sql.Literal(n)
                     )
                 )
-
         query = sql.SQL("SELECT {cols} FROM {tbl} LIMIT {lim}").format(
             cols=sql.SQL(", ").join(select_parts),
             tbl=self._table(schema, table_name),
@@ -353,7 +369,6 @@ class PostgresContextGenerator:
         logger.info("Sampled %d rows from %s.%s", len(rows), schema, table_name)
         return rows
 
-    # ------------------------------------------------------------------ statistics
     @staticmethod
     def _distinct_expr(col: Dict) -> sql.Composable:
         """
@@ -391,7 +406,6 @@ class PostgresContextGenerator:
         with self.conn.cursor() as cursor:
             cursor.execute(query)
             row = cursor.fetchone()
-
         total = row["total"]
         return {
             col["name"]: {
@@ -430,7 +444,6 @@ class PostgresContextGenerator:
                 table_name,
                 e,
             )
-
         stats: Dict[str, Dict] = {}
         for col in columns:
             try:
@@ -441,7 +454,247 @@ class PostgresContextGenerator:
                 )
         return stats
 
-    # ------------------------------------------------------------------ context builder
+    def get_jsonb_sample_structure(
+        self, table_name: str, column_name: str, schema: str = "public"
+    ) -> Optional[Any]:
+        """Extract representative JSON structure from a jsonb column."""
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        "SELECT {col} FROM {tbl} WHERE {col} IS NOT NULL LIMIT 1"
+                    ).format(
+                        col=sql.Identifier(column_name),
+                        tbl=self._table(schema, table_name),
+                    )
+                )
+                row = cursor.fetchone()
+                if row and row[column_name] is not None:
+                    return row[column_name]
+        except Exception as e:
+            logger.warning(
+                "Failed to sample JSON structure for %s.%s: %s",
+                table_name,
+                column_name,
+                e,
+            )
+        return None
+
+    def get_jsonb_key_stats(
+        self, table_name: str, column_name: str, schema: str = "public"
+    ) -> Dict[str, int]:
+        """Count frequency of top-level JSON object keys."""
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        SELECT key, COUNT(*) AS freq
+                        FROM {tbl}, jsonb_object_keys({col}) AS key
+                        WHERE {col} IS NOT NULL AND jsonb_typeof({col}) = 'object'
+                        GROUP BY key
+                        ORDER BY freq DESC
+                        LIMIT 20
+                        """
+                    ).format(
+                        tbl=self._table(schema, table_name),
+                        col=sql.Identifier(column_name),
+                    )
+                )
+                return {row["key"]: row["freq"] for row in cursor.fetchall()}
+        except Exception as e:
+            logger.warning(
+                "Failed to analyze JSON keys for %s.%s: %s",
+                table_name,
+                column_name,
+                e,
+            )
+            return {}
+
+    def _infer_json_type(self, value: Any) -> str:
+        """Infer the PostgreSQL/JSON type of a value."""
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int):
+            return "integer"
+        if isinstance(value, float):
+            return "numeric"
+        if isinstance(value, str):
+            return "text"
+        if isinstance(value, list):
+            return "array"
+        if isinstance(value, dict):
+            return "object"
+        return "unknown"
+
+    def get_jsonb_key_types(
+        self, table_name: str, column_name: str, schema: str = "public"
+    ) -> Dict[str, str]:
+        """
+        Infer the type of each top-level key in a jsonb object column
+        using a single aggregated query. Ignores null values to find the
+        actual data type used when the field is populated.
+        """
+        try:
+            with self.conn.cursor() as cursor:
+                # Extract all keys and their jsonb_typeof from non-null jsonb objects
+                # We scan up to 5000 rows to ensure we catch sparse fields
+                cursor.execute(
+                    sql.SQL("""
+                        SELECT key, jsonb_typeof(value) as type
+                        FROM {tbl}, jsonb_each({col})
+                        WHERE {col} IS NOT NULL AND jsonb_typeof({col}) = 'object'
+                        LIMIT 5000
+                    """).format(
+                        tbl=self._table(schema, table_name),
+                        col=sql.Identifier(column_name),
+                    )
+                )
+
+                rows = cursor.fetchall()
+                key_types: Dict[str, Set[str]] = {}
+
+                for row in rows:
+                    key = row["key"]
+                    pg_type = row["type"]
+
+                    if key not in key_types:
+                        key_types[key] = set()
+                    key_types[key].add(pg_type)
+
+                # Resolve final types
+                resolved_types: Dict[str, str] = {}
+                type_map = {
+                    "string": "text",
+                    "number": "numeric",
+                    "boolean": "boolean",
+                    "array": "array",
+                    "object": "object",
+                }
+
+                for key, types in key_types.items():
+                    # Remove 'null' from consideration to find the actual data type
+                    clean_types = types - {"null"}
+
+                    if not clean_types:
+                        # If only nulls were found, mark as null
+                        resolved_types[key] = "null"
+                    elif len(clean_types) == 1:
+                        pg_t = clean_types.pop()
+                        resolved_types[key] = type_map.get(pg_t, "unknown")
+                    else:
+                        # Mixed types: prefer text if string is involved, else numeric
+                        if "string" in clean_types:
+                            resolved_types[key] = "text"
+                        elif "number" in clean_types:
+                            resolved_types[key] = "numeric"
+                        else:
+                            resolved_types[key] = "mixed"
+
+                return resolved_types
+
+        except Exception as e:
+            logger.warning(
+                "Failed to analyze JSON key types for %s.%s: %s",
+                table_name,
+                column_name,
+                e,
+            )
+            return {}
+
+    def _format_json_value(self, value: Any, max_chars: int = 50) -> Any:
+        """
+        Recursively format JSON values for display.
+        - Keeps native types (bool, int, float, null) so json.dumps renders them correctly.
+        - Truncates strings.
+        - Truncates lists to first 3 items.
+        """
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return round(value, 4)
+        if isinstance(value, str):
+            if len(value) > max_chars:
+                return value[:max_chars] + "..."
+            return value
+        if isinstance(value, list):
+            if not value:
+                return []
+            items = [self._format_json_value(v, max_chars) for v in value[:3]]
+            if len(value) > 3:
+                items.append("...")
+            return items
+        if isinstance(value, dict):
+            if not value:
+                return {}
+            result = {}
+            keys = list(value.keys())[:5]
+            for k in keys:
+                result[k] = self._format_json_value(value[k], max_chars)
+            if len(value) > 5:
+                result["..."] = "..."
+            return result
+        return str(value)
+
+    def get_jsonb_metadata(self, table_name: str, schema: str = "public") -> List[str]:
+        """Generate metadata lines for all jsonb columns in a table."""
+        columns = self.get_table_columns(table_name, schema)
+        jsonb_cols = [c for c in columns if c["base_type"] == "jsonb"]
+
+        if not jsonb_cols:
+            return []
+
+        lines: List[str] = [f"\n### JSONB Columns in {schema}.{table_name}"]
+        for col in jsonb_cols:
+            col_name = col["name"]
+            struct = self.get_jsonb_sample_structure(table_name, col_name, schema)
+            key_types = self.get_jsonb_key_types(table_name, col_name, schema)
+
+            lines.append(f"\n**`{col_name}`**:")
+            if struct is not None:
+                if isinstance(struct, dict):
+                    lines.append("- Type: Object")
+
+                    if key_types:
+                        sorted_keys = sorted(key_types.items())
+                        type_strings = [f"{k} ({v})" for k, v in sorted_keys]
+                        lines.append(f"- Keys & Types: {', '.join(type_strings)}")
+
+                    formatted_sample = {}
+                    for k, v in struct.items():
+                        formatted_sample[k] = self._format_json_value(v, max_chars=80)
+
+                    try:
+                        sample_str = json.dumps(
+                            formatted_sample, indent=2, ensure_ascii=False
+                        )
+                        lines.append(f"- Sample Structure:\n```json\n{sample_str}\n```")
+                    except (TypeError, ValueError):
+                        lines.append(f"- Sample: {str(struct)[:200]}")
+
+                elif isinstance(struct, list):
+                    lines.append("- Type: Array")
+                    if struct:
+                        elem_type = self._infer_json_type(struct[0])
+                        lines.append(f"- Element type: {elem_type}")
+                        preview = [self._format_json_value(e, 60) for e in struct[:3]]
+                        lines.append(f"- Sample elements: {preview}")
+                    else:
+                        lines.append("- Empty array in sample")
+                else:
+                    lines.append(f"- Type: {self._infer_json_type(struct)}")
+                    lines.append(f"- Sample: {str(struct)[:200]}")
+            else:
+                lines.append("- No non-null samples found")
+
+        return lines
+
     def generate_rag_context(self, schema: str = "public") -> str:
         """Generate comprehensive RAG context string for the LLM."""
         logger.info("Generating context for schema '%s'", schema)
@@ -460,11 +713,9 @@ class PostgresContextGenerator:
             "=" * 80,
             "",
         ]
-
         schemas = self.get_all_schemas()
         tables = self.get_filtered_tables(schema)
         cols_by_table = {t: self.get_table_columns(t, schema) for t in tables}
-
         out += [
             "## DATABASE OVERVIEW",
             f"Available Schemas: {', '.join(schemas)}",
@@ -475,7 +726,6 @@ class PostgresContextGenerator:
         if self.tables_filter:
             out.append(f"Filter Applied: {', '.join(self.tables_filter)}")
         out += ["", "## TABLE SCHEMAS", "-" * 80]
-
         for table in tables:
             columns = cols_by_table[table]
             count = self.get_row_count(table, schema)
@@ -485,13 +735,11 @@ class PostgresContextGenerator:
             schema_sql = self.get_table_schema(table, schema, columns)
             if schema_sql:
                 out.append(f"```sql\n{schema_sql}\n```")
-
             out.append("\n**Columns:**")
             for col in columns:
                 pk = " [PK]" if col["pk"] else ""
                 nullable = "" if col["notnull"] else " (nullable)"
                 out.append(f"- `{col['name']}`: {col['type']}{pk}{nullable}")
-
             fks = (
                 self.get_foreign_keys(table, schema) if cfg.include_foreign_keys else []
             )
@@ -502,7 +750,6 @@ class PostgresContextGenerator:
                         f"- `{fk['source_column']}` → "
                         f"`{fk['target_schema']}.{fk['target_table']}.{fk['target_column']}`"
                     )
-
             idxs = self.get_indexes(table, schema) if cfg.include_indexes else []
             if idxs:
                 out.append("\n**Indexes:**")
@@ -511,7 +758,6 @@ class PostgresContextGenerator:
                         " [PRIMARY]" if idx["is_primary"] else ""
                     )
                     out.append(f"- `{idx['index_name']}`{flags}: {idx['definition']}")
-
         stats_tables: List[str] = []
         if cfg.include_stats:
             out += ["", "## COLUMN STATISTICS SUMMARY", "-" * 80]
@@ -534,6 +780,17 @@ class PostgresContextGenerator:
                     f"| `{self._format_cell(name, 200)}` | {s['type']} | {s['distinct_count']} | {s['null_percentage']}% |"
                 )
 
+        # JSONB metadata section
+        if cfg.include_jsonb_metadata:
+            has_jsonb = any(
+                any(c["base_type"] == "jsonb" for c in cols_by_table[t]) for t in tables
+            )
+            if has_jsonb:
+                out += ["", "## JSONB COLUMN METADATA", "-" * 80]
+                for table in tables:
+                    jsonb_meta = self.get_jsonb_metadata(table, schema)
+                    out += jsonb_meta
+
         sample_tables = tables if cfg.include_samples and cfg.sample_rows > 0 else []
         if sample_tables:
             out += ["", "## SAMPLE DATA", "-" * 80]
@@ -554,7 +811,6 @@ class PostgresContextGenerator:
                     self._format_cell(row[n], self._chars_for(table, n)) for n in names
                 )
                 out.append("| " + " | ".join(cells) + " |")
-
         common = {}
         for table in tables:
             for col in cols_by_table[table]:
@@ -563,7 +819,6 @@ class PostgresContextGenerator:
         common_cols = ", ".join(list(common)[:limit]) + (
             "..." if len(common) > limit else ""
         )
-
         guidance = [
             "",
             "## QUERY GUIDANCE FOR DYNAMIC POSTGRESQL QUERIES",
@@ -602,6 +857,27 @@ class PostgresContextGenerator:
             "- Consider NULL handling in filters (IS NULL / IS NOT NULL)",
             "- Use LIMIT for large tables to avoid memory issues",
         ]
+
+        # Add JSONB-specific query patterns if jsonb columns exist
+        if cfg.include_jsonb_metadata and has_jsonb:
+            guidance += [
+                "",
+                "**JSONB Query Patterns (GIN index supported):**",
+                "```sql",
+                "-- Check if jsonb array contains a value",
+                f"SELECT * FROM {schema}.jobs WHERE tags @> '[\"remote\"]'::jsonb;",
+                "",
+                "-- Check if jsonb object has a key",
+                f"SELECT * FROM {schema}.job_entities WHERE entities ? 'work_mode';",
+                "",
+                "-- Check if jsonb object has key-value pair",
+                f'SELECT * FROM {schema}.job_entities WHERE entities @> \'{{"work_mode": "remote"}}\'::jsonb;',
+                "",
+                "-- Extract specific value from jsonb",
+                f"SELECT entities->>'work_mode' AS work_mode FROM {schema}.job_entities;",
+                "```",
+            ]
+
         if cfg.include_query_guidance:
             out += guidance
         out.append("=" * 80)
@@ -622,7 +898,6 @@ def generate_rag_context(
     return generator.generate_rag_context(schema=schema)
 
 
-# ====================================================================== CLI
 DEFAULT_DB_URL = "postgresql://jethroestrada:@localhost:5432/jobs_db3"
 DEFAULT_OUTPUT = (
     Path(__file__).parent
@@ -668,13 +943,12 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         epilog=(
             "examples:\n"
             "  %(prog)s                                        # all defaults\n"
-            "  %(prog)s -t jobs entities -r 5 -c 80            # two tables, 5 rows, 80 chars\n"
+            "  %(prog)s -t jobs,entities -r 5 -c 80            # two tables, 5 rows, 80 chars\n"
             "  %(prog)s -C description=300 -C jobs.title=100   # per-column cell limits\n"
-            "  %(prog)s -x email users.phone -m all            # hide columns, stats for all tables\n"
+            "  %(prog)s -x email,users.phone -m all            # hide columns, stats for all tables\n"
             "  %(prog)s --no-indexes --no-guidance -p 0        # smaller output, no preview\n"
         ),
     )
-
     conn = parser.add_argument_group("connection and output")
     conn.add_argument(
         "-u",
@@ -691,10 +965,10 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     conn.add_argument(
         "-t",
         "--tables",
-        nargs="+",
-        metavar="TABLE",
+        type=str,
+        metavar="TABLES",
         default=None,
-        help="Only include these tables (default: all tables)",
+        help="Comma-separated list of tables to include (default: all tables)",
     )
     conn.add_argument(
         "-o",
@@ -717,7 +991,6 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Log level (default: %(default)s)",
     )
-
     samples = parser.add_argument_group("sample data")
     samples.add_argument(
         "-r",
@@ -759,7 +1032,6 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Show <hidden> instead of values for these columns ('column' or 'table.column')",
     )
-
     stats = parser.add_argument_group("statistics and safety")
     stats.add_argument(
         "-m",
@@ -785,7 +1057,6 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=d.common_columns_limit,
         help="Column names listed in the guidance section (default: %(default)s)",
     )
-
     sections = parser.add_argument_group("sections (turn off with --no-<name>)")
     for flag, name, label in [
         ("foreign-keys", "include_foreign_keys", "foreign keys"),
@@ -793,6 +1064,7 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         ("stats", "include_stats", "column statistics"),
         ("samples", "include_samples", "sample data"),
         ("guidance", "include_query_guidance", "query guidance"),
+        ("jsonb-metadata", "include_jsonb_metadata", "JSONB metadata"),
     ]:
         sections.add_argument(
             f"--{flag}",
@@ -801,12 +1073,16 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
             default=getattr(d, name),
             help=f"Include {label} (default: %(default)s)",
         )
-
     args = parser.parse_args(argv)
+
+    # Parse comma-separated tables if provided
+    if args.tables:
+        args.tables = [tbl.strip() for tbl in args.tables.split(",") if tbl.strip()]
+
     try:
         args.settings = build_settings(args)
     except ValueError as e:
-        parser.error(str(e))  # clean message and exit code 2
+        parser.error(str(e))
     return args
 
 
@@ -824,12 +1100,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         level=args.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     logger.info("Settings: %s", args.settings)
-
     db_url = args.db_url or os.getenv("DATABASE_URL") or DEFAULT_DB_URL
     context = generate_rag_context(
         db_url, schema=args.schema, tables_filter=args.tables, settings=args.settings
     )
-
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(context)
     if args.preview_chars > 0:
