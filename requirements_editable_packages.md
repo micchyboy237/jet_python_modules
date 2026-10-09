@@ -1,6 +1,5 @@
 Package                            Version            Editable project location
 ---------------------------------- ------------------ ----------------------------------------------------------------------------------------------------------------------------------------------
-arize-phoenix-otel                 0.17.1             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-otel
 audioflux                          0.1.9              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux
 bertopic                           0.17.4             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic
 chonkie                            1.7.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/chonkie

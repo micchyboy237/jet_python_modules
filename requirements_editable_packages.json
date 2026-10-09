@@ -1,10 +1,5 @@
 [
     {
-        "name": "arize-phoenix-otel",
-        "version": "0.17.1",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-otel"
-    },
-    {
         "name": "audioflux",
         "version": "0.1.9",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux"

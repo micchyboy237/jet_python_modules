@@ -1,7 +1,7 @@
 arize-phoenix                            20.16.0
 arize-phoenix-client                     3.5.0
 arize-phoenix-evals                      3.9.0
-arize-phoenix-otel                       0.17.1             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-otel
+arize-phoenix-otel                       0.17.1
 arize-phoenix-sqlean                     0.1.2
 openinference-instrumentation            0.1.66
 openinference-instrumentation-openai     0.1.53

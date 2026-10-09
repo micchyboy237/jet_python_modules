@@ -13,8 +13,7 @@
   },
   {
     "name": "arize-phoenix-otel",
-    "version": "0.17.1",
-    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix/packages/phoenix-otel"
+    "version": "0.17.1"
   },
   {
     "name": "arize-phoenix-sqlean",
