@@ -1,8 +1,7 @@
+from datetime import datetime
 from typing import TypedDict
 
 from shared.data_types.job_analytics import JobAnalytics
-
-# from shared.data_types.job_entities import JobEntities
 
 JobAnalytics = JobAnalytics
 JobEntities = JobAnalytics
@@ -21,7 +20,8 @@ class JobData(TypedDict, total=False):
     link: str
     title: str
     company: str
-    posted_date: str | None
+    # DB now returns datetime objects for posted_date
+    posted_date: datetime | str | None
     keywords: list[str] | None
     details: str | None
     entities: JobEntities | None
@@ -29,7 +29,8 @@ class JobData(TypedDict, total=False):
     domain: str | None
     salary: str | None
     job_type: str | None
-    hours_per_week: int | None
+    # DB now stores this as INTEGER
+    hours_per_week: int | str | None
 
 
 class ChunkMeta(TypedDict, total=False):
@@ -47,7 +48,6 @@ class ChunkMeta(TypedDict, total=False):
     content_hash: str
     parent_level: int
     header_doc_id: str
-    # Additional fields observed in save_job_embeddings
     chunk_role: str
     parent_chunk_index: int
     child_index_within_parent: int
@@ -64,7 +64,7 @@ class JobChunkData(TypedDict, total=False):
     header: str | None
     parent_header: str | None
     content: str | None
-    posted_date: str | None
+    posted_date: datetime | str | None
     chunk_meta: ChunkMeta | None
     created_at: str | None
     updated_at: str | None
@@ -72,7 +72,6 @@ class JobChunkData(TypedDict, total=False):
 
 class HybridMatchInfo(TypedDict, total=False):
     """BM25 keyword match counts from hybrid search reranking.
-
     Keys are dynamic lowercase query terms, values are match counts.
     Example: {"ai": 10, "llm": 5}
     """
@@ -91,7 +90,7 @@ class HybridResultMetadata(TypedDict, total=False):
     num_tokens: int
     parent_header: str
     header: str
-    parent_content: str  # Full parent section text (PDR)
+    parent_content: str
 
 
 class VectorSearchResult(TypedDict, total=False):
@@ -100,7 +99,6 @@ class VectorSearchResult(TypedDict, total=False):
     rank: int
     score: float
     id: str
-    # Enriched job fields (flattened from metadata table)
     job_title: str
     company: str
     link: str
@@ -111,13 +109,12 @@ class VectorSearchResult(TypedDict, total=False):
     job_type: str | None
     tags: list[str] | None
     hours_per_week: int | None
-    # Chunk-level fields
     parent_header: str
     header: str
-    parent_content: str  # Full parent section text (PDR)
+    parent_content: str
     content: str
     chunk_meta: ChunkMeta
-    posted_date: str | None
+    posted_date: datetime | str | None
     created_at: str | None
     updated_at: str | None
 
@@ -132,8 +129,7 @@ class HybridSearchResult(TypedDict, total=False):
     matched: HybridMatchInfo
     text: str
     metadata: HybridResultMetadata
-    # Optionally enriched job fields (when enrich_with_metadata=True)
-    parent_content: str  # Full parent section text (PDR)
+    parent_content: str
     job_title: str
     company: str
     link: str
@@ -146,7 +142,6 @@ class HybridSearchResult(TypedDict, total=False):
     hours_per_week: int | None
 
 
-# Backward-compatible alias pointing to the more accurate vector result type
 JobSearchResult = VectorSearchResult
 
 
@@ -183,7 +178,7 @@ class TableJobRow(TypedDict, total=False):
     num_tokens: int
     updated_at: str
     chunk_index: int
-    posted_date: str
+    posted_date: datetime | str
     content_hash: str
     parent_level: int
     header_doc_id: str
@@ -200,5 +195,5 @@ class TableJobMetadata(TypedDict, total=False):
     entities: JobEntities
     job_type: str | None
     keywords: list[str]
-    posted_date: str
+    posted_date: datetime | str
     hours_per_week: int | None

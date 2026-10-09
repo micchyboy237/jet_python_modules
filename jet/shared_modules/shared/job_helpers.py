@@ -71,9 +71,11 @@ def _ensure_entities_table(
     Ensure the job_entities table exists with proper schema.
     Stores extracted entities with provenance metadata.
     """
+    # UPDATED: Added job_id column and FK constraint
     query = sql.SQL("""
     CREATE TABLE IF NOT EXISTS {} (
         id              TEXT PRIMARY KEY,
+        job_id          TEXT NOT NULL REFERENCES public.jobs(id) ON DELETE CASCADE,
         model_name      TEXT,
         temperature     NUMERIC,
         extracted_at    TIMESTAMPTZ,
@@ -81,7 +83,16 @@ def _ensure_entities_table(
         created_at      TIMESTAMPTZ DEFAULT NOW(),
         updated_at      TIMESTAMPTZ DEFAULT NOW()
     );
-    """).format(sql.Identifier(table_name))
+    CREATE INDEX IF NOT EXISTS idx_job_entities_job_id ON {}(job_id);
+    CREATE INDEX IF NOT EXISTS idx_job_entities_gin ON {} USING gin (entities);
+    CREATE INDEX IF NOT EXISTS idx_job_entities_extracted_at ON {}(extracted_at);
+    """).format(
+        sql.Identifier(table_name),
+        sql.Identifier(table_name),
+        sql.Identifier(table_name),
+        sql.Identifier(table_name),
+    )
+
     with db_client.conn.cursor() as cur:
         cur.execute(query)
     logger.debug(f"Ensured entities table '{table_name}' exists.")
@@ -203,20 +214,22 @@ def save_job_entities(
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=db_name)
-
-    # Ensure the table exists before trying to insert/update
     _ensure_entities_table(db_client)
 
+    # UPDATED: Explicitly include job_id in the row data
     row_data = {
         "id": job_id,
+        "job_id": job_id,  # ✅ Required for FK and NOT NULL constraint
         "model_name": model_name,
         "temperature": temperature,
         "extracted_at": datetime.now().astimezone(),
         "entities": _serialize_for_jsonb(entities),
     }
+
     with db_client:
         db_client.create_or_update_row(DEFAULT_TABLE_ENTITIES, row_data)
         db_client.commit()
+
     logger.success(
         f"Saved entities for job {job_id} (model={model_name}, temp={temperature})"
     )
@@ -243,16 +256,18 @@ def load_jobs_list(
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=db_name)
+
     try:
         if include_entities:
             _ensure_entities_table(db_client)
 
         with db_client:
             if include_entities:
+                # UPDATED: Join on e.job_id instead of e.id for explicit FK usage
                 base_query = sql.SQL("""
                     SELECT m.*, e.entities AS _joined_entities
                     FROM {} m
-                    LEFT JOIN {} e ON m.id = e.id
+                    LEFT JOIN {} e ON m.id = e.job_id
                 """).format(
                     sql.Identifier(table_name),
                     sql.Identifier(DEFAULT_TABLE_ENTITIES),
@@ -287,11 +302,13 @@ def load_jobs_list(
 
             if posted_after is not None:
                 where_parts.append(sql.SQL("posted_date >= %s"))
-                params.append(posted_after.isoformat())
+                # UPDATED: Pass datetime object directly for TIMESTAMPTZ comparison
+                params.append(posted_after)
 
             if posted_before is not None:
                 where_parts.append(sql.SQL("posted_date <= %s"))
-                params.append(posted_before.isoformat())
+                # UPDATED: Pass datetime object directly
+                params.append(posted_before)
 
             if where_parts:
                 base_query = (
@@ -350,6 +367,7 @@ def load_jobs_list(
                     f"{' with entities' if include_entities else ''}"
                 )
                 return jobs
+
     except Exception as e:
         logger.warning(f"Failed to load jobs from metadata table: {e}")
         return []
@@ -368,26 +386,11 @@ def load_job_chunks(
 ) -> list[JobChunkData] | tuple[list[JobChunkData], NDArray[np.float64]]:
     """
     Load job chunks from the database with optional filtering and embedding retrieval.
-
-    Args:
-        db_client: Active PgVectorClient instance. Created if None.
-        table_name: Target chunks table.
-        where_conditions: Dict of column filters. Supports "NOT_NULL", "IS_NULL", or exact match.
-        posted_after: Filter chunks posted on or after this datetime.
-        posted_before: Filter chunks posted on or before this datetime.
-        job_ids: List of parent job IDs to filter by (matches chunk_meta->>'doc_id').
-        limit: Max number of chunks to return.
-        db_name: Database name fallback.
-        include_embeddings: If True, returns a tuple of (chunks, embeddings_array).
-
-    Returns:
-        List of JobChunkData dicts, or a tuple of (chunks, np.ndarray) if include_embeddings=True.
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=db_name)
 
     try:
-        # Build SELECT clause
         if include_embeddings:
             select_cols = sql.SQL("*")
         else:
@@ -406,10 +409,10 @@ def load_job_chunks(
         query = sql.SQL("SELECT {} FROM {}").format(
             select_cols, sql.Identifier(table_name)
         )
+
         params: list[Any] = []
         where_parts: list[sql.Composable] = []
 
-        # Handle dynamic where conditions
         if where_conditions:
             for col, val in where_conditions.items():
                 if val == "NOT_NULL":
@@ -428,15 +431,16 @@ def load_job_chunks(
                     where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
                     params.append(val)
 
-        # Date filters
         if posted_after is not None:
             where_parts.append(sql.SQL("posted_date >= %s"))
+            # UPDATED: Pass datetime object directly
             params.append(posted_after)
+
         if posted_before is not None:
             where_parts.append(sql.SQL("posted_date <= %s"))
+            # UPDATED: Pass datetime object directly
             params.append(posted_before)
 
-        # Job ID filter via JSONB
         if job_ids:
             where_parts.append(sql.SQL("chunk_meta->>'doc_id' = ANY(%s)"))
             params.append(job_ids)
@@ -455,65 +459,60 @@ def load_job_chunks(
         with db_client.conn.cursor() as cur:
             cur.execute(query, params)
             raw_rows = cur.fetchall()
-
-            # Safely extract column names since dict_row might not be active
             columns = [desc[0] for desc in cur.description]
 
-        processed_rows: list[JobChunkData] = []
-        embeddings_list: list[NDArray[np.float64]] = []
-        skipped_no_emb = 0
+            processed_rows: list[JobChunkData] = []
+            embeddings_list: list[NDArray[np.float64]] = []
+            skipped_no_emb = 0
 
-        for row in raw_rows:
-            # Normalize row to dict
-            if isinstance(row, dict):
-                d = row
-            else:
-                d = dict(zip(columns, row))
+            for row in raw_rows:
+                if isinstance(row, dict):
+                    d = row
+                else:
+                    d = dict(zip(columns, row))
+
+                if include_embeddings:
+                    emb = d.get("embedding")
+                    valid_emb = None
+                    if hasattr(emb, "tolist"):
+                        if getattr(emb, "size", 0) > 0:
+                            valid_emb = np.asarray(emb, dtype=np.float64)
+                    elif isinstance(emb, list) and len(emb) > 0:
+                        valid_emb = np.array(emb, dtype=np.float64)
+                    elif isinstance(emb, str):
+                        try:
+                            parsed = json.loads(emb)
+                            if isinstance(parsed, list) and len(parsed) > 0:
+                                valid_emb = np.array(parsed, dtype=np.float64)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+                    if valid_emb is not None:
+                        embeddings_list.append(valid_emb)
+                    else:
+                        skipped_no_emb += 1
+                        continue
+
+                processed_rows.append(d)
+
+            logger.info(
+                f"Loaded {len(processed_rows)} chunks from '{table_name}'"
+                f"{' (Skipped ' + str(skipped_no_emb) + ' missing embeddings)' if include_embeddings and skipped_no_emb else ''}"
+            )
 
             if include_embeddings:
-                emb = d.get("embedding")
-                valid_emb = None
+                if not embeddings_list:
+                    return processed_rows, np.array([], dtype=np.float64).reshape(0, 0)
+                try:
+                    emb_array = np.stack(embeddings_list)
+                except ValueError as e:
+                    logger.warning(
+                        f"Embeddings have inconsistent dimensions: {e}. Returning empty array."
+                    )
+                    return processed_rows, np.array([], dtype=np.float64).reshape(0, 0)
+                return processed_rows, emb_array
 
-                # Handle various embedding formats from pgvector/psycopg
-                if hasattr(emb, "tolist"):  # numpy array or pgvector type
-                    if getattr(emb, "size", 0) > 0:
-                        valid_emb = np.asarray(emb, dtype=np.float64)
-                elif isinstance(emb, list) and len(emb) > 0:
-                    valid_emb = np.array(emb, dtype=np.float64)
-                elif isinstance(emb, str):
-                    try:
-                        parsed = json.loads(emb)
-                        if isinstance(parsed, list) and len(parsed) > 0:
-                            valid_emb = np.array(parsed, dtype=np.float64)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
-                if valid_emb is not None:
-                    embeddings_list.append(valid_emb)
-                else:
-                    skipped_no_emb += 1
-                    continue  # Skip chunks without valid embeddings when requested
-
-            processed_rows.append(d)
-
-        logger.info(
-            f"Loaded {len(processed_rows)} chunks from '{table_name}'"
-            f"{' (Skipped ' + str(skipped_no_emb) + ' missing embeddings)' if include_embeddings and skipped_no_emb else ''}"
-        )
-
-        if include_embeddings:
-            if not embeddings_list:
-                return processed_rows, np.array([], dtype=np.float64).reshape(0, 0)
-            try:
-                emb_array = np.stack(embeddings_list)
-            except ValueError as e:
-                logger.warning(
-                    f"Embeddings have inconsistent dimensions: {e}. Returning empty array."
-                )
-                return processed_rows, np.array([], dtype=np.float64).reshape(0, 0)
-            return processed_rows, emb_array
-
-        return processed_rows
+            return processed_rows
 
     except Exception as e:
         logger.error(f"Failed to load job chunks: {e}", exc_info=True)
@@ -535,16 +534,11 @@ def load_job_entities(
     Load entities.
     If job_id is provided, returns a single dict or None.
     If job_id is None, returns a list of dicts matching where_conditions/date filters.
-
-    Note: 'posted_after'/'posted_before' are mapped to 'extracted_at'
-    as the job_entities table uses extracted_at timestamp.
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=db_name)
-
     try:
         _ensure_entities_table(db_client)
-
         query = sql.SQL("SELECT * FROM {}").format(
             sql.Identifier(DEFAULT_TABLE_ENTITIES)
         )
@@ -552,7 +546,10 @@ def load_job_entities(
         where_parts = []
 
         if job_id:
-            where_parts.append(sql.SQL("id = %s"))
+            # UPDATED: Filter by job_id column instead of id for semantic correctness
+            # If you only ever have one entity per job, id=job_id works too.
+            # But using job_id allows for future multi-entity support.
+            where_parts.append(sql.SQL("job_id = %s"))
             params.append(job_id)
 
         if where_conditions:
@@ -569,7 +566,6 @@ def load_job_entities(
                     where_parts.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
                     params.append(val)
 
-        # Map posted_after/before to extracted_at for this table
         if posted_after is not None:
             where_parts.append(sql.SQL("extracted_at >= %s"))
             params.append(posted_after)
@@ -587,7 +583,6 @@ def load_job_entities(
         with db_client.conn.cursor() as cur:
             cur.execute(query, params)
             rows = cur.fetchall()
-
             if not rows:
                 return None if job_id else []
 
@@ -595,15 +590,8 @@ def load_job_entities(
             cols = [desc[0] for desc in cur.description]
             for row in rows:
                 d = dict(zip(cols, row))
-                # Mimic existing behavior: pop id if returning single item?
-                # Existing load_job_entities popped id.
-                # For consistency in list mode, we might keep it or pop it.
-                # Let's pop it to match the single-item return structure of the old function if needed,
-                # but usually lists keep IDs. I'll leave ID in for list mode, pop for single mode if desired.
-                # The old function returned: row.pop("id", None); return row.
                 if job_id:
                     d.pop("id", None)
-
                 results.append(d)
 
             if job_id:
@@ -863,6 +851,7 @@ def save_job_embeddings(
     Returns:
         Dict with processing summary including parent/child counts.
     """
+
     from jet.adapters.llama_cpp.chunk_strategies import ParentDocumentChunker
     from jet.adapters.llama_cpp.config import LLM_MODEL
 
@@ -919,17 +908,13 @@ def save_job_embeddings(
         existing_chunks = db_client.get_rows(DEFAULT_TABLE_CHUNKS)
         existing_job_hashes: dict[str, str] = {}
         existing_text_hashes: dict[str, str] = {}
+
         for row in existing_chunks:
             chunk_meta = row.get("chunk_meta") or {}
             doc_id = chunk_meta.get("doc_id")
             if doc_id:
                 existing_job_hashes[doc_id] = chunk_meta.get("content_hash")
             existing_text_hashes[row["id"]] = chunk_meta.get("text_hash")
-
-        logger.debug(
-            f"Existing job hashes: {len(existing_job_hashes)}, "
-            f"text hashes: {len(existing_text_hashes)}"
-        )
 
         jobs_to_process: list[tuple[JobData, str]] = []
         for job in jobs:
@@ -938,8 +923,14 @@ def save_job_embeddings(
             if existing_hash is None or existing_hash != job_hash:
                 jobs_to_process.append((job, job_hash))
 
+        # UPDATED: Safe sorting that handles both str and datetime types
         jobs_to_process.sort(
-            key=lambda x: datetime.fromisoformat(x[0]["posted_date"]), reverse=True
+            key=lambda x: (
+                datetime.fromisoformat(x[0]["posted_date"])
+                if isinstance(x[0]["posted_date"], str)
+                else x[0]["posted_date"]
+            ),
+            reverse=True,
         )
 
         if not jobs_to_process:
@@ -985,6 +976,7 @@ def save_job_embeddings(
             if job.get("salary"):
                 text_parts.append(f"Salary: {job['salary']}\n")
             if job.get("hours_per_week"):
+                # hours_per_week is now int, so no strip needed
                 text_parts.append(f"Hours per Week: {job['hours_per_week']}\n")
 
             job_text = "".join(text_parts)
@@ -1020,7 +1012,6 @@ def save_job_embeddings(
                     (reprocessed_job_ids,),
                 )
                 deleted_children = cur.rowcount
-
                 cur.execute(
                     sql.SQL(
                         f"DELETE FROM {DEFAULT_TABLE_PARENTS} WHERE job_id = ANY(%s)"
@@ -1028,7 +1019,6 @@ def save_job_embeddings(
                     (reprocessed_job_ids,),
                 )
                 deleted_parents = cur.rowcount
-
             db_client.commit()
             logger.info(
                 f"Cleaned up {deleted_children} old children and "
@@ -1183,6 +1173,7 @@ def save_job_embeddings(
         }
 
         logger.info(f"PDR embedding summary: {summary}")
+
         return {
             "parents": all_parents,
             "children": all_children,
