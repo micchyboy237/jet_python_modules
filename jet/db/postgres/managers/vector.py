@@ -37,13 +37,22 @@ class VectorEngine:
         threshold: Optional[float] = None,
     ) -> List[Dict]:
         formatted_vec = f"[{', '.join(map(str, query_vector))}]"
+
+        # Dynamic ef_search based on top_k for better recall
+        ef_search = max(40, top_k * 2)
+
         with self.conn.cursor() as cur:
+            # Apply HNSW tuning for this specific query execution
+            cur.execute(f"SET LOCAL hnsw.ef_search = {ef_search};")
+
             cur.execute(
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
                 (table_name,),
             )
             cols = [r["column_name"] for r in cur.fetchall()]
             select_cols = sql.SQL(", ").join(map(sql.Identifier, cols + ["id"]))
+
+            # This query will automatically use idx_job_chunks_embedding_hnsw
             query = sql.SQL(
                 "SELECT {}, embedding <=> %s::vector as distance FROM {} ORDER BY distance LIMIT %s"
             ).format(select_cols, sql.Identifier(table_name))

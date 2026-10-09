@@ -1255,84 +1255,93 @@ def search_jobs(
     Searches against CHILD embeddings in DEFAULT_TABLE_CHUNKS, resolves to
     PARENT content from {DEFAULT_TABLE_PARENTS} for full-context retrieval.
 
-    Filters are applied at the Job level (public.jobs) before restricting chunk results.
+    FIX: Pre-filters candidate job IDs at the DB level before performing vector search
+    to ensure HNSW only considers relevant (e.g., recent) jobs.
     """
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
-    # 1. Filter Jobs first to get valid doc_ids
+    # 1. Pre-filter: Get valid job IDs based on date/where conditions
     matching_jobs = load_jobs_list(
         db_client=db_client,
-        include_entities=False,  # We only need IDs for filtering here
+        include_entities=False,
         posted_after=posted_after,
         posted_before=posted_before,
         where_conditions=where_conditions,
         db_name=db_name,
     )
 
-    valid_doc_ids = {job["id"] for job in matching_jobs}
+    valid_doc_ids = [job["id"] for job in matching_jobs]
 
     if not valid_doc_ids:
+        logger.warning("Pre-filter returned 0 candidate jobs.")
         return []
 
-    # 2. Perform Vector Search
+    logger.info(
+        f"Pre-filtered to {len(valid_doc_ids)} candidate job IDs for vector search"
+    )
+
+    # 2. Generate Embedding
     query_embedding = generate_embeddings([query], embed_model)[0]
 
-    # Note: db_client.search doesn't support ID filtering directly in SQL efficiently
-    # without modifying the underlying vector engine.
-    # We will fetch top_k * 3 candidates and filter them.
+    # 3. Perform Vector Search with ID Restriction
+    # We fetch more than top_k to allow for deduplication later
     fetch_limit = (top_k * 5) if top_k else 50
 
-    with db_client:
-        results = db_client.search(
-            table_name=DEFAULT_TABLE_CHUNKS,
-            query_embedding=query_embedding,
-            top_k=fetch_limit,
-            threshold=threshold,
+    with db_client.conn.cursor() as cur:
+        # Use the HNSW index but restrict to valid_doc_ids
+        # Note: Using ANY(%s) allows Postgres to filter chunks before/during index scan
+        cur.execute(
+            """
+            SELECT id, header, parent_header, content, posted_date, chunk_meta, 
+                   embedding <=> %s::vector as distance 
+            FROM job_chunks 
+            WHERE chunk_meta->>'doc_id' = ANY(%s)
+            ORDER BY distance 
+            LIMIT %s
+            """,
+            (f"[{', '.join(map(str, query_embedding))}]", valid_doc_ids, fetch_limit),
+        )
+        raw_results = cur.fetchall()
+
+    # 4. Process Results
+    results = []
+    for row in raw_results:
+        score = 1.0 - row["distance"]  # Convert distance to similarity score
+        if threshold and score < threshold:
+            continue
+
+        results.append(
+            {
+                "id": row["id"],
+                "score": score,
+                "distance": row["distance"],
+                "header": row["header"],
+                "parent_header": row["parent_header"],
+                "content": row["content"],
+                "posted_date": row["posted_date"],
+                "chunk_meta": row["chunk_meta"],
+            }
         )
 
-    # 3. Filter results by valid_doc_ids
-    filtered_results = [
-        r
-        for r in results
-        if is_valid_score(r["score"])
-        and r.get("chunk_meta", {}).get("doc_id") in valid_doc_ids
-    ]
+    if not results:
+        return []
 
-    # Limit to top_k after filtering
-    if top_k:
-        filtered_results = filtered_results[:top_k]
+    # 5. Resolve Parents and Enrich
+    parent_map = _resolve_parents_from_children(results, db_client)
 
-    # 4. Enrich with Metadata (Always enriched now)
-    parent_map = _resolve_parents_from_children(filtered_results, db_client)
+    job_metadata_map = {job["id"]: job for job in matching_jobs}
     enriched_results = []
 
-    for result in tqdm(filtered_results, desc="Enriching results"):
-        chunk_meta = result.get("chunk_meta", {})
-        job_id = chunk_meta.get("doc_id", result.get("id", ""))
-
-        # Load metadata for this specific job
-        # Note: We already loaded matching_jobs, but we might want fresh data or specific fields.
-        # To avoid N+1 queries, we could map from matching_jobs, but load_jobs_list returns JobData.
-        # Let's use the cached matching_jobs if possible, or load individually if needed.
-        # For simplicity and consistency with existing code, we'll load metadata.
-        # Optimization: Create a map from matching_jobs
-        pass
-
-    # Optimization: Use matching_jobs map
-    job_metadata_map = {job["id"]: job for job in matching_jobs}
-
-    for result in tqdm(filtered_results, desc="Enriching results"):
+    for result in tqdm(results, desc="Enriching results"):
         chunk_meta = result.get("chunk_meta", {})
         job_id = chunk_meta.get("doc_id", result.get("id", ""))
 
         metadata = job_metadata_map.get(job_id)
         if not metadata:
-            # Fallback if somehow missed, though it shouldn't happen due to filtering
             metadata = _load_metadata_from_table(db_client, job_id)
 
         entity_row = load_job_entities(job_id, db_client=db_client)
-
         parent_id = chunk_meta.get("parent_id")
         parent_content = parent_map.get(parent_id, result.get("content", ""))
 
@@ -1354,7 +1363,6 @@ def search_jobs(
                     "hours_per_week": metadata.get("hours_per_week"),
                 }
             )
-
         enriched_results.append(enriched)
 
     return enriched_results
