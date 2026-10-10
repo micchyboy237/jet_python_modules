@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple, TypedDict, overload
 from jet.adapters.llama_cpp.chunking_utils.truncation import truncate_texts
 from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.factory import get_async_llm_client, get_llm_client
-from jet.adapters.llama_cpp.llm_utils import achat, chat
+from jet.adapters.llama_cpp.llm_utils_observed import achat, chat
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
 from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.logger import logger
