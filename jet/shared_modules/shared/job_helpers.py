@@ -95,7 +95,7 @@ def _ensure_entities_table(
 
     with db_client.conn.cursor() as cur:
         cur.execute(query)
-    logger.debug(f"Ensured entities table '{table_name}' exists.")
+    # logger.debug(f"Ensured entities table '{table_name}' exists.")
 
 
 def _ensure_summaries_table(db_client: PgVectorClient) -> None:
@@ -1285,9 +1285,6 @@ def search_jobs(
     query_embedding = generate_embeddings([query], embed_model)[0]
 
     # 3. Perform Vector Search with ID Restriction
-    # We fetch more than top_k to allow for deduplication later
-    fetch_limit = (top_k * 5) if top_k else 50
-
     with db_client.conn.cursor() as cur:
         # Use the HNSW index but restrict to valid_doc_ids
         # Note: Using ANY(%s) allows Postgres to filter chunks before/during index scan
@@ -1300,7 +1297,7 @@ def search_jobs(
             ORDER BY distance 
             LIMIT %s
             """,
-            (f"[{', '.join(map(str, query_embedding))}]", valid_doc_ids, fetch_limit),
+            (f"[{', '.join(map(str, query_embedding))}]", valid_doc_ids, top_k),
         )
         raw_results = cur.fetchall()
 
@@ -1407,10 +1404,9 @@ def search_full_jobs(
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
-    fetch_limit = (top_k * 3) if top_k else 100
     chunk_results = search_jobs(
         query=query,
-        top_k=fetch_limit,
+        top_k=top_k,
         threshold=threshold,
         embed_model=embed_model,
         db_client=db_client,
