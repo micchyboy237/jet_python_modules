@@ -21,7 +21,7 @@ from jet.adapters.llama_cpp.config import (
     LLM_MODEL,
 )
 from jet.adapters.llama_cpp.embed_utils import embed as llamacpp_embed
-from jet.adapters.llama_cpp.llm_utils import achat
+from jet.adapters.llama_cpp.llm_utils_observed import achat
 from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
 from jet.logger import logger
 from jet.search.playwright.playwright_extract import PlaywrightExtract
@@ -429,7 +429,6 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                             "chat_template_kwargs": {"enable_thinking": False}
                         },
                         project_name="playwright-search-obs",
-                        capture_content=True,
                     )
 
                     answer = res.content
@@ -694,7 +693,7 @@ def get_args() -> argparse.Namespace:
         help="Search depth",
     )
     parser.add_argument(
-        "--max-results", type=int, default=5, help="Maximum number of results"
+        "--max-results", type=int, default=20, help="Maximum number of results"
     )
     parser.add_argument(
         "--include-answer",
