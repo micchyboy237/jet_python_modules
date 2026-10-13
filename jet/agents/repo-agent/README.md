@@ -1,4 +1,4 @@
-# Repo Agent (Minimal)
+# Repo Agent
 
 A local, privacy-first AI agent that indexes and queries your code repositories using vector search, semantic reranking, and large language models. Built for developers who want intelligent code assistance without sending their code to the cloud.
 
