@@ -12,13 +12,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Disable telemetry during tests to avoid connection errors
+# Disable telemetry during tests to avoid connection errors and noise
 os.environ["DD_TRACE_ENABLED"] = "false"
 os.environ["PHOENIX_COLLECTOR_ENDPOINT"] = ""
 
 from agent import CodeAgent
 from chunker import CodeChunker
 from config import db
+from intent_router import IntentRouter
+from repo_map import RepoMap
 from scanner import RepositoryScanner
 from vector_store import VectorStore
 
@@ -54,6 +56,9 @@ def format_output(value: any) -> str:
     return f"Result: {value}"
 """)
 
+    # README.md
+    (repo_dir / "README.md").write_text("# Test Repo\nThis is a test.")
+
     return repo_dir
 
 
@@ -86,11 +91,22 @@ def vector_store():
 
 @pytest.fixture
 def code_agent(temp_repo_dir, vector_store, scanner, chunker):
-    """Provides a CodeAgent instance with an indexed repository."""
+    """Provides a CodeAgent instance with an indexed repository and map."""
     # Index the repo first
     files = scanner.scan(str(temp_repo_dir))
     chunks = chunker.chunk_files(files)
     asyncio.run(vector_store.add_chunks(chunks))
 
     agent = CodeAgent(repo_path=str(temp_repo_dir))
+    agent.load_repository_map()  # Generate the map
     return agent
+
+
+@pytest.fixture
+def intent_router():
+    return IntentRouter()
+
+
+@pytest.fixture
+def repo_map(temp_repo_dir):
+    return RepoMap(str(temp_repo_dir))

@@ -44,11 +44,12 @@ async def main():
 
         # Use the new Agent
         agent = CodeAgent(repo_path=args.repo)
+        agent.load_repository_map()  # Generate the map
 
         print("\n🤔 Thinking...")
         result = await agent.run(args.query)
 
-        print("\n💡 Answer:")
+        print(f"\n💡 Answer ({result.get('intent', 'UNKNOWN')}):")
         print(result["answer"])
 
         if result["sources"]:
@@ -63,6 +64,7 @@ async def main():
             return
 
         agent = CodeAgent(repo_path=args.repo)
+        agent.load_repository_map()
         print("\n🤖 Repo Agent Ready (Agentic Mode). Type 'quit' to exit.")
         while True:
             try:
@@ -74,7 +76,9 @@ async def main():
 
                 print("🤔 Thinking...")
                 result = await agent.run(q)
-                print(f"\n💡 Agent: {result['answer']}")
+                print(
+                    f"\n💡 Agent ({result.get('intent', 'UNKNOWN')}): {result['answer']}"
+                )
             except KeyboardInterrupt:
                 break
 

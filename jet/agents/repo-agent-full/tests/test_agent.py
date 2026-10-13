@@ -11,46 +11,38 @@ from agent import CodeAgent
 class TestCodeAgent:
     @pytest.mark.asyncio
     async def test_agent_initialization(self, temp_repo_dir):
-        """Test that the agent initializes with tools."""
+        """Test that the agent initializes with tools and map."""
         agent = CodeAgent(repo_path=str(temp_repo_dir))
+        agent.load_repository_map()
+
         assert agent.repo_path is not None
         assert agent.tools_instance is not None
+        assert agent.map_content != ""  # Map should be generated
 
     @pytest.mark.asyncio
     async def test_agent_tool_execution_read_file(self, code_agent):
         """Test that the agent can execute the read_file tool."""
-        # We mock achat to simulate the LLM deciding to call read_file
-        # and then providing a final answer based on the result.
-
-        call_count = 0
 
         async def mock_achat(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-
             tool_registry = kwargs.get("tool_registry", {})
 
-            # Simulate the first turn: LLM decides to read the file
-            if call_count == 1:
-                # In a real scenario, achat handles the loop.
-                # Here we simulate the final result after the tool has been "used".
-                # We manually trigger the tool to ensure it works, then return a mock response.
-                if "read_file" in tool_registry:
-                    # Execute the tool synchronously as it is defined in RepoTools
-                    tool_result = tool_registry["read_file"]("main.py")
-                    # Return a mock result that simulates the LLM's final answer after seeing the file
-                    return type(
-                        "obj",
-                        (object,),
-                        {
-                            "content": f"Based on the file, main.py contains: {tool_result[:50]}...",
-                            "usage": {
-                                "prompt_tokens": 100,
-                                "completion_tokens": 50,
-                                "total_tokens": 150,
-                            },
+            # Simulate the tool execution and final answer
+            if "read_file" in tool_registry:
+                # Execute the tool synchronously as it is defined in RepoTools
+                tool_result = tool_registry["read_file"]("main.py")
+                # Return a mock result that simulates the LLM's final answer after seeing the file
+                return type(
+                    "obj",
+                    (object,),
+                    {
+                        "content": f"Based on the file, main.py contains: {tool_result[:50]}...",
+                        "usage": {
+                            "prompt_tokens": 100,
+                            "completion_tokens": 50,
+                            "total_tokens": 150,
                         },
-                    )
+                    },
+                )
             return type("obj", (object,), {"content": "Error", "usage": {}})
 
         with patch(
@@ -76,11 +68,12 @@ class TestCodeAgent:
             if "grep_search" in tool_registry:
                 # Execute the tool synchronously
                 results = tool_registry["grep_search"]("calculate_sum")
+                # The LLM might say "I found it in..." or "It is defined in..."
                 return type(
                     "obj",
                     (object,),
                     {
-                        "content": f"Found {len(results)} matches for calculate_sum in the codebase.",
+                        "content": f"The calculate_sum function is located in {len(results)} files.",
                         "usage": {
                             "prompt_tokens": 100,
                             "completion_tokens": 50,
@@ -95,8 +88,12 @@ class TestCodeAgent:
         ):
             result = await code_agent.run("Find the calculate_sum function")
 
-            assert "Found" in result["answer"]
+            # Assert that the answer mentions the function name and its location/count
             assert "calculate_sum" in result["answer"]
+            assert (
+                "located" in result["answer"].lower()
+                or "found" in result["answer"].lower()
+            )
 
     @pytest.mark.asyncio
     async def test_agent_no_repo_error(self):
@@ -116,6 +113,7 @@ class TestCodeAgent:
                 "obj",
                 (object,),
                 {
+                    # Use backticks as LLMs often do for file names
                     "content": "You should look at `main.py` and utils.py for this implementation.",
                     "usage": {
                         "prompt_tokens": 100,
@@ -134,6 +132,7 @@ class TestCodeAgent:
             # Ensure sources are extracted even with markdown formatting or plain text
             source_files = [s["file"] for s in sources]
 
+            # The regex in agent.py should handle backticks now, but we check the result list
             assert any("main.py" in f for f in source_files), (
                 f"Expected main.py in {source_files}"
             )

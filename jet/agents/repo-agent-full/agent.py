@@ -1,12 +1,15 @@
 """
 Agentic workflow implementation using jet's observed LLM utilities.
+Now includes Intent Routing and Repository Mapping.
 """
 
 from typing import Dict, List, Optional
 
 from config import models
+from intent_router import IntentRouter
 from jet.adapters.llama_cpp.llm_utils_observed import achat
 from jet_telemetry import agent
+from repo_map import RepoMap
 from retriever import Retriever
 from tools import RepoTools
 from utils import logger
@@ -17,30 +20,42 @@ class CodeAgent:
         self.retriever = Retriever()
         self.tools_instance = RepoTools(repo_path) if repo_path else None
         self.repo_path = repo_path
+        self.router = IntentRouter()
+        self.repo_map = RepoMap(repo_path) if repo_path else None
+        self.map_content = ""
+
+    def load_repository_map(self):
+        """Generate the map after indexing is complete."""
+        if self.repo_map:
+            self.map_content = self.repo_map.generate()
 
     @agent(name="code-agent")
     async def run(self, task: str) -> Dict:
         """
-        Main entry point for the agent. Uses ReAct loop via achat.
+        Main entry point. Routes the task based on intent.
         """
         if not self.tools_instance:
             return {"answer": "Error: No repository loaded.", "sources": []}
 
-        # Define tools for the agent
+        # Step 1: Classify Intent
+        intent = await self.router.classify(task)
+        logger.info(f"Query classified as: {intent}")
+
+        # Step 2: Prepare Context based on Intent
+        extra_context = ""
+        if intent in ["SUMMARY", "EXPLORATORY"]:
+            extra_context = f"\n\nREPOSITORY STRUCTURE MAP:\n{self.repo_map.get_summary_for_query(task)}\n"
+
+        # Step 3: Define Tools (Dynamic based on intent could be added here)
         tools = [
             {
                 "type": "function",
                 "function": {
                     "name": "retrieve_context",
-                    "description": "Search for relevant code snippets using semantic vector search. Use this first for general questions.",
+                    "description": "Search for relevant code snippets using semantic vector search. Best for FACTUAL and DEBUGGING intents.",
                     "parameters": {
                         "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The search query",
-                            }
-                        },
+                        "properties": {"query": {"type": "string"}},
                         "required": ["query"],
                     },
                 },
@@ -49,22 +64,13 @@ class CodeAgent:
                 "type": "function",
                 "function": {
                     "name": "read_file",
-                    "description": "Read the full content of a specific file. Use this when you need more context than a snippet provides.",
+                    "description": "Read the full content of a specific file.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "file_path": {
-                                "type": "string",
-                                "description": "Relative path to the file",
-                            },
-                            "start_line": {
-                                "type": "integer",
-                                "description": "Starting line number (default 1)",
-                            },
-                            "end_line": {
-                                "type": "integer",
-                                "description": "Ending line number (default -1 for end)",
-                            },
+                            "file_path": {"type": "string"},
+                            "start_line": {"type": "integer"},
+                            "end_line": {"type": "integer"},
                         },
                         "required": ["file_path"],
                     },
@@ -74,18 +80,12 @@ class CodeAgent:
                 "type": "function",
                 "function": {
                     "name": "grep_search",
-                    "description": "Search for exact text patterns in the codebase. Use for finding specific function names or variables.",
+                    "description": "Search for exact text patterns. Best for EXPLORATORY intents.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "pattern": {
-                                "type": "string",
-                                "description": "The text pattern to search for",
-                            },
-                            "file_ext": {
-                                "type": "string",
-                                "description": "Optional file extension filter (e.g., '.py')",
-                            },
+                            "pattern": {"type": "string"},
+                            "file_ext": {"type": "string"},
                         },
                         "required": ["pattern"],
                     },
@@ -93,7 +93,6 @@ class CodeAgent:
             },
         ]
 
-        # Map tool names to actual functions
         tool_registry = {
             "retrieve_context": self._agent_retrieve,
             "read_file": self.tools_instance.read_file,
@@ -101,7 +100,8 @@ class CodeAgent:
         }
 
         system_prompt = (
-            "You are an expert coding assistant. You have access to tools to explore a code repository. "
+            f"You are an expert coding assistant. The current query intent is: {intent}. "
+            f"{extra_context}"
             "1. Always start by retrieving context if the question is general. "
             "2. If you need to see a whole file, use read_file. "
             "3. If you are looking for a specific symbol, use grep_search. "
@@ -127,7 +127,12 @@ class CodeAgent:
 
             sources = self._extract_sources(result.content)
 
-            return {"answer": result.content, "sources": sources, "usage": result.usage}
+            return {
+                "answer": result.content,
+                "sources": sources,
+                "usage": result.usage,
+                "intent": intent,
+            }
 
         except Exception as e:
             logger.error(f"Agentic workflow failed: {e}")
@@ -154,7 +159,7 @@ class CodeAgent:
         sources = []
         import re
 
-        files = re.findall(r"[\w\-]+\.\w+", content)
+        files = re.findall(r"`?([\w\-]+\.\w+)`?", content)
         unique_files = list(set(files))
         for f in unique_files:
             if any(f.endswith(ext) for ext in [".py", ".js", ".ts", ".md"]):
