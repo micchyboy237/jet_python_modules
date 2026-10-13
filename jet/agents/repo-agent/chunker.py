@@ -1,10 +1,12 @@
 """
-Smart chunking that respects line boundaries and adds overlap.
+Smart chunking that respects token boundaries and adds overlap.
+Uses jet's production-grade chunking utilities.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-from config import chunking
+from config import chunking, models
+from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
 from utils import logger
 
 
@@ -12,76 +14,51 @@ class CodeChunker:
     def __init__(self):
         self.chunk_size = chunking.CHUNK_SIZE
         self.overlap = chunking.CHUNK_OVERLAP
+        self.model = models.EMBED_MODEL  # Use embedding model's tokenizer
 
-    def chunk_files(self, files: List[tuple]) -> List[Dict]:
+    def chunk_files(self, files: List[Tuple[str, str, str]]) -> List[Dict]:
         """
         Input: List of (path, lang, content)
         Output: List of chunk dicts ready for embedding
+
+        Uses token-aware chunking with proper overlap handling.
         """
+        logger.info(f"Chunking {len(files)} files...")
+
         all_chunks = []
         for path, lang, content in files:
-            chunks = self._split_content(content, path, lang)
-            all_chunks.extend(chunks)
+            if not content.strip():
+                continue
 
-        logger.info(f"Generated {len(all_chunks)} total chunks.")
-        return all_chunks
+            # Use jet's chunking utility with metadata
+            chunk_results = chunk_texts_with_data(
+                texts=content,
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.overlap,
+                model=self.model,
+                ids=[f"{path}"],  # Document ID
+                buffer=0,
+                strict_sentences=False,  # Code doesn't have sentences
+                min_chunk_size=32,
+                show_progress=False,
+            )
 
-    def _split_content(self, content: str, path: str, lang: str) -> List[Dict]:
-        lines = content.split("\n")
-        chunks = []
-        current_chunk_lines = []
-        current_token_count = 0
-        start_line = 1
+            # Convert to repo-agent format
+            for chunk_result in chunk_results:
+                # Calculate line numbers from character offsets
+                start_line = content[: chunk_result["start_idx"]].count("\n") + 1
+                end_line = content[: chunk_result["end_idx"]].count("\n") + 1
 
-        for i, line in enumerate(lines):
-            # More accurate token estimation for code: ~4 chars per token
-            line_tokens = max(1, len(line) // 4)
-            new_total = current_token_count + line_tokens
-
-            if new_total > self.chunk_size and current_chunk_lines:
-                # Save current chunk
-                chunk_text = "\n".join(current_chunk_lines)
-                chunks.append(
-                    {
-                        "content": chunk_text,
-                        "file_path": path,
-                        "language": lang,
-                        "start_line": start_line,
-                        "end_line": i,
-                        "id": f"{path}:{start_line}-{i}",
-                    }
-                )
-
-                # Handle overlap
-                overlap_lines = []
-                overlap_tokens = 0
-                # Go backwards from the current chunk to find overlap
-                for prev_line in reversed(current_chunk_lines):
-                    lt = max(1, len(prev_line) // 4)
-                    if overlap_tokens + lt > self.overlap:
-                        break
-                    overlap_lines.insert(0, prev_line)
-                    overlap_tokens += lt
-
-                current_chunk_lines = overlap_lines
-                start_line = i - len(overlap_lines) + 1
-                current_token_count = overlap_tokens
-            else:
-                current_token_count = new_total
-
-            current_chunk_lines.append(line)
-
-        # Don't forget the last chunk
-        if current_chunk_lines:
-            chunks.append(
-                {
-                    "content": "\n".join(current_chunk_lines),
+                chunk_dict = {
+                    "content": chunk_result["content"],
                     "file_path": path,
                     "language": lang,
                     "start_line": start_line,
-                    "end_line": len(lines),
-                    "id": f"{path}:{start_line}-{len(lines)}",
+                    "end_line": end_line,
+                    "id": f"{path}:{start_line}-{end_line}",
+                    "num_tokens": chunk_result["num_tokens"],
                 }
-            )
+                all_chunks.append(chunk_dict)
 
-        return chunks
+        logger.info(f"Generated {len(all_chunks)} total chunks.")
+        return all_chunks

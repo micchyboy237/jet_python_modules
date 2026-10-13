@@ -3,7 +3,7 @@ Centralized configuration for the Repo Agent system.
 Adjust these values to match your local server ports and preferences.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from jet.adapters.llama_cpp.config import (
@@ -18,13 +18,8 @@ from jet.adapters.llama_cpp.config import (
 
 @dataclass
 class ServerConfig:
-    # Qwen 2B Server (OpenAI-compatible endpoint)
     LLM_URL: str = LLM_BASE_URL
-
-    # Nomic Embed v2 Server
     EMBED_URL: str = EMBED_BASE_URL
-
-    # BGE Reranker v2 Server
     RERANK_URL: str = RERANK_BASE_URL
 
 
@@ -37,43 +32,41 @@ class ModelConfig:
 
 @dataclass
 class RetrievalConfig:
-    TOP_K_INITIAL: int = 50  # Candidates from vector search
-    TOP_K_FINAL: int = 5  # Final results after reranking
-    DISTANCE_THRESHOLD: float = 0.7  # Max cosine distance (0-1)
-    USE_HYBRID: bool = True  # Enable keyword boosting if supported
+    TOP_K_INITIAL: int = 50
+    TOP_K_FINAL: int = 5
+    DISTANCE_THRESHOLD: float = 0.7
+    USE_HYBRID: bool = True
 
 
 @dataclass
 class ChunkingConfig:
-    CHUNK_SIZE: int = 800  # Tokens per chunk
-    CHUNK_OVERLAP: int = 100  # Overlap tokens
-    SUPPORTED_EXTS: list = None
-
-    def __post_init__(self):
-        if self.SUPPORTED_EXTS is None:
-            self.SUPPORTED_EXTS = [
-                ".py",
-                ".js",
-                ".ts",
-                ".jsx",
-                ".tsx",
-                ".java",
-                ".cpp",
-                ".c",
-                ".h",
-                ".hpp",
-                ".go",
-                ".rs",
-                ".rb",
-                ".php",
-                ".swift",
-                ".md",
-                ".txt",
-                ".json",
-                ".yaml",
-                ".yml",
-                ".toml",
-            ]
+    CHUNK_SIZE: int = 800
+    CHUNK_OVERLAP: int = 100
+    SUPPORTED_EXTS: list = field(
+        default_factory=lambda: [
+            ".py",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".java",
+            ".cpp",
+            ".c",
+            ".h",
+            ".hpp",
+            ".go",
+            ".rs",
+            ".rb",
+            ".php",
+            ".swift",
+            ".md",
+            ".txt",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+        ]
+    )
 
 
 @dataclass
@@ -85,10 +78,9 @@ class DBConfig:
         .absolute()
     )
     TABLE_NAME: str = "code_chunks"
-    DIMENSIONS: int = 768  # Nomic v2 dimensions
+    DIMENSIONS: int = 768  # Will be auto-detected if possible
 
 
-# Global Instance
 servers = ServerConfig()
 models = ModelConfig()
 retrieval = RetrievalConfig()

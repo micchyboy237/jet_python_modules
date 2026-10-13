@@ -16,9 +16,13 @@ class Retriever:
         self.reranker = Reranker()
 
     async def retrieve(self, query: str, filters: Optional[Dict] = None) -> List[Dict]:
+        if not query or not query.strip():
+            logger.warning("Empty query provided")
+            return []
+
         logger.info(f"Retrieving context for: '{query[:50]}...'")
 
-        # Stage 1: Vector Search
+        # Initial vector search
         candidates = await self.store.search(query, k=retrieval.TOP_K_INITIAL)
 
         # Filter by distance threshold
@@ -30,8 +34,13 @@ class Retriever:
             logger.warning("No relevant chunks found within distance threshold.")
             return []
 
-        # Stage 2: Reranking
+        logger.info(f"Found {len(valid_candidates)} candidates within threshold")
+
+        # Rerank candidates
         ranked_docs = await self.reranker.rerank(query, valid_candidates)
 
-        # Return top K final
-        return ranked_docs[: retrieval.TOP_K_FINAL]
+        # Return top K
+        final_results = ranked_docs[: retrieval.TOP_K_FINAL]
+        logger.info(f"Returning top {len(final_results)} results")
+
+        return final_results

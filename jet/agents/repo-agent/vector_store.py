@@ -1,12 +1,13 @@
 """
 LanceDB integration for storing and searching code embeddings.
+Uses jet's production-grade embedding utilities.
 """
 
 from typing import Dict, List
 
-import aiohttp
 import lancedb
-from config import db, models, servers
+from config import db, models
+from jet.adapters.llama_cpp.embed_utils import embed
 from lancedb.pydantic import LanceModel, Vector
 from utils import logger
 
@@ -18,6 +19,7 @@ class ChunkSchema(LanceModel):
     language: str
     start_line: int
     end_line: int
+    num_tokens: int  # Added for better tracking
     vector: Vector(db.DIMENSIONS)
 
 
@@ -33,15 +35,11 @@ class VectorStore:
             self.table = self.db_conn.open_table(db.TABLE_NAME)
         else:
             self.table = self.db_conn.create_table(db.TABLE_NAME, schema=ChunkSchema)
-            # Create indexes for performance
-            # Note: In newer LanceDB, create_index takes the column name first
             try:
-                # Use the config-based approach for newer LanceDB versions
                 from lancedb.index import IvfPq
 
                 self.table.create_index("vector", config=IvfPq(distance_type="cosine"))
             except ImportError:
-                # Fallback for older versions
                 self.table.create_index("vector", metric="cosine")
             except Exception as e:
                 logger.warning(f"Index creation note: {e}")
@@ -49,19 +47,31 @@ class VectorStore:
 
     async def add_chunks(self, chunks: List[Dict]):
         if not chunks:
+            logger.warning("No chunks to add")
             return
 
         logger.info(f"Embedding and storing {len(chunks)} chunks...")
-        records = []
 
-        # Batch embedding to avoid overwhelming local server
-        batch_size = 10
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i : i + batch_size]
-            texts = [c["content"] for c in batch]
-            embeddings = await self._get_embeddings(texts)
+        # Extract texts and metadata
+        texts = [chunk["content"] for chunk in chunks]
 
-            for j, chunk in enumerate(batch):
+        try:
+            # Use jet's optimized embedding with deduplication and parallelism
+            embeddings = embed(
+                text=texts,
+                model=models.EMBED_MODEL,
+                return_format="list",
+                show_progress=False,  # Set True for CLI usage
+                batch_size=64,
+            )
+
+            # Ensure embeddings is a list of lists
+            if hasattr(embeddings, "tolist"):
+                embeddings = embeddings.tolist()
+
+            # Create records
+            records = []
+            for i, chunk in enumerate(chunks):
                 records.append(
                     ChunkSchema(
                         id=chunk["id"],
@@ -70,29 +80,43 @@ class VectorStore:
                         language=chunk["language"],
                         start_line=chunk["start_line"],
                         end_line=chunk["end_line"],
-                        vector=embeddings[j],
+                        num_tokens=chunk.get("num_tokens", 0),
+                        vector=embeddings[i],
                     )
                 )
 
-        self.table.add(records)
-        logger.info("Storage complete.")
+            # Add to table
+            self.table.add(records)
+            logger.info("Storage complete.")
 
-    async def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        async with aiohttp.ClientSession() as session:
-            payload = {"input": texts, "model": models.EMBED_MODEL}
-            async with session.post(
-                f"{servers.EMBED_URL}/embeddings", json=payload
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return [item["embedding"] for item in data["data"]]
-                else:
-                    raise Exception(f"Embedding API error: {resp.status}")
+        except Exception as e:
+            logger.error(f"Failed to embed/store chunks: {e}")
+            raise
 
     async def search(self, query: str, k: int) -> List[Dict]:
-        query_emb = await self._get_embeddings([query])
-        # Ensure table is initialized before searching
         if not self.table:
             self.initialize()
-        results = self.table.search(query_emb[0]).metric("cosine").limit(k).to_list()
-        return results
+
+        try:
+            # Embed query using jet's utilities
+            query_embedding = embed(
+                text=query,
+                model=models.EMBED_MODEL,
+                return_format="list",
+            )
+
+            # Convert to list if numpy array
+            if hasattr(query_embedding, "tolist"):
+                query_embedding = query_embedding.tolist()
+
+            # Search LanceDB
+            results = (
+                self.table.search(query_embedding).metric("cosine").limit(k).to_list()
+            )
+
+            logger.debug(f"Search returned {len(results)} results")
+            return results
+
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            raise

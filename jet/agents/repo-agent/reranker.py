@@ -1,45 +1,69 @@
 """
 Integration with BGE Reranker server for precision ranking.
+Uses jet's production-grade reranking with BM25 fallback.
 """
 
 from typing import Dict, List
 
-import aiohttp
-from config import models, servers
+from config import models
+from jet.adapters.llama_cpp.rerank_utils import rerank as jet_rerank
 from utils import logger
 
 
 class Reranker:
     async def rerank(self, query: str, documents: List[Dict]) -> List[Dict]:
+        """
+        Rerank documents using cross-encoder model with BM25 fallback.
+
+        Args:
+            query: Search query
+            documents: List of document dicts with 'content' key
+
+        Returns:
+            Sorted list of documents by relevance score
+        """
         if not documents:
             return []
 
         logger.info(f"Reranking {len(documents)} candidates...")
 
-        # Prepare pairs for BGE API: [[query, doc], [query, doc]]
-        pairs = [[query, doc["content"]] for doc in documents]
+        # Extract texts for reranking
+        texts = [doc["content"] for doc in documents]
 
         try:
-            async with aiohttp.ClientSession() as session:
-                payload = {"pairs": pairs, "model": models.RERANK_MODEL}
-                async with session.post(
-                    f"{servers.RERANK_URL}/rerank", json=payload
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        scores = [item["score"] for item in data["results"]]
+            # Use jet's rerank with automatic fallback
+            results = jet_rerank(
+                query=query,
+                documents=texts,
+                top_n=len(documents),
+                normalize_scores=True,
+                sigmoid_temperature=1.0,
+                method="auto",  # Try model first, fall back to BM25
+                model=models.RERANK_MODEL,
+            )
 
-                        # Attach scores to docs
-                        for i, doc in enumerate(documents):
-                            doc["rerank_score"] = scores[i]
+            if not results:
+                logger.warning("Reranker returned no results")
+                return documents
 
-                        # Sort by score descending
-                        return sorted(
-                            documents, key=lambda x: x["rerank_score"], reverse=True
-                        )
-                    else:
-                        logger.error(f"Reranker API error: {resp.status}")
-                        return documents
+            # Map scores back to original documents
+            for result in results:
+                original_idx = result["index"]
+                if 0 <= original_idx < len(documents):
+                    documents[original_idx]["rerank_score"] = result["score"]
+                    documents[original_idx]["raw_rerank_score"] = result["raw_score"]
+
+            # Sort by rerank score (descending)
+            ranked_docs = sorted(
+                documents, key=lambda x: x.get("rerank_score", 0), reverse=True
+            )
+
+            logger.info(
+                f"Reranking complete. Top score: {ranked_docs[0].get('rerank_score', 0):.4f}"
+            )
+            return ranked_docs
+
         except Exception as e:
-            logger.warning(f"Reranking failed, using original order: {e}")
+            logger.warning(f"Reranking failed, returning original order: {e}")
+            # Return documents in original order
             return documents
