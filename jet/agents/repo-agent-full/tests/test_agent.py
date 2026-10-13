@@ -19,30 +19,51 @@ class TestCodeAgent:
     @pytest.mark.asyncio
     async def test_agent_tool_execution_read_file(self, code_agent):
         """Test that the agent can execute the read_file tool."""
-        # We mock the LLM to force it to call the read_file tool
-        # In a real integration test, we'd let the LLM decide, but for stability:
+        # We mock achat to simulate the LLM deciding to call read_file
+        # and then providing a final answer based on the result.
 
-        # Mock the achat function to simulate an LLM deciding to use a tool
+        call_count = 0
+
         async def mock_achat(*args, **kwargs):
-            # Simulate the LLM calling 'read_file'
+            nonlocal call_count
+            call_count += 1
+
             tool_registry = kwargs.get("tool_registry", {})
-            if "read_file" in tool_registry:
-                result = tool_registry["read_file"]("main.py")
-                # Simulate a second turn where the LLM gives the final answer
-                return type(
-                    "obj",
-                    (object,),
-                    {"content": f"The file contains: {result[:50]}..."},
-                )
-            return type("obj", (object,), {"content": "Error"})
+
+            # Simulate the first turn: LLM decides to read the file
+            if call_count == 1:
+                # In a real scenario, achat handles the loop.
+                # Here we simulate the final result after the tool has been "used".
+                # We manually trigger the tool to ensure it works, then return a mock response.
+                if "read_file" in tool_registry:
+                    # Execute the tool synchronously as it is defined in RepoTools
+                    tool_result = tool_registry["read_file"]("main.py")
+                    # Return a mock result that simulates the LLM's final answer after seeing the file
+                    return type(
+                        "obj",
+                        (object,),
+                        {
+                            "content": f"Based on the file, main.py contains: {tool_result[:50]}...",
+                            "usage": {
+                                "prompt_tokens": 100,
+                                "completion_tokens": 50,
+                                "total_tokens": 150,
+                            },
+                        },
+                    )
+            return type("obj", (object,), {"content": "Error", "usage": {}})
 
         with patch(
             "jet.adapters.llama_cpp.llm_utils_observed.achat", side_effect=mock_achat
         ):
             result = await code_agent.run("What is in main.py?")
 
-            assert "The file contains:" in result["answer"]
+            # Check that the answer contains content from the file
             assert "main.py" in result["answer"]
+            assert (
+                "calculate_sum" in result["answer"]
+                or "file contains" in result["answer"].lower()
+            )
 
     @pytest.mark.asyncio
     async def test_agent_tool_execution_grep(self, code_agent):
@@ -50,14 +71,24 @@ class TestCodeAgent:
 
         async def mock_achat(*args, **kwargs):
             tool_registry = kwargs.get("tool_registry", {})
+
+            # Simulate the tool execution and final answer
             if "grep_search" in tool_registry:
+                # Execute the tool synchronously
                 results = tool_registry["grep_search"]("calculate_sum")
                 return type(
                     "obj",
                     (object,),
-                    {"content": f"Found {len(results)} matches for calculate_sum"},
+                    {
+                        "content": f"Found {len(results)} matches for calculate_sum in the codebase.",
+                        "usage": {
+                            "prompt_tokens": 100,
+                            "completion_tokens": 50,
+                            "total_tokens": 150,
+                        },
+                    },
                 )
-            return type("obj", (object,), {"content": "Error"})
+            return type("obj", (object,), {"content": "Error", "usage": {}})
 
         with patch(
             "jet.adapters.llama_cpp.llm_utils_observed.achat", side_effect=mock_achat
@@ -80,12 +111,18 @@ class TestCodeAgent:
     async def test_agent_source_extraction(self, code_agent):
         """Test that the agent extracts sources from its final answer."""
 
-        # Mock achat to return a specific answer with file references
         async def mock_achat(*args, **kwargs):
             return type(
                 "obj",
                 (object,),
-                {"content": "You should look at main.py and utils.py for this."},
+                {
+                    "content": "You should look at `main.py` and utils.py for this implementation.",
+                    "usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": 50,
+                        "total_tokens": 150,
+                    },
+                },
             )
 
         with patch(
@@ -94,5 +131,12 @@ class TestCodeAgent:
             result = await code_agent.run("Test query")
 
             sources = result["sources"]
-            assert any("main.py" in s["file"] for s in sources)
-            assert any("utils.py" in s["file"] for s in sources)
+            # Ensure sources are extracted even with markdown formatting or plain text
+            source_files = [s["file"] for s in sources]
+
+            assert any("main.py" in f for f in source_files), (
+                f"Expected main.py in {source_files}"
+            )
+            assert any("utils.py" in f for f in source_files), (
+                f"Expected utils.py in {source_files}"
+            )
