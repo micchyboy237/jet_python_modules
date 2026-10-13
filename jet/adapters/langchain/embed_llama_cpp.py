@@ -1,89 +1,91 @@
-# jet_python_modules/jet/adapters/langchain/embed_llama_cpp.py
-from __future__ import annotations
+"""LangChain Embeddings adapter for llama.cpp using jet embed utilities."""
 
-from typing import Any, List, Literal, Optional
+from typing import List, Optional
 
-from jet.adapters.llama_cpp.config import EMBED_BASE_URL, EMBED_MODEL
-from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+import numpy as np
+from jet.adapters.llama_cpp.config import EMBED_MODEL
+from jet.adapters.llama_cpp.embed_utils import embed as jet_embed
 from langchain_core.embeddings import Embeddings
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 
-class EmbedLlamaCpp(BaseModel, Embeddings):
+class EmbedLlamaCpp(Embeddings):
+    """Embeddings wrapper for llama.cpp using jet's optimized embedding utilities.
+
+    This class integrates llama.cpp embedding models into LangChain by leveraging
+    jet's built-in batching, deduplication, and progress tracking features.
     """
-    LangChain embeddings wrapper for LlamacppEmbedding.
-    Supports both list and numpy return formats with batch processing and caching.
-    """
 
-    model_config = {"arbitrary_types_allowed": True}  # Allow LlamacppEmbedding
+    model_name: str = Field(default=EMBED_MODEL, alias="model")
+    """The name of the embedding model to use."""
 
-    model: str = Field(default=EMBED_MODEL, description="Embedding model name")
-    base_url: str = Field(
-        default=EMBED_BASE_URL,
-        description="Base URL of the llama.cpp embedding server",
-    )
-    max_retries: int = Field(default=3, ge=0, description="Max retries on HTTP failure")
-    cache_backend: Literal["memory", "file", "sqlite"] = Field(
-        default="sqlite", description="Cache storage backend"
-    )
-    cache_ttl: Optional[int] = Field(
-        default=None, ge=1, description="Cache TTL in seconds"
-    )
-    cache_max_size: int = Field(default=10000, ge=1, description="Maximum cache size")
-    use_cache: bool = Field(default=False, description="Enable embedding caching")
-    use_dynamic_batch_sizing: bool = Field(
-        default=False, description="Dynamically adjust batch size"
-    )
-    batch_size: int = Field(
-        default=32, ge=1, description="Batch size for embedding calls"
-    )
-    return_format: Literal["list", "numpy"] = Field(
-        default="numpy", description="Output format: list of lists or numpy array"
-    )
-    show_progress: bool = Field(default=True, description="Show progress bar")
-    verbose: bool = Field(default=False, description="Enable verbose logging")
-    embedder: LlamacppEmbedding = Field(default=None, exclude=True, repr=False)
+    prefix: Optional[str] = Field(default=None)
+    """Optional prefix to add to each text before embedding (e.g., for query/doc distinction)."""
 
-    def __init__(self, *, verbose: bool = False, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self.verbose = verbose
-        self.embedder = LlamacppEmbedding(
-            model=self.model,
-            base_url=self.base_url,
-            max_retries=self.max_retries,
-            cache_backend=self.cache_backend,
-            cache_ttl=self.cache_ttl,
-            cache_max_size=self.cache_max_size,
-            use_cache=self.use_cache,
-            use_dynamic_batch_sizing=self.use_dynamic_batch_sizing,
-            verbose=self.verbose,  # pass verbose flag to underlying LlamacppEmbedding
+    batch_size: int = 64
+    """Batch size for embedding documents."""
+
+    max_workers: int = 6
+    """Number of workers for parallel embedding."""
+
+    show_progress: bool = False
+    """Whether to show a progress bar during embedding."""
+
+    class Config:
+        allow_population_by_field_name = True
+
+    def _embed_texts(self, texts: List[str]) -> List[List[float]]:
+        """Internal helper to call jet embed utility."""
+        if not texts:
+            return []
+
+        # Use jet's embed function which handles batching, deduplication, and API calls
+        result = jet_embed(
+            text=texts,
+            model=self.model_name,
+            return_format="list",
+            max_workers=self.max_workers,
+            show_progress=self.show_progress,
+            batch_size=self.batch_size,
+            prefix=self.prefix,
         )
+
+        # jet_embed returns list[list[float]] or np.ndarray
+        if isinstance(result, np.ndarray):
+            return result.tolist()
+        return result
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        result = self.embedder(
-            inputs=texts,
-            return_format=self.return_format,
-            batch_size=self.batch_size,
-            show_progress=self.show_progress,
-            use_cache=self.use_cache,
-            use_dynamic_batch_sizing=self.use_dynamic_batch_sizing,
-        )
-        return result if self.return_format == "list" else result.tolist()
+        """Embed search docs."""
+        return self._embed_texts(texts)
 
     def embed_query(self, text: str) -> List[float]:
-        result = self.embedder(
-            inputs=text,
-            return_format=self.return_format,
-            batch_size=1,
-            show_progress=False,
-            use_cache=self.use_cache,
+        """Embed query text."""
+        # For single query, we can still use the batch helper or call directly
+        # jet_embed handles str input via embed_single internally
+        result = jet_embed(
+            text=text,
+            model=self.model_name,
+            return_format="list",
+            prefix=self.prefix,
         )
-        return result[0] if self.return_format == "list" else result[0].tolist()
+
+        if isinstance(result, np.ndarray):
+            return result.tolist()
+        return result
 
     async def aembed_documents(self, texts: List[str]) -> List[List[float]]:
-        # llama.cpp embedding server does not support async; fall back to sync
-        return self.embed_documents(texts)
+        """Asynchronous Embed search docs.
+
+        Note: jet's embed_utils is currently synchronous/thread-pool based.
+        We run it in an executor to maintain async compatibility without blocking.
+        """
+        from langchain_core.runnables.config import run_in_executor
+
+        return await run_in_executor(None, self.embed_documents, texts)
 
     async def aembed_query(self, text: str) -> List[float]:
-        # llama.cpp embedding server does not support async; fall back to sync
-        return self.embed_query(text)
+        """Asynchronous Embed query text."""
+        from langchain_core.runnables.config import run_in_executor
+
+        return await run_in_executor(None, self.embed_query, text)

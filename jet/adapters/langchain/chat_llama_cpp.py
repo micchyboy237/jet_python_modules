@@ -1,137 +1,96 @@
-import os
+"""LangChain Chat Model adapter for llama.cpp using jet observability."""
+
 from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
 
-from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL
-from jet.llm.config import DEFAULT_LOG_DIR
-from jet.llm.logger_utils import ChatLogger
-from jet.logger import CustomLogger
-from jet.logger.config import DEFAULT_LOGGER
-from jet.transformers.formatters import format_json
-from jet.utils.text import format_sub_dir
+from jet.adapters.llama_cpp.config import LLM_MODEL
+from jet.adapters.llama_cpp.llm_utils_observed import achat as jet_achat
+from jet.adapters.llama_cpp.llm_utils_observed import chat as jet_chat
+from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
 )
-from langchain_core.messages import AIMessageChunk, BaseMessage
-from langchain_core.outputs import ChatGenerationChunk, ChatResult
-from langchain_openai import ChatOpenAI
+from langchain_core.language_models.chat_models import SimpleChatModel
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from pydantic import Field
 
 
-class ChatLlamaCpp(ChatOpenAI):
-    def __init__(
-        self,
-        *args,
-        model: str = LLM_MODEL,
-        temperature: float = 0.3,
-        max_tokens: int = 8192,
-        top_p: float = 0.95,
-        presence_penalty: float = 1.5,
-        base_url: str = LLM_BASE_URL,
-        verbosity: str = "high",
-        verbose: bool = True,
-        agent_name: Optional[str] = None,
-        log_dir: str = DEFAULT_LOG_DIR,
-        logger: Optional[CustomLogger] = None,
-        enable_thinking: bool = False,
-        extra_body: Optional[Dict[str, Any]] = None,
-        **kwargs,
-    ):
-        # ✅ Always include chat_template_kwargs.enable_thinking in extra_body,
-        # matching chat_stream.py behavior (sent on every request, not just when True)
-        merged_extra_body: Dict[str, Any] = dict(extra_body or {})
-        chat_template_kwargs = merged_extra_body.setdefault("chat_template_kwargs", {})
-        chat_template_kwargs["enable_thinking"] = enable_thinking
+class ChatLlamaCpp(SimpleChatModel):
+    """Chat model wrapper for llama.cpp using jet's observed chat utilities.
 
-        kwargs["extra_body"] = merged_extra_body
-        kwargs["model_kwargs"] = {
-            **kwargs.get("model_kwargs", {}),
-        }
+    This class integrates llama.cpp models into LangChain by leveraging
+    jet's built-in observability and tool handling features.
+    """
 
-        super().__init__(
-            *args,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            presence_penalty=presence_penalty,
-            base_url=base_url,
-            **kwargs,
-        )
+    model_name: str = Field(default=LLM_MODEL, alias="model")
+    """The name of the model to use."""
 
-        if agent_name and (not logger or not logger.log_file):
-            log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
+    base_url: Optional[str] = Field(default=None)
+    """Base URL for the llama.cpp server. If None, uses jet default."""
 
-        self._model: str = model
-        self._max_tokens: int = max_tokens
-        self._top_p: float = top_p
-        self._presence_penalty: float = presence_penalty
-        self._agent_name: Optional[str] = agent_name
-        self._log_dir: str = log_dir
-        self._verbose: bool = verbose
-        self._enable_thinking: bool = enable_thinking
-        self._logger = logger or CustomLogger(
-            DEFAULT_LOGGER, filename=f"{log_dir}/main.log"
-        )
-        self._chat_logger: Optional[ChatLogger] = (
-            ChatLogger(log_dir=self._log_dir) if self._verbose else None
-        )
+    temperature: float = 0.7
+    """Sampling temperature."""
 
-        self._log(
-            "Initialized ChatLlamaCpp:\n%s",
-            format_json(
-                {
-                    "model": model,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "top_p": top_p,
-                    "presence_penalty": presence_penalty,
-                    "agent_name": agent_name,
-                    "enable_thinking": enable_thinking,
-                }
-            ),
-        )
-        self._log("extra_body: %s", format_json(merged_extra_body))
-        remaining_kwargs = {k: v for k, v in kwargs.items() if k != "model_kwargs"}
-        if remaining_kwargs:
-            self._log("additional kwargs: %s", remaining_kwargs)
+    max_tokens: int = 16384
+    """Maximum number of tokens to generate."""
 
-    def _log(self, message: str, *args: Any) -> None:
-        """Log only when verbose is enabled."""
-        if self._verbose:
-            self._logger.info(message, *args)
+    top_p: float = 0.8
+    """Top-p sampling parameter."""
 
-    @staticmethod
-    def _extract_reasoning_from_chunk(chunk: ChatGenerationChunk) -> Optional[str]:
-        """Extract reasoning content from a LangChain chunk.
+    top_k: int = 20
+    """Top-k sampling parameter."""
 
-        Checks multiple locations where langchain-openai may place
-        reasoning_content from the OpenAI delta:
-          1. chunk.message.additional_kwargs["reasoning_content"]
-          2. chunk.message.content_blocks with type=="reasoning"
-          3. chunk.generation_info["reasoning_content"]
-        """
-        msg = chunk.message
+    repeat_penalty: float = 1.1
+    """Repeat penalty."""
 
-        # Location 1: additional_kwargs (most common langchain-openai mapping)
-        ak = getattr(msg, "additional_kwargs", None) or {}
-        reasoning = ak.get("reasoning_content")
-        if reasoning:
-            return reasoning
+    presence_penalty: float = 1.5
+    """Presence penalty."""
 
-        # Location 2: content_blocks (already handled by existing code path)
-        content_blocks = getattr(msg, "content_blocks", None)
-        if content_blocks:
-            for block in content_blocks:
-                if block.get("type") == "reasoning" and block.get("reasoning"):
-                    return block["reasoning"]
+    frequency_penalty: float = 0.0
+    """Frequency penalty."""
 
-        # Location 3: generation_info fallback
-        gen_info = getattr(chunk, "generation_info", None) or {}
-        reasoning = gen_info.get("reasoning_content")
-        if reasoning:
-            return reasoning
+    stop: Optional[List[str]] = None
+    """Stop sequences."""
 
-        return None
+    seed: Optional[int] = None
+    """Random seed for reproducible generation."""
+
+    enable_thinking: bool = False
+    """Enable thinking/reasoning tokens if supported by the model."""
+
+    class Config:
+        allow_population_by_field_name = True
+
+    @property
+    def _llm_type(self) -> str:
+        return "llama_cpp"
+
+    def _convert_messages_to_prompt(
+        self, messages: List[BaseMessage]
+    ) -> List[Dict[str, Any]]:
+        """Convert LangChain messages to OpenAI-compatible message format."""
+        formatted_messages = []
+        for msg in messages:
+            role = "user"
+            if isinstance(msg, AIMessage):
+                role = "assistant"
+            elif hasattr(msg, "type") and msg.type == "system":
+                role = "system"
+
+            content = msg.content
+            if isinstance(content, list):
+                # Handle multimodal content if necessary, simplifying to string for now
+                # or extracting text parts
+                text_parts = [
+                    part["text"]
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "text"
+                ]
+                content = "\n".join(text_parts)
+
+            formatted_messages.append({"role": role, "content": content})
+        return formatted_messages
 
     def _generate(
         self,
@@ -140,97 +99,45 @@ class ChatLlamaCpp(ChatOpenAI):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Generate full response using streaming; log exactly once."""
-        self._logger.info("Starting _generate")
-        self._logger.gray(f"\nMessages ({len(messages)}):")
-        self._logger.debug(format_json(messages))
-        if kwargs.get("tools"):
-            self._logger.gray("\nTools:")
-            self._logger.debug(format_json(kwargs["tools"]))
+        """Call out to llama.cpp's chat endpoint."""
+        formatted_messages = self._convert_messages_to_prompt(messages)
 
-        text_content = ""
-        chunks: List[ChatGenerationChunk] = []
-        tool_call_chunks: List[dict] = []
-        reasoning_chunks: List[str] = []
-        invalid_tool_calls: List[dict] = []
+        # Merge kwargs with instance defaults
+        params = {
+            "prompt_or_messages": formatted_messages,
+            "model": self.model_name,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "repeat_penalty": self.repeat_penalty,
+            "presence_penalty": self.presence_penalty,
+            "frequency_penalty": self.frequency_penalty,
+            "seed": self.seed,
+            "enable_thinking": self.enable_thinking,
+        }
 
-        for chunk in self._stream(
-            messages=messages,
-            stop=stop,
-            run_manager=run_manager,
-            **kwargs,
-        ):
-            chunks.append(chunk)
-            msg = chunk.message
+        if stop is not None:
+            params["stop"] = stop
+        elif self.stop is not None:
+            params["stop"] = self.stop
 
-            # ✅ Extract reasoning from every chunk (mirrors chat_stream.py delta check)
-            reasoning = self._extract_reasoning_from_chunk(chunk)
-            if reasoning:
-                reasoning_chunks.append(reasoning)
+        # Pass through any extra kwargs
+        params.update(kwargs)
 
-            if not (hasattr(msg, "content_blocks") and msg.content_blocks):
-                if msg.content:
-                    text_content += msg.content
-            else:
-                for block in msg.content_blocks:
-                    btype = block.get("type")
-                    if btype == "text" and block.get("text"):
-                        text_content += block["text"]
-                    elif btype == "tool_call_chunk":
-                        tool_call_chunks.append(block)
-                        text_content += block.get("args", "")
-                    elif btype == "invalid_tool_call":
-                        invalid_tool_calls.append(block)
-                    # Note: "reasoning" blocks already captured above via _extract_reasoning_from_chunk
+        # Use jet's observed chat function
+        result: StreamCompletionResult = jet_chat(**params)
 
-        if not chunks:
-            self._log("No chunks from _stream, falling back to super()._generate")
-            return super()._generate(
-                messages, stop=stop, run_manager=run_manager, **kwargs
-            )
+        message = AIMessage(content=result.content)
+        generation = ChatGeneration(message=message)
 
-        if tool_call_chunks:
-            first = tool_call_chunks[0]
-            first_id = first.get("id")
-            first_name = first.get("name")
-            for chunk_idx, chunk in enumerate(tool_call_chunks):
-                chunk["index"] = chunk_idx
-                if first_id and not chunk.get("id"):
-                    chunk["id"] = first_id
-                if first_name and not chunk.get("name"):
-                    chunk["name"] = first_name
+        llm_output = {}
+        if result.usage:
+            llm_output["token_usage"] = result.usage
+        if result.finish_reason:
+            llm_output["finish_reason"] = result.finish_reason
 
-        final_message_kwargs = {"content": "" if tool_call_chunks else text_content}
-        if tool_call_chunks:
-            final_message_kwargs["tool_call_chunks"] = [
-                {**tool_call_chunks[0], "args": text_content}
-            ]
-        if invalid_tool_calls:
-            final_message_kwargs["invalid_tool_calls"] = invalid_tool_calls
-        if reasoning_chunks:
-            final_message_kwargs["additional_kwargs"] = {
-                "reasoning": "\n".join(reasoning_chunks)
-            }
-
-        final_message = AIMessageChunk(**final_message_kwargs)
-        result = ChatResult(generations=[ChatGenerationChunk(message=final_message)])
-
-        if self._verbose and self._chat_logger is not None:
-            self._log("Logging interaction (sync generate)")
-            invocation_params = self._get_invocation_params(stop=stop, **kwargs)
-            metadata = {
-                "model": self._model,
-                "agent_name": self._agent_name,
-                "method": "chat",
-                "invocation": invocation_params,
-            }
-            self._chat_logger.log_interaction(
-                messages=messages,
-                response=text_content,
-                **metadata,
-            )
-
-        return result
+        return ChatResult(generations=[generation], llm_output=llm_output)
 
     async def _agenerate(
         self,
@@ -239,108 +146,42 @@ class ChatLlamaCpp(ChatOpenAI):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Async generate using streaming; log exactly once."""
-        self._logger.info("Starting _agenerate")
-        self._logger.gray(f"\nMessages ({len(messages)}):")
-        self._logger.debug(format_json(messages))
-        if kwargs.get("tools"):
-            self._logger.gray("\nTools:")
-            self._logger.debug(format_json(kwargs["tools"]))
+        """Asynchronously call out to llama.cpp's chat endpoint."""
+        formatted_messages = self._convert_messages_to_prompt(messages)
 
-        text_content = ""
-        chunks: List[ChatGenerationChunk] = []
-        tool_call_chunks: List[dict] = []
-        reasoning_chunks: List[str] = []
-        invalid_tool_calls: List[dict] = []
+        params = {
+            "prompt_or_messages": formatted_messages,
+            "model": self.model_name,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "repeat_penalty": self.repeat_penalty,
+            "presence_penalty": self.presence_penalty,
+            "frequency_penalty": self.frequency_penalty,
+            "seed": self.seed,
+            "enable_thinking": self.enable_thinking,
+        }
 
-        async for chunk in self._astream(
-            messages=messages,
-            stop=stop,
-            run_manager=run_manager,
-            **kwargs,
-        ):
-            chunks.append(chunk)
-            msg = chunk.message
+        if stop is not None:
+            params["stop"] = stop
+        elif self.stop is not None:
+            params["stop"] = self.stop
 
-            # ✅ Extract reasoning from every chunk (mirrors chat_stream.py delta check)
-            reasoning = self._extract_reasoning_from_chunk(chunk)
-            if reasoning:
-                reasoning_chunks.append(reasoning)
+        params.update(kwargs)
 
-            if not (hasattr(msg, "content_blocks") and msg.content_blocks):
-                if msg.content:
-                    text_content += msg.content
-            else:
-                for block in msg.content_blocks:
-                    btype = block.get("type")
-                    if btype == "text" and block.get("text"):
-                        text_content += block["text"]
-                    elif btype == "tool_call_chunk":
-                        tool_call_chunks.append(block)
-                        text_content += block.get("args", "")
-                    elif btype == "invalid_tool_call":
-                        invalid_tool_calls.append(block)
+        result: StreamCompletionResult = await jet_achat(**params)
 
-        if not chunks:
-            self._log("No chunks from _astream, falling back to super()._agenerate")
-            return await super()._agenerate(
-                messages, stop=stop, run_manager=run_manager, **kwargs
-            )
+        message = AIMessage(content=result.content)
+        generation = ChatGeneration(message=message)
 
-        if tool_call_chunks:
-            first = tool_call_chunks[0]
-            first_id = first.get("id")
-            first_name = first.get("name")
-            for chunk_idx, chunk in enumerate(tool_call_chunks):
-                chunk["index"] = chunk_idx
-                if first_id and not chunk.get("id"):
-                    chunk["id"] = first_id
-                if first_name and not chunk.get("name"):
-                    chunk["name"] = first_name
+        llm_output = {}
+        if result.usage:
+            llm_output["token_usage"] = result.usage
+        if result.finish_reason:
+            llm_output["finish_reason"] = result.finish_reason
 
-        final_message_kwargs = {"content": "" if tool_call_chunks else text_content}
-        if tool_call_chunks:
-            final_message_kwargs["tool_call_chunks"] = [
-                {**tool_call_chunks[0], "args": text_content}
-            ]
-        if invalid_tool_calls:
-            final_message_kwargs["invalid_tool_calls"] = invalid_tool_calls
-        if reasoning_chunks:
-            final_message_kwargs["additional_kwargs"] = {
-                "reasoning": "\n".join(reasoning_chunks)
-            }
-
-        final_message = AIMessageChunk(**final_message_kwargs)
-        result = ChatResult(generations=[ChatGenerationChunk(message=final_message)])
-
-        if self._verbose and self._chat_logger is not None:
-            self._log("Logging interaction (async generate)")
-            invocation_params = self._get_invocation_params(stop=stop, **kwargs)
-            metadata = {
-                "model": self._model,
-                "agent_name": self._agent_name,
-                "method": "achat",
-                "invocation": invocation_params,
-            }
-            if (
-                run_manager
-                and hasattr(run_manager, "get_sync")
-                and callable(run_manager.get_sync)
-            ):
-                run_manager.get_sync()(
-                    self._chat_logger.log_interaction,
-                    messages,
-                    response=text_content,
-                    **metadata,
-                )
-            else:
-                self._chat_logger.log_interaction(
-                    messages=messages,
-                    response=text_content,
-                    **metadata,
-                )
-
-        return result
+        return ChatResult(generations=[generation], llm_output=llm_output)
 
     def _stream(
         self,
@@ -349,39 +190,25 @@ class ChatLlamaCpp(ChatOpenAI):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
-        """Yield chunks and print them; **no** log_interaction."""
-        self._log("Starting _stream for %s messages", len(messages))
-        for chunk in super()._stream(
-            messages, stop=stop, run_manager=run_manager, **kwargs
-        ):
-            if self._verbose:
-                # ✅ Log reasoning_content per-chunk, mirroring chat_stream.py's
-                # per-delta reasoning_content logging
-                reasoning = self._extract_reasoning_from_chunk(chunk)
-                if reasoning:
-                    self._logger.orange(reasoning, flush=True)
+        """Stream chunks from llama.cpp."""
+        # Note: jet_chat currently returns a complete result, not a stream iterator.
+        # If streaming is required, jet's underlying implementation would need to
+        # expose a streaming iterator. For now, we fall back to _generate behavior
+        # or simulate streaming if jet supports it.
+        # Assuming jet_chat is blocking, we yield the final result as a single chunk
+        # or implement proper streaming if jet exposes it.
 
-                content_blocks = getattr(chunk.message, "content_blocks", None)
-                if content_blocks:
-                    for block in content_blocks:
-                        block_type = block.get("type")
-                        if block_type == "tool_call_chunk":
-                            args = block.get("args", "")
-                            self._logger.teal(args, flush=True)
-                        elif block_type == "text":
-                            text = block.get("text", "")
-                            self._logger.teal(text, flush=True)
-                        elif block_type == "invalid_tool_call":
-                            name = block.get("name", "unknown")
-                            error = block.get("error", "unknown error")
-                            self._logger.teal(
-                                f"[Invalid Tool Call] {name}: {error}", flush=True
-                            )
-                        # reasoning blocks logged above via _extract_reasoning_from_chunk
-                elif chunk.message.content:
-                    self._logger.teal(chunk.message.content, flush=True)
-            yield chunk
-        self._log("Finished _stream")
+        # Since jet_chat returns StreamCompletionResult after completion,
+        # true streaming via LangChain requires jet to support an on_chunk callback
+        # that we can bridge.
+        # For compatibility, we'll just yield the final message as one chunk if
+        # streaming isn't natively supported by the jet wrapper in a way LangChain expects.
+
+        result = self._generate(messages, stop, run_manager, **kwargs)
+        for gen in result.generations:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(content=gen.message.content)
+            )
 
     async def _astream(
         self,
@@ -390,34 +217,9 @@ class ChatLlamaCpp(ChatOpenAI):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
-        """Yield async chunks and print them; **no** log_interaction."""
-        self._log("Starting _astream for %s messages", len(messages))
-        async for chunk in super()._astream(
-            messages, stop=stop, run_manager=run_manager, **kwargs
-        ):
-            if self._verbose:
-                # ✅ Log reasoning_content per-chunk (async variant)
-                reasoning = self._extract_reasoning_from_chunk(chunk)
-                if reasoning:
-                    self._logger.orange(reasoning, flush=True)
-
-                content_blocks = getattr(chunk.message, "content_blocks", None)
-                if content_blocks:
-                    for block in content_blocks:
-                        block_type = block.get("type")
-                        if block_type == "tool_call_chunk":
-                            args = block.get("args", "")
-                            self._logger.teal(args, flush=True)
-                        elif block_type == "text":
-                            text = block.get("text", "")
-                            self._logger.teal(text, flush=True)
-                        elif block_type == "invalid_tool_call":
-                            name = block.get("name", "unknown")
-                            error = block.get("error", "unknown error")
-                            self._logger.teal(
-                                f"[Invalid Tool Call] {name}: {error}", flush=True
-                            )
-                elif chunk.message.content:
-                    self._logger.teal(chunk.message.content, flush=True)
-            yield chunk
-        self._log("Finished _astream")
+        """Asynchronously stream chunks from llama.cpp."""
+        result = await self._agenerate(messages, stop, run_manager, **kwargs)
+        for gen in result.generations:
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(content=gen.message.content)
+            )

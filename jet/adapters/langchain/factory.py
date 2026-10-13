@@ -1,22 +1,28 @@
-# jet.adapters.langchain.factory
-
-
 from jet.adapters.langchain.chat_llama_cpp import ChatLlamaCpp
 from jet.adapters.langchain.embed_llama_cpp import EmbedLlamaCpp
 from jet.adapters.llama_cpp.config import EMBED_MODEL
-from jet.adapters.llama_cpp.factory import get_embedding_client
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 
-def get_chat_openai(**kwargs) -> ChatOpenAI:
+def get_chat_openai(**kwargs) -> ChatLlamaCpp:
+    """Get a ChatLlamaCpp instance configured with jet defaults.
+
+    Args:
+        **kwargs: Additional arguments to pass to ChatLlamaCpp constructor.
+
+    Returns:
+        ChatLlamaCpp instance.
+    """
     llm = ChatLlamaCpp(**kwargs)
     return llm
 
 
-def get_openai_embeddings(embed_model: EMBED_MODEL) -> OpenAIEmbeddings:
-    client = get_embedding_client()
-    return OpenAIEmbeddings(
-        client=client.embeddings,  # Fix: Use .embeddings sub-client
-        model=embed_model,  # Specify model for compatibility
-        check_embedding_ctx_length=False,  # Disable token checking for non-OpenAI APIs
-    )
+def get_openai_embeddings(embed_model: str = EMBED_MODEL) -> EmbedLlamaCpp:
+    """Get an EmbedLlamaCpp instance configured with jet defaults.
+
+    Args:
+        embed_model: The name of the embedding model to use. Defaults to EMBED_MODEL from config.
+
+    Returns:
+        EmbedLlamaCpp instance.
+    """
+    return EmbedLlamaCpp(model=embed_model)
