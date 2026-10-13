@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from config import chunking
+from jet_telemetry import chain
 from utils import logger
 
 
@@ -20,15 +21,14 @@ class RepoMap:
             "structure": {},
             "symbols": {},
         }
-        # Use the same extensions defined in the scanner/chunker config
         self.supported_exts = [ext.lower() for ext in chunking.SUPPORTED_EXTS]
 
+    @chain(name="repo-map-generation")
     def generate(self) -> Dict:
         """
         Scan the repository and build a structural map.
         """
         logger.info("Generating repository map...")
-
         for file_path in self.repo_path.rglob("*"):
             if file_path.is_file():
                 suffix = file_path.suffix.lower()
@@ -48,28 +48,23 @@ class RepoMap:
                 source = f.read()
 
             symbols = []
-
             if suffix == ".py":
                 symbols = self._extract_python_symbols(source)
             elif suffix in [".md", ".mdx"]:
                 symbols = self._extract_markdown_headers(source)
             else:
-                # For other code/text files, just note their existence
-                # or extract simple patterns if needed
                 symbols = [f"File: {full_path.name}"]
 
             if symbols:
                 self.map_data["symbols"][rel_path] = symbols
 
-            # Update directory structure
-            parts = rel_path.split("/")
-            current = self.map_data["structure"]
-            for part in parts[:-1]:
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
-            current[parts[-1]] = None
-
+                parts = rel_path.split("/")
+                current = self.map_data["structure"]
+                for part in parts[:-1]:
+                    if part not in current:
+                        current[part] = {}
+                    current = current[part]
+                current[parts[-1]] = None
         except Exception as e:
             logger.debug(f"Could not parse {rel_path} for map: {e}")
 
@@ -92,7 +87,6 @@ class RepoMap:
         symbols = []
         for line in source.splitlines():
             if line.startswith("#"):
-                # Limit to H1 and H2 to keep map concise
                 if line.startswith("## ") or line.startswith("# "):
                     symbols.append(line.strip())
         return symbols
@@ -106,14 +100,12 @@ class RepoMap:
 
         summary_parts = []
         summary_parts.append("## Project Structure")
-        # Limit structure depth if it's too large, but for now dump it
         summary_parts.append(json.dumps(self.map_data["structure"], indent=2))
 
         if self.map_data["symbols"]:
             summary_parts.append("\n## Key Content by File")
-            # Show first 20 files to avoid overwhelming context
             for file, syms in list(self.map_data["symbols"].items())[:20]:
-                sym_list = ", ".join(syms[:5])  # Limit symbols per file
+                sym_list = ", ".join(syms[:5])
                 if len(syms) > 5:
                     sym_list += "..."
                 summary_parts.append(f"- `{file}`: {sym_list}")

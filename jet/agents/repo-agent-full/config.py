@@ -11,6 +11,7 @@ from jet.adapters.llama_cpp.config import (
     EMBED_MODEL_LG,
     LLM_BASE_URL,
     LLM_MODEL,
+    PHOENIX_BASE_URL,
     RERANK_BASE_URL,
     RERANK_MODEL,
 )
@@ -21,6 +22,7 @@ class ServerConfig:
     LLM_URL: str = LLM_BASE_URL
     EMBED_URL: str = EMBED_BASE_URL
     RERANK_URL: str = RERANK_BASE_URL
+    PHOENIX_URL: str = PHOENIX_BASE_URL
 
 
 @dataclass

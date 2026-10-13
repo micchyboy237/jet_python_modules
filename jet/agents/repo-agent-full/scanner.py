@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from config import chunking
+from jet_telemetry import chain
 from utils import logger
 
 
@@ -13,6 +14,7 @@ class RepositoryScanner:
     def __init__(self):
         self.supported_exts = chunking.SUPPORTED_EXTS
 
+    @chain(name="repository-scan")
     def scan(self, repo_path: str) -> List[Tuple[str, str, str]]:
         """
         Scans repository and returns list of (relative_path, language, content).
@@ -20,7 +22,6 @@ class RepositoryScanner:
         logger.info(f"Scanning repository: {repo_path}")
         files = []
         repo_dir = Path(repo_path)
-
         if not repo_dir.exists():
             raise FileNotFoundError(f"Path not found: {repo_path}")
 

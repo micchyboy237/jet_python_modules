@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 
 from config import chunking, models
 from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
+from jet_telemetry import chain
 from utils import logger
 
 
@@ -14,38 +15,34 @@ class CodeChunker:
     def __init__(self):
         self.chunk_size = chunking.CHUNK_SIZE
         self.overlap = chunking.CHUNK_OVERLAP
-        self.model = models.EMBED_MODEL  # Use embedding model's tokenizer
+        self.model = models.EMBED_MODEL
 
+    @chain(name="code-chunking")
     def chunk_files(self, files: List[Tuple[str, str, str]]) -> List[Dict]:
         """
         Input: List of (path, lang, content)
         Output: List of chunk dicts ready for embedding
-
         Uses token-aware chunking with proper overlap handling.
         """
         logger.info(f"Chunking {len(files)} files...")
-
         all_chunks = []
         for path, lang, content in files:
             if not content.strip():
                 continue
 
-            # Use jet's chunking utility with metadata
             chunk_results = chunk_texts_with_data(
                 texts=content,
                 chunk_size=self.chunk_size,
                 chunk_overlap=self.overlap,
                 model=self.model,
-                ids=[f"{path}"],  # Document ID
+                ids=[f"{path}"],
                 buffer=0,
-                strict_sentences=False,  # Code doesn't have sentences
+                strict_sentences=False,
                 min_chunk_size=32,
                 show_progress=False,
             )
 
-            # Convert to repo-agent format
             for chunk_result in chunk_results:
-                # Calculate line numbers from character offsets
                 start_line = content[: chunk_result["start_idx"]].count("\n") + 1
                 end_line = content[: chunk_result["end_idx"]].count("\n") + 1
 

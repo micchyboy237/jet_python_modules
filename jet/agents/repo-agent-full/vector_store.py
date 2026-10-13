@@ -8,6 +8,7 @@ from typing import Dict, List
 import lancedb
 from config import db, models
 from jet.adapters.llama_cpp.embed_utils import embed
+from jet_telemetry import chain, embedding
 from lancedb.pydantic import LanceModel, Vector
 from utils import logger
 
@@ -19,7 +20,7 @@ class ChunkSchema(LanceModel):
     language: str
     start_line: int
     end_line: int
-    num_tokens: int  # Added for better tracking
+    num_tokens: int
     vector: Vector(db.DIMENSIONS)
 
 
@@ -45,31 +46,32 @@ class VectorStore:
                 logger.warning(f"Index creation note: {e}")
         logger.info("LanceDB ready.")
 
+    @chain(name="vector-store-add-chunks")
     async def add_chunks(self, chunks: List[Dict]):
         if not chunks:
             logger.warning("No chunks to add")
             return
 
         logger.info(f"Embedding and storing {len(chunks)} chunks...")
-
-        # Extract texts and metadata
         texts = [chunk["content"] for chunk in chunks]
 
         try:
-            # Use jet's optimized embedding with deduplication and parallelism
-            embeddings = embed(
-                text=texts,
-                model=models.EMBED_MODEL,
-                return_format="list",
-                show_progress=False,  # Set True for CLI usage
-                batch_size=64,
-            )
+            # Manual instrumentation for embedding since embed_utils.embed is not decorated
+            @embedding(model_name=models.EMBED_MODEL)
+            def _embed_batch(text_list):
+                return embed(
+                    text=text_list,
+                    model=models.EMBED_MODEL,
+                    return_format="list",
+                    show_progress=False,
+                    batch_size=64,
+                )
 
-            # Ensure embeddings is a list of lists
+            embeddings = _embed_batch(texts)
+
             if hasattr(embeddings, "tolist"):
                 embeddings = embeddings.tolist()
 
-            # Create records
             records = []
             for i, chunk in enumerate(chunks):
                 records.append(
@@ -85,38 +87,37 @@ class VectorStore:
                     )
                 )
 
-            # Add to table
             self.table.add(records)
             logger.info("Storage complete.")
-
         except Exception as e:
             logger.error(f"Failed to embed/store chunks: {e}")
             raise
 
+    @chain(name="vector-store-search")
     async def search(self, query: str, k: int) -> List[Dict]:
         if not self.table:
             self.initialize()
 
         try:
-            # Embed query using jet's utilities
-            query_embedding = embed(
-                text=query,
-                model=models.EMBED_MODEL,
-                return_format="list",
-            )
+            # Manual instrumentation for query embedding
+            @embedding(model_name=models.EMBED_MODEL)
+            def _embed_query(text):
+                return embed(
+                    text=text,
+                    model=models.EMBED_MODEL,
+                    return_format="list",
+                )
 
-            # Convert to list if numpy array
+            query_embedding = _embed_query(query)
+
             if hasattr(query_embedding, "tolist"):
                 query_embedding = query_embedding.tolist()
 
-            # Search LanceDB
             results = (
                 self.table.search(query_embedding).metric("cosine").limit(k).to_list()
             )
-
             logger.debug(f"Search returned {len(results)} results")
             return results
-
         except Exception as e:
             logger.error(f"Search failed: {e}")
             raise

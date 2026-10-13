@@ -5,6 +5,7 @@ Hybrid retrieval logic combining vector search and reranking.
 from typing import Dict, List, Optional
 
 from config import retrieval
+from jet_telemetry import retriever
 from reranker import Reranker
 from utils import logger
 from vector_store import VectorStore
@@ -15,6 +16,7 @@ class Retriever:
         self.store = VectorStore()
         self.reranker = Reranker()
 
+    @retriever(name="hybrid-retriever", model_name="lancedb+bge")
     async def retrieve(self, query: str, filters: Optional[Dict] = None) -> List[Dict]:
         if not query or not query.strip():
             logger.warning("Empty query provided")
@@ -22,10 +24,9 @@ class Retriever:
 
         logger.info(f"Retrieving context for: '{query[:50]}...'")
 
-        # Initial vector search
+        # Vector Search
         candidates = await self.store.search(query, k=retrieval.TOP_K_INITIAL)
 
-        # Filter by distance threshold
         valid_candidates = [
             c for c in candidates if c["_distance"] <= retrieval.DISTANCE_THRESHOLD
         ]
@@ -36,10 +37,9 @@ class Retriever:
 
         logger.info(f"Found {len(valid_candidates)} candidates within threshold")
 
-        # Rerank candidates
+        # Reranking
         ranked_docs = await self.reranker.rerank(query, valid_candidates)
 
-        # Return top K
         final_results = ranked_docs[: retrieval.TOP_K_FINAL]
         logger.info(f"Returning top {len(final_results)} results")
 

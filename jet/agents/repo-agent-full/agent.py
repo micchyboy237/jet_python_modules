@@ -122,7 +122,6 @@ class CodeAgent:
                 tool_registry=tool_registry,
                 max_tool_rounds=5,
                 temperature=0.1,
-                project_name="repo-agent-agentic",
             )
 
             sources = self._extract_sources(result.content)
