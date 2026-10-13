@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, List, Literal, Optional
 
-from jet.adapters.llama_cpp.config import EMBED_MODEL
+from jet.adapters.llama_cpp.config import EMBED_BASE_URL, EMBED_MODEL
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from langchain_core.embeddings import Embeddings
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ class EmbedLlamaCpp(BaseModel, Embeddings):
 
     model: str = Field(default=EMBED_MODEL, description="Embedding model name")
     base_url: str = Field(
-        default="http://shawn-pc.local:8081/v1",
+        default=EMBED_BASE_URL,
         description="Base URL of the llama.cpp embedding server",
     )
     max_retries: int = Field(default=3, ge=0, description="Max retries on HTTP failure")

@@ -2,6 +2,7 @@
 
 
 from jet.adapters.langchain.chat_llama_cpp import ChatLlamaCpp
+from jet.adapters.langchain.embed_llama_cpp import EmbedLlamaCpp
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.factory import get_embedding_client
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings

@@ -45,6 +45,7 @@ class RepositoryScanner:
             ".js": "javascript",
             ".ts": "typescript",
             ".md": "markdown",
+            ".mdx": "markdown",
             ".java": "java",
             ".go": "go",
         }

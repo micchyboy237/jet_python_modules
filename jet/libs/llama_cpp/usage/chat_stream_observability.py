@@ -301,6 +301,63 @@ def _execute_tool_with_span(
             else:
                 result = func(args)
 
+            # Ensure result is serializable for tracing
+            result_str = str(result)
+            if len(result_str) > 1000:
+                result_str = result_str[:1000] + "... [truncated]"
+            tool_span.set_attribute("tool.result", redact(result_str))
+            tool_span.set_status(
+                otel_trace.status.Status(otel_trace.status.StatusCode.OK)
+            )
+            return result
+        except Exception as e:
+            tool_span.record_exception(e)
+            tool_span.set_status(otel_trace.status.StatusCode.ERROR, str(e))
+            return {"error": str(e)}
+
+
+async def _execute_tool_with_span_async(
+    func_name: str,
+    func: Callable,
+    arguments: dict | str,
+    tracer: Any,
+) -> Any:
+    """
+    Asynchronous tool execution with span.
+    Handles both sync and async tools correctly.
+    """
+    import inspect
+
+    if isinstance(arguments, str):
+        try:
+            args = json.loads(arguments) if arguments else {}
+        except json.JSONDecodeError:
+            args = {}
+    elif isinstance(arguments, dict):
+        args = arguments
+    else:
+        args = {}
+
+    with tracer.start_as_current_span(
+        f"tool_execution.{func_name}", kind=SpanKind.INTERNAL
+    ) as tool_span:
+        tool_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, "TOOL")
+        tool_span.set_attribute(SpanAttributes.TOOL_NAME, func_name)
+        params_str = arguments if isinstance(arguments, str) else json.dumps(arguments)
+        tool_span.set_attribute("tool.parameters", redact(params_str))
+
+        try:
+            # Check if the tool is async
+            if inspect.iscoroutinefunction(func):
+                result = await func(**args)
+            else:
+                import asyncio
+
+                # Run sync tool in executor to avoid blocking event loop
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, lambda: func(**args))
+
+            # Ensure result is serializable for tracing
             result_str = str(result)
             if len(result_str) > 1000:
                 result_str = result_str[:1000] + "... [truncated]"
@@ -492,7 +549,8 @@ async def run_agentic_chat_async(
             func_name = tc.name
             func = tool_registry.get(func_name)
             if func:
-                tool_result = _execute_tool_with_span(
+                # Use the async executor
+                tool_result = await _execute_tool_with_span_async(
                     func_name=func_name,
                     func=func,
                     arguments=tc.arguments,

@@ -60,6 +60,7 @@ class ChunkingConfig:
             ".php",
             ".swift",
             ".md",
+            ".mdx",
             ".txt",
             ".json",
             ".yaml",
