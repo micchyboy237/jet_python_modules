@@ -2,11 +2,13 @@
 
 A local, privacy-first **AI Agent** that indexes, explores, and queries your code repositories. Built for developers who want intelligent code assistance without sending their code to the cloud.
 
-Unlike simple RAG systems, Repo Agent uses an **Agentic Workflow** to autonomously plan, search, and retrieve information using a suite of specialized tools.
+Unlike simple RAG systems, Repo Agent uses an **Agentic Workflow** to autonomously plan, search, and retrieve information using a suite of specialized tools. It leverages production-grade components from the `jet/*` ecosystem for robust token-aware chunking, hybrid retrieval, and full observability.
 
 ## 🚀 Features
 
 - **🤖 Agentic Workflow**: Uses a ReAct (Reason + Act) loop to autonomously decide when to search, read files, or grep for symbols.
+- **🧠 Intent Classification**: Automatically routes queries to the best strategy (Factual, Summary, Exploratory, or Debugging).
+- **🗺️ Repository Mapping**: Generates a structural index of the codebase to provide global context for broad questions.
 - **🛠️ Tool Use**: Equipped with `retrieve_context`, `read_file`, and `grep_search` tools for precise code exploration.
 - **👁️ Full Observability**: Integrated with **Jet Telemetry** and **Arize Phoenix** to trace every LLM call, tool execution, and retrieval step.
 - **🏠 Local & Private**: All processing happens on your machine using local llama.cpp servers. No code leaves your environment.
@@ -18,6 +20,12 @@ Unlike simple RAG systems, Repo Agent uses an **Agentic Workflow** to autonomous
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     User Query / Task                       │
+└───────────────────────┬─────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│               Intent Classification Router                  │
+│  (FACTUAL | SUMMARY | EXPLORATORY | DEBUGGING)             │
 └───────────────────────┬─────────────────────────────────────┘
                         │
                         ▼
@@ -54,10 +62,12 @@ Unlike simple RAG systems, Repo Agent uses an **Agentic Workflow** to autonomous
 ### Components
 
 1.  **`agent.py`**: The core orchestrator. Manages the agentic loop using `jet.adapters.llama_cpp.llm_utils_observed.achat`.
-2.  **`tools.py`**: Defines the capabilities (`@tool`) the agent can use to interact with the filesystem.
-3.  **`scanner.py` & `chunker.py`**: Handles repository scanning and token-aware chunking using `jet.adapters.llama_cpp.chunking_utils`.
-4.  **`vector_store.py`**: Manages LanceDB indexing and semantic search using `jet.adapters.llama_cpp.embed_utils`.
-5.  **`retriever.py` & `reranker.py`**: Implements hybrid retrieval with cross-encoder reranking via `jet.adapters.llama_cpp.rerank_utils`.
+2.  **`intent_router.py`**: Classifies user queries to determine the best retrieval strategy.
+3.  **`repo_map.py`**: Generates a lightweight structural map of the repository for global awareness.
+4.  **`tools.py`**: Defines the capabilities (`@tool`) the agent can use to interact with the filesystem.
+5.  **`scanner.py` & `chunker.py`**: Handles repository scanning and token-aware chunking using `jet.adapters.llama_cpp.chunking_utils`.
+6.  **`vector_store.py`**: Manages LanceDB indexing and semantic search using `jet.adapters.llama_cpp.embed_utils`.
+7.  **`retriever.py` & `reranker.py`**: Implements hybrid retrieval with cross-encoder reranking via `jet.adapters.llama_cpp.rerank_utils`.
 
 ## 📦 Quick Start
 
@@ -94,7 +104,7 @@ python main.py --repo /path/to/your/repository
 _Example Interaction:_
 
 > **You:** How does the authentication module work?
-> **Agent:** I'll start by retrieving context about authentication... [Uses `retrieve_context`]
+> **Agent (SUMMARY):** I'll start by looking at the repository structure... [Consults RepoMap]
 > **Agent:** I see references to `auth_service.py`. Let me read the full file to understand the flow... [Uses `read_file`]
 > **Agent:** Based on `auth_service.py`, the module uses JWT tokens validated against...
 
@@ -152,6 +162,13 @@ The agent uses `achat` from `llm_utils_observed.py`, which automatically handles
 - Executing the corresponding Python function.
 - Feeding the result back into the context window.
 - Repeating until a final answer is reached or `max_tool_rounds` is hit.
+
+### Intent Classification
+
+Before retrieval, the `IntentRouter` classifies the query to optimize context:
+
+- **SUMMARY/EXPLORATORY**: Injects the `RepoMap` into the system prompt for global awareness.
+- **FACTUAL/DEBUGGING**: Relies on standard hybrid retrieval for precision.
 
 ### Token-Aware Chunking
 
