@@ -1,11 +1,11 @@
 audioflux==0.1.9
 bertopic==0.17.4
+browser-use==0.13.11
 chonkie==1.7.0
 codependpy==0.1.1
 datasketch==2.0.0
 faster-whisper==1.2.1
 googletrans==4.0.2
-infoseeker==0.1.2
 jet-telemetry==1.0.0
 keybert==0.9.0
 langchain-chroma==1.1.0
@@ -20,5 +20,6 @@ llama-index-retrievers-bm25==0.8.0
 markdown-it-py==4.2.0
 nova-vad==1.0.0
 searxng==2026.8.4+c63835bd2
+ten_vad==1.0.6.8
 unstructured_inference==1.6.13
 wtpsplit==2.2.1

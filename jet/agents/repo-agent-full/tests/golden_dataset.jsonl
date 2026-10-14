@@ -1,0 +1,5 @@
+{"query": "What does calculate_sum do?", "intent": "FACTUAL", "expected_files": ["main.py"], "min_relevance_score": 0.8}
+{"query": "Summarize this repository's purpose", "intent": "SUMMARY", "expected_files": ["README.md"], "min_relevance_score": 0.7}
+{"query": "List all API endpoints in the codebase", "intent": "EXPLORATORY", "expected_files": [], "min_relevance_score": 0.6}
+{"query": "Why is this function throwing a KeyError?", "intent": "DEBUGGING", "expected_files": [], "min_relevance_score": 0.75}
+{"query": "How does authentication work in auth_service.py?", "intent": "FACTUAL", "expected_files": ["auth_service.py"], "min_relevance_score": 0.85}

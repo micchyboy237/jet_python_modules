@@ -89,3 +89,6 @@ models = ModelConfig()
 retrieval = RetrievalConfig()
 chunking = ChunkingConfig()
 db = DBConfig()
+
+
+GOLDEN_REPO_PATH = Path(__file__).parent / "tests" / "golden_repo"

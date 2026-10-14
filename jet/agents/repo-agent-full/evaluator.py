@@ -1,13 +1,14 @@
 """
 Evaluation harness for repo-agent-full.
 Uses LLM-as-a-Judge with Jet Telemetry for observability.
+Auto-detects golden repo when --repo is not provided during eval.
 """
 
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from config import models
+from config import GOLDEN_REPO_PATH, models
 from jet.adapters.llama_cpp.llm_utils_observed import achat
 from jet_telemetry import chain, evaluator
 from utils import logger
@@ -51,10 +52,6 @@ class EvalResult:
 
 @evaluator(name="llm-relevance-judge")
 async def judge_relevance(query: str, answer: str, expected_context: str) -> float:
-    """
-    Uses local LLM to score answer relevance on 0-1 scale.
-    Returns float between 0.0 and 1.0.
-    """
     prompt = f"""You are an expert evaluator. Score how well this answer addresses the query.
 Query: "{query}"
 Expected Context: "{expected_context}"
@@ -71,7 +68,6 @@ Return ONLY a JSON object: {{"score": <float 0.0-1.0>, "reasoning": "<brief expl
             project_name="repo-agent-eval",
         )
         content = result.content.strip()
-        # Extract JSON from response
         start = content.find("{")
         end = content.rfind("}") + 1
         if start != -1 and end > start:
@@ -83,11 +79,34 @@ Return ONLY a JSON object: {{"score": <float 0.0-1.0>, "reasoning": "<brief expl
         return 0.0
 
 
+def resolve_eval_repo(explicit_repo: Optional[str] = None) -> Path:
+    """Resolve the repository path for evaluation.
+
+    Priority:
+    1. Explicit --repo argument (if provided)
+    2. GOLDEN_REPO_PATH (always valid, always present)
+
+    Returns validated Path or raises FileNotFoundError.
+    """
+    if explicit_repo:
+        repo_path = Path(explicit_repo).resolve()
+        if not repo_path.exists():
+            raise FileNotFoundError(f"Explicit repo not found: {repo_path}")
+        logger.info(f"Using explicit repo: {repo_path}")
+        return repo_path
+
+    # Default to golden repo - guaranteed to exist
+    if not GOLDEN_REPO_PATH.exists():
+        raise FileNotFoundError(
+            f"Golden repo missing at {GOLDEN_REPO_PATH}. "
+            "Run 'git checkout' or restore tests/golden_repo/"
+        )
+    logger.info(f"Using golden test repo: {GOLDEN_REPO_PATH}")
+    return GOLDEN_REPO_PATH
+
+
 @chain(name="run-golden-evaluation")
-async def evaluate_golden_dataset(agent_instance, repo_path: str) -> List[EvalResult]:
-    """
-    Runs all golden queries through the agent and evaluates results.
-    """
+async def evaluate_golden_dataset(agent_instance, repo_path: Path) -> List[EvalResult]:
     if not GOLDEN_DATASET_PATH.exists():
         raise FileNotFoundError(f"Golden dataset not found: {GOLDEN_DATASET_PATH}")
 
@@ -105,25 +124,21 @@ async def evaluate_golden_dataset(agent_instance, repo_path: str) -> List[EvalRe
             f"Evaluating query {i + 1}/{len(golden_queries)}: '{gq['query'][:50]}...'"
         )
 
-        # Run agent
         agent_result = await agent_instance.run(gq["query"])
         actual_intent = agent_result.get("intent", "UNKNOWN")
         actual_answer = agent_result.get("answer", "")
         actual_sources = [s["file"] for s in agent_result.get("sources", [])]
 
-        # Build expected context string for judge
         expected_context = (
             ", ".join(gq["expected_files"])
             if gq["expected_files"]
             else "General knowledge"
         )
 
-        # Judge relevance
         relevance = await judge_relevance(
             query=gq["query"], answer=actual_answer, expected_context=expected_context
         )
 
-        # Determine pass/fail
         intent_match = actual_intent == gq["intent"]
         score_pass = relevance >= gq["min_relevance_score"]
         files_overlap = (
@@ -155,7 +170,6 @@ async def evaluate_golden_dataset(agent_instance, repo_path: str) -> List[EvalRe
 
 
 def print_eval_report(results: List[EvalResult]):
-    """Prints a summary report to console."""
     total = len(results)
     passed = sum(1 for r in results if r.pass_fail)
     avg_score = sum(r.relevance_score for r in results) / max(total, 1)

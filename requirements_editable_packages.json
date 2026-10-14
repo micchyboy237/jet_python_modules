@@ -10,6 +10,11 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic"
     },
     {
+        "name": "browser-use",
+        "version": "0.13.11",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/browser-use"
+    },
+    {
         "name": "chonkie",
         "version": "1.7.0",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/chonkie"
@@ -33,11 +38,6 @@
         "name": "googletrans",
         "version": "4.0.2",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/googletrans"
-    },
-    {
-        "name": "infoseeker",
-        "version": "0.1.2",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/agents/InfoSeeker"
     },
     {
         "name": "jet-telemetry",
@@ -108,6 +108,11 @@
         "name": "searxng",
         "version": "2026.8.4+c63835bd2",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/apps/searxng"
+    },
+    {
+        "name": "ten_vad",
+        "version": "1.0.6.8",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/ten-vad"
     },
     {
         "name": "unstructured_inference",

@@ -2,12 +2,12 @@ Package                            Version            Editable project location
 ---------------------------------- ------------------ ----------------------------------------------------------------------------------------------------------------------------------------------
 audioflux                          0.1.9              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux
 bertopic                           0.17.4             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic
+browser-use                        0.13.11            /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/browser-use
 chonkie                            1.7.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/chonkie
 codependpy                         0.1.1              /Users/jethroestrada/Desktop/External_Projects/Utils/codependpy
 datasketch                         2.0.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/datasketch
 faster-whisper                     1.2.1              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/faster-whisper
 googletrans                        4.0.2              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/googletrans
-infoseeker                         0.1.2              /Users/jethroestrada/Desktop/External_Projects/AI/agents/InfoSeeker
 jet-telemetry                      1.0.0              /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/python-projects/jet-telemetry
 keybert                            0.9.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/KeyBERT
 langchain-chroma                   1.1.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/partners/chroma
@@ -22,5 +22,6 @@ llama-index-retrievers-bm25        0.8.0              /Users/jethroestrada/Deskt
 markdown-it-py                     4.2.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/markdown-it-py
 nova-vad                           1.0.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/nova-vad
 searxng                            2026.8.4+c63835bd2 /Users/jethroestrada/Desktop/External_Projects/AI/apps/searxng
+ten_vad                            1.0.6.8            /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/ten-vad
 unstructured_inference             1.6.13             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured-inference
 wtpsplit                           2.2.1              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/wtpsplit
