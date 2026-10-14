@@ -245,6 +245,15 @@ async def _run_session(read_stream, write_stream, goal: str):
             logger.warning("⏹️ Reached MAX_STEPS (%d) without finishing", MAX_STEPS)
 
 
+import argparse
+
 if __name__ == "__main__":
-    user_goal = "Add a todo item 'Buy Milk' and then mark it as done."
-    asyncio.run(run_agent(user_goal))
+    parser = argparse.ArgumentParser(description="Run the Web Surfer MCP Agent.")
+    parser.add_argument(
+        "user_goal",
+        nargs="?",
+        default="Add a todo item 'Buy Milk' and then mark it as done.",
+        help="Goal for the agent to accomplish (default: %(default)s)",
+    )
+    args = parser.parse_args()
+    asyncio.run(run_agent(args.user_goal))
