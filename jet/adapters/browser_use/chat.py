@@ -10,7 +10,6 @@ from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessag
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.llm_utils_observed import achat
-from jet.adapters.llama_cpp.token_utils import tokenize
 from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from jet.libs.llama_cpp.usage.structured_output import (
     parse_structured_content,
@@ -34,7 +33,6 @@ class ChatLlamaCpp(BaseChatModel):
         top_k: int = 20,
         repeat_penalty: float = 1.1,
         enable_thinking: bool = False,
-        logit_bias: dict[str, int] | None = None,
         **kwargs: Any,
     ):
         self.model = model
@@ -45,42 +43,7 @@ class ChatLlamaCpp(BaseChatModel):
         self.top_k = top_k
         self.repeat_penalty = repeat_penalty
         self.enable_thinking = enable_thinking
-
-        # Dynamic logit_bias to encourage JSON and discourage XML/Thinking tags
-        self.logit_bias = self._get_dynamic_logit_bias(model, logit_bias)
         self.extra_kwargs = kwargs
-
-    def _get_dynamic_logit_bias(
-        self, model: str, user_bias: dict[str, int] | None
-    ) -> dict[str, int]:
-        """Calculate token IDs for '{' and '<' and create a bias map."""
-        try:
-            # Get token ID for '{' (JSON start)
-            open_brace_res = tokenize("{", model=model, use_server=False)
-            open_brace_id = (
-                open_brace_res["tokens"][0] if open_brace_res["tokens"] else None
-            )
-
-            # Get token ID for '<' (XML/Think start)
-            less_than_res = tokenize("<", model=model, use_server=False)
-            less_than_id = (
-                less_than_res["tokens"][0] if less_than_res["tokens"] else None
-            )
-
-            bias = {}
-            if open_brace_id is not None:
-                bias[str(open_brace_id)] = 10  # Encourage JSON start
-            if less_than_id is not None:
-                bias[str(less_than_id)] = -10  # Discourage XML/Think start
-
-            # Merge with user-provided bias
-            if user_bias:
-                bias.update(user_bias)
-
-            return bias
-        except Exception as e:
-            # Fallback to empty bias if tokenization fails
-            return user_bias or {}
 
     @property
     def provider(self) -> str:
@@ -132,7 +95,6 @@ class ChatLlamaCpp(BaseChatModel):
             top_k=self.top_k,
             repeat_penalty=self.repeat_penalty,
             enable_thinking=self.enable_thinking,
-            logit_bias=self.logit_bias,
             response_format=output_format,
             project_name="browser-use-agent",
             **self.extra_kwargs,
@@ -145,6 +107,7 @@ class ChatLlamaCpp(BaseChatModel):
                 prompt_tokens=result.usage.get("prompt_tokens", 0),
                 completion_tokens=result.usage.get("completion_tokens", 0),
                 total_tokens=result.usage.get("total_tokens", 0),
+                # Defaulting to 0 prevents the ValidationError seen in traces
                 prompt_cached_tokens=result.usage.get("prompt_cached_tokens", 0)
                 or result.usage.get("cached_tokens", 0),
                 prompt_cache_creation_tokens=result.usage.get(
