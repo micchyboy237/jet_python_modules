@@ -1,28 +1,28 @@
-import sys
-
 from agent_framework import MCPStdioTool
 from jet.adapters.llama_cpp.config import PHOENIX_BASE_URL
 from jet_telemetry import initialize_telemetry
 
-# Initialize telemetry
 initialize_telemetry(service_name="web-surfer-agent-mcp", endpoint=PHOENIX_BASE_URL)
 
 
 def get_mcp_browser_tool() -> MCPStdioTool:
     """
-    Returns an MCPStdioTool configured to connect to a browser automation MCP server.
+    Returns an MCPStdioTool configured to connect to the Playwright MCP server.
 
-    In a production environment, replace 'command' and 'args' with your actual
-    MCP server executable (e.g., a Node.js script or Python script implementing
-    the MCP spec for browser control).
+    Prerequisites:
+    1. Node.js installed.
+    2. Run: npm install -g @playwright/mcp
+    3. Run: npx playwright install --with-deps (if not already done)
     """
     return MCPStdioTool(
         name="browser-automation",
-        description="Provides tools for web browsing including navigation, clicking, and extraction.",
-        command=sys.executable,
-        args=["-m", "my_browser_mcp_server"],  # Hypothetical module
+        description="Provides tools for web browsing including navigation, clicking, and extraction using Playwright.",
+        command="npx",
+        args=["@playwright/mcp"],
         load_tools=True,
         load_prompts=False,
+        # We allow all tools by default, or you can restrict them here
+        # allowed_tools=None, # Allow all tools
         allowed_tools=[
             "browser_navigate",
             "browser_navigate_back",
