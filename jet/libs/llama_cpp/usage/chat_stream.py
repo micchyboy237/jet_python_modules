@@ -48,7 +48,6 @@ def make_console_chat_printer() -> tuple[
     Callable[[ChatCompletionChunk], None], dict[str, Any]
 ]:
     """Create a plain-stdout on_chunk callback for live chat streaming output.
-
     Returns:
         Tuple of (callback_fn, state_dict). state_dict tracks
         "first_token_at" and "in_think_block" for post-stream metrics.
@@ -71,7 +70,7 @@ def make_console_chat_printer() -> tuple[
 
         if hasattr(delta, "reasoning_content") and delta.reasoning_content:
             if not state["in_think_block"]:
-                print("<think>", end="", flush=True)
+                print("", end="", flush=True)
                 state["in_think_block"] = True
             print(delta.reasoning_content, end="", flush=True)
         elif state["in_think_block"]:
@@ -86,7 +85,6 @@ def make_console_chat_printer() -> tuple[
 
 def make_console_generate_printer() -> tuple[Callable[[Any], None], dict[str, Any]]:
     """Create a plain-stdout on_chunk callback for raw text-completion streaming.
-
     Returns:
         Tuple of (callback_fn, state_dict). state_dict tracks "first_token_at".
     """
@@ -169,10 +167,8 @@ def run_chat_stream(
     extra_body_params: dict[str, Any] | None = None,
     on_chunk: Callable[[ChatCompletionChunk], None] | None = None,
     system_message: str | None = None,
-    system_prompt_addition_override: str | None = None,
 ) -> StreamCompletionResult:
     """Pure synchronous chat streaming with tool loops and structured output.
-
     Args:
         on_chunk: Optional callback invoked for each streamed chunk. When None,
         defaults to a plain-stdout printer with post-stream summary. Pass a
@@ -186,8 +182,6 @@ def run_chat_stream(
     resolved_fmt, api_response_format, extra_body_params = prepare_response_format(
         response_format, extra_body_params
     )
-    if system_prompt_addition_override is not None:
-        resolved_fmt.system_prompt_addition = system_prompt_addition_override
 
     if client is None:
         client = get_llm_client()
@@ -203,7 +197,6 @@ def run_chat_stream(
         prompt,
         messages,
         image_source,
-        resolved_fmt.system_prompt_addition,
         encode_image_to_base64,
         system_message=system_message,
     )
@@ -341,10 +334,8 @@ async def run_chat_stream_async(
     extra_body_params: dict[str, Any] | None = None,
     on_chunk: Callable[[ChatCompletionChunk], None] | None = None,
     system_message: str | None = None,
-    system_prompt_addition_override: str | None = None,
 ) -> StreamCompletionResult:
     """Pure asynchronous chat streaming with tool loops and structured output.
-
     Args:
         on_chunk: Optional callback. When None, defaults to plain-stdout printer.
     Note:
@@ -359,8 +350,6 @@ async def run_chat_stream_async(
     resolved_fmt, api_response_format, extra_body_params = prepare_response_format(
         response_format, extra_body_params
     )
-    if system_prompt_addition_override is not None:
-        resolved_fmt.system_prompt_addition = system_prompt_addition_override
 
     if client is None:
         client = get_async_llm_client()
@@ -380,7 +369,6 @@ async def run_chat_stream_async(
         prompt,
         messages,
         image_source,
-        resolved_fmt.system_prompt_addition,
         lambda src: encoded_image if encoded_image else ("", "image/jpeg"),
         system_message=system_message,
     )
@@ -511,7 +499,6 @@ def run_generate_stream(
     on_chunk: Callable[[Any], None] | None = None,
 ) -> StreamCompletionResult:
     """Pure synchronous raw text completion streaming.
-
     Args:
         on_chunk: Optional callback. When None, defaults to plain-stdout printer.
     """
@@ -601,7 +588,6 @@ async def run_generate_stream_async(
     on_chunk: Callable[[Any], None] | None = None,
 ) -> StreamCompletionResult:
     """Pure asynchronous raw text completion streaming.
-
     Args:
         on_chunk: Optional callback. When None, defaults to plain-stdout printer.
     Note:
@@ -720,7 +706,6 @@ if __name__ == "__main__":
     from jet.libs.llama_cpp.usage.chat_stream_utils import LLAMA_CPP_BASE_URL
 
     args = get_args()
-
     parsed_logit_bias: dict[str, int] | None = None
     if args.logit_bias:
         try:
@@ -730,7 +715,6 @@ if __name__ == "__main__":
             raise SystemExit(1)
 
     client = get_llm_client(base_url=args.base_url, timeout=args.timeout)
-
     print("─" * 60)
     print(f"🤖 Model        : {args.model}")
     print(

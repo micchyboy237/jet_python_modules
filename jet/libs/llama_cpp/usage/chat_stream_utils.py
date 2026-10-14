@@ -193,21 +193,16 @@ def build_messages(
     prompt: str | None,
     messages: list[dict[str, Any]] | None,
     image_source: str | None,
-    system_prompt_addition: str | None,
     encode_image: Callable,
     system_message: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build the initial messages list from prompt/messages/image inputs.
-
     Logic:
     1. If messages is None, create it from prompt/image.
     2. If system_message is provided, it REPLACES any existing system message in the list.
-    3. If system_prompt_addition is provided (and no explicit system_message override),
-       it is appended to an existing system message or inserted at index 0.
     """
     current_messages: list[dict[str, Any]] | None = messages
 
-    # 1. Initialize messages if missing
     if current_messages is None:
         if image_source and prompt:
             base64_img, mime_type = encode_image(image_source)
@@ -224,9 +219,7 @@ def build_messages(
         else:
             current_messages = []
 
-    # 2. Handle System Message Replacement
     if system_message:
-        # Find existing system message index
         existing_system_idx = next(
             (
                 i
@@ -236,44 +229,9 @@ def build_messages(
             None,
         )
         if existing_system_idx is not None:
-            # Replace existing system message content
             current_messages[existing_system_idx]["content"] = system_message
         else:
-            # Insert new system message at the top
             current_messages.insert(0, {"role": "system", "content": system_message})
-
-    # 3. Handle System Prompt Addition (Schema/Formatting instructions)
-    # Only apply addition if we aren't using an explicit system_message override,
-    # OR if you want them combined, you can adjust this logic.
-    # Based on your request "replace... if system_message is passed", we assume
-    # system_message takes full precedence. However, for structured output to work,
-    # we usually want BOTH.
-
-    # REVISED LOGIC FOR STRUCTURED OUTPUT COMPATIBILITY:
-    # If system_message is present, we use it as the base.
-    # If system_prompt_addition is present, we append it to the active system message.
-
-    addition_content = system_prompt_addition
-    if addition_content:
-        # Find the system message to append to (either the one we just set, or an existing one)
-        system_idx = next(
-            (
-                i
-                for i, msg in enumerate(current_messages)
-                if msg.get("role") == "system"
-            ),
-            None,
-        )
-
-        if system_idx is not None:
-            existing_content = current_messages[system_idx].get("content", "")
-            # Append addition with a separator
-            current_messages[system_idx]["content"] = (
-                f"{existing_content}\n\n{addition_content}"
-            )
-        else:
-            # No system message exists yet, insert one with the addition
-            current_messages.insert(0, {"role": "system", "content": addition_content})
 
     return current_messages
 
@@ -328,7 +286,6 @@ def prepare_response_format(
     extra_body_params: dict[str, Any] | None,
 ) -> tuple[ResolvedFormat, dict[str, Any] | None, dict[str, Any] | None]:
     """Resolve response_format and route grammar into extra_body if needed.
-
     Returns:
         (resolved_fmt, api_response_format, updated_extra_body_params)
     """
@@ -466,7 +423,6 @@ def extract_content_from_chat_chunk(
     tool_calls_acc: dict[int, dict[str, Any]],
 ) -> tuple[str | None, bool]:
     """Process a single chat completion chunk, accumulating content and tool calls.
-
     Returns:
         (finish_reason, in_think_block) — finish_reason is set when the chunk
         signals completion; in_think_block tracks reasoning token state.
@@ -503,7 +459,6 @@ def extract_content_from_generate_chunk(
     collected_content: list[str],
 ) -> str | None:
     """Process a single text completion chunk, accumulating content.
-
     Returns:
         finish_reason or None.
     """
@@ -512,7 +467,6 @@ def extract_content_from_generate_chunk(
 
     delta = chunk.choices[0].text
     finish_reason: str | None = None
-
     if chunk.choices[0].finish_reason:
         finish_reason = chunk.choices[0].finish_reason
 

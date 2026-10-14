@@ -91,78 +91,51 @@ def observe_structured_parsing(
     """Wraps structured output parsing in an EVALUATOR span."""
     if resolved_fmt.output_format == OutputFormat.TEXT:
         return None
-
     from jet.libs.llama_cpp.usage.structured_output import parse_structured_content
 
     result = parse_structured_content(content, resolved_fmt)
-
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute("evaluator.format", resolved_fmt.output_format.value)
         span.set_attribute("evaluator.success", result.success)
-
-        # Capture the schema used for validation
         if resolved_fmt.schema:
             schema_str = json.dumps(resolved_fmt.schema)
             if len(schema_str) > 1000:
                 schema_str = schema_str[:1000] + "... [truncated]"
             span.set_attribute("evaluator.schema", redact(schema_str))
-
         if result.error:
             span.set_attribute("evaluator.error", redact(result.error))
-
-        # Capture validation errors individually for better filtering in Phoenix
         if result.validation_errors:
             span.set_attribute(
                 "evaluator.validation_errors", json.dumps(result.validation_errors)
             )
-
     return result
 
 
 @llm(model_name="unknown")
-@performance_monitor(threshold_ms=1500)  # Track LLM observer overhead
+@performance_monitor(threshold_ms=1500)
 def observe_llm_chat_stream(
     prompt_or_messages: str | list[dict[str, Any]],
     model: str,
     on_chunk: Callable,
     client: OpenAI | None = None,
     system_message: str | None = None,
-    system_prompt_addition: str | None = None,
+    response_format: Any = None,  # Added this parameter
     **kwargs,
 ) -> StreamCompletionResult:
     """
     Decorated LLM span for synchronous chat streaming.
     Delegates to pure engine while capturing semantic attributes.
     """
-    # Pass both system_message and system_prompt_addition to the pure engine
     result = _pure_run_chat_stream(
         prompt_or_messages=prompt_or_messages,
         model=model,
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        # We need to inject the addition into the pure engine's flow.
-        # Since pure engine expects it via build_messages, we can't easily pass it
-        # unless we modify the pure engine signature or handle it here.
-        # However, the pure engine's run_chat_stream calculates resolved_fmt itself.
-        # To fix this properly, we should let the pure engine handle it,
-        # BUT the pure engine doesn't know about the resolved_fmt from the wrapper.
-        # FIX: We will pass the resolved_fmt's addition via a temporary hack or
-        # by modifying the pure engine to accept it.
-        # Actually, the best way is to pass it as part of the messages if we can,
-        # but the pure engine rebuilds messages.
-        # Let's rely on the fact that we updated chat_stream.py to accept
-        # system_prompt_addition? No, chat_stream.py calculates it from response_format.
-        # CORRECT FIX: The wrapper (chat_stream_observability) has the resolved_fmt.
-        # It should construct the messages itself or pass the addition to the pure engine.
-        # Since we want to keep the pure engine clean, let's update the pure engine
-        # to accept an optional system_prompt_addition override.
-        # For now, we will assume the pure engine has been updated to accept
-        # system_prompt_addition as a kwarg if provided, otherwise it uses its own.
-        **{**kwargs, "system_prompt_addition_override": system_prompt_addition},
+        response_format=response_format,  # Pass it down
+        **kwargs,
     )
-
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
@@ -175,17 +148,13 @@ def observe_llm_chat_stream(
                 SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
                 result.usage.get("completion_tokens", 0),
             )
-
-        # Capture output messages
         if result.content:
             output_msg = [{"role": "assistant", "content": redact(result.content)}]
             span.set_attribute(
                 SpanAttributes.LLM_OUTPUT_MESSAGES, json.dumps(output_msg)
             )
-
         if system_message:
             span.set_attribute("llm.system_message", redact(system_message))
-
     return result
 
 
@@ -197,7 +166,7 @@ async def observe_llm_chat_stream_async(
     on_chunk: Callable,
     client: AsyncOpenAI | None = None,
     system_message: str | None = None,
-    system_prompt_addition: str | None = None,
+    response_format: Any = None,  # Added this parameter
     **kwargs,
 ) -> StreamCompletionResult:
     """Decorated LLM span for asynchronous chat streaming."""
@@ -207,9 +176,9 @@ async def observe_llm_chat_stream_async(
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        **{**kwargs, "system_prompt_addition_override": system_prompt_addition},
+        response_format=response_format,  # Pass it down
+        **kwargs,
     )
-
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
@@ -218,16 +187,13 @@ async def observe_llm_chat_stream_async(
                 SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
                 result.usage.get("total_tokens", 0),
             )
-
         if result.content:
             output_msg = [{"role": "assistant", "content": redact(result.content)}]
             span.set_attribute(
                 SpanAttributes.LLM_OUTPUT_MESSAGES, json.dumps(output_msg)
             )
-
         if system_message:
             span.set_attribute("llm.system_message", redact(system_message))
-
     return result
 
 
@@ -294,14 +260,11 @@ def _execute_tool_with_span(
         tool_span.set_attribute(SpanAttributes.TOOL_NAME, func_name)
         params_str = arguments if isinstance(arguments, str) else json.dumps(arguments)
         tool_span.set_attribute("tool.parameters", redact(params_str))
-
         try:
             if isinstance(args, dict):
                 result = func(**args)
             else:
                 result = func(args)
-
-            # Ensure result is serializable for tracing
             result_str = str(result)
             if len(result_str) > 1000:
                 result_str = result_str[:1000] + "... [truncated]"
@@ -345,19 +308,14 @@ async def _execute_tool_with_span_async(
         tool_span.set_attribute(SpanAttributes.TOOL_NAME, func_name)
         params_str = arguments if isinstance(arguments, str) else json.dumps(arguments)
         tool_span.set_attribute("tool.parameters", redact(params_str))
-
         try:
-            # Check if the tool is async
             if inspect.iscoroutinefunction(func):
                 result = await func(**args)
             else:
                 import asyncio
 
-                # Run sync tool in executor to avoid blocking event loop
                 loop = asyncio.get_running_loop()
                 result = await loop.run_in_executor(None, lambda: func(**args))
-
-            # Ensure result is serializable for tracing
             result_str = str(result)
             if len(result_str) > 1000:
                 result_str = result_str[:1000] + "... [truncated]"
@@ -373,7 +331,7 @@ async def _execute_tool_with_span_async(
 
 
 @agent(name="agent.chat_loop")
-@performance_monitor(threshold_ms=3000)  # Track total agent loop time
+@performance_monitor(threshold_ms=3000)
 def run_agentic_chat(
     prompt_or_messages: str | list[dict[str, Any]],
     model: str,
@@ -409,7 +367,7 @@ def run_agentic_chat(
             on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
             client=client,
             system_message=system_message,
-            system_prompt_addition=resolved_fmt.system_prompt_addition,
+            response_format=resolved_fmt.api_format,  # Pass the resolved API format
             **{
                 k: v
                 for k, v in kwargs.items()
@@ -513,7 +471,7 @@ async def run_agentic_chat_async(
             on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
             client=client,
             system_message=system_message,
-            system_prompt_addition=resolved_fmt.system_prompt_addition,
+            response_format=resolved_fmt.api_format,  # Pass the resolved API format
             **{
                 k: v
                 for k, v in kwargs.items()
@@ -549,7 +507,6 @@ async def run_agentic_chat_async(
             func_name = tc.name
             func = tool_registry.get(func_name)
             if func:
-                # Use the async executor
                 tool_result = await _execute_tool_with_span_async(
                     func_name=func_name,
                     func=func,
@@ -606,15 +563,13 @@ def run_simple_chat(
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        system_prompt_addition=resolved_fmt.system_prompt_addition,
+        response_format=resolved_fmt.api_format,  # Pass the resolved API format
         **kwargs,
     )
-
     if result.content:
         structured_result = observe_structured_parsing(result.content, resolved_fmt)
         if structured_result:
             result.structured = structured_result
-
     return result
 
 
@@ -639,15 +594,13 @@ async def run_simple_chat_async(
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        system_prompt_addition=resolved_fmt.system_prompt_addition,
+        response_format=resolved_fmt.api_format,  # Pass the resolved API format
         **kwargs,
     )
-
     if result.content:
         structured_result = observe_structured_parsing(result.content, resolved_fmt)
         if structured_result:
             result.structured = structured_result
-
     return result
 
 
@@ -671,7 +624,7 @@ def _make_chat_chunk_handler() -> tuple[Callable[[Any], None], dict[str, Any]]:
 
         if hasattr(delta, "reasoning_content") and delta.reasoning_content:
             if not state["in_think_block"]:
-                console.print("[bold orange1]<think>[/bold orange1]", end="")
+                console.print("[bold orange1][/bold orange1]", end="")
                 state["in_think_block"] = True
             console.print(
                 f"[bold orange1]{delta.reasoning_content}[/bold orange1]",
@@ -724,7 +677,6 @@ def _print_header_footer(
                 phoenix_url, project_name, trace_id=trace_id_hex
             )
             console.print(f"🔗 Inspect API : [link={api_url}]{api_url}[/link]")
-
             try:
                 jsonl_path = export_spans_to_jsonl(
                     project_name=project_name,
@@ -766,7 +718,7 @@ def _print_header_footer(
 
 
 @chain(name="chat-stream-session")
-@performance_monitor(threshold_ms=5000)  # Track total session time
+@performance_monitor(threshold_ms=5000)
 def run_chat_stream(
     prompt_or_messages: str | list[dict[str, Any]] = "What is OpenTelemetry?",
     model: str = MODEL,
@@ -804,7 +756,6 @@ def run_chat_stream(
 
     on_chunk, chunk_state = _make_chat_chunk_handler()
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
-
     t_start = time.perf_counter()
 
     common_kwargs = {
@@ -864,7 +815,6 @@ def run_chat_stream(
         phoenix_url,
         output_dir,
     )
-
     return result
 
 
@@ -907,7 +857,6 @@ async def run_chat_stream_async(
 
     on_chunk, chunk_state = _make_chat_chunk_handler()
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
-
     t_start = time.perf_counter()
 
     common_kwargs = {
@@ -967,7 +916,6 @@ async def run_chat_stream_async(
         phoenix_url,
         output_dir,
     )
-
     return result
 
 
@@ -995,10 +943,8 @@ def run_generate_stream(
 ) -> StreamCompletionResult:
     """Traced synchronous raw text completion."""
     _ensure_telemetry(project_name, phoenix_url)
-
     on_chunk, chunk_state = _make_chat_chunk_handler()
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
-
     t_start = time.perf_counter()
 
     result = observe_generate_stream(
@@ -1037,7 +983,6 @@ def run_generate_stream(
         phoenix_url=phoenix_url,
         output_dir=output_dir,
     )
-
     return result
 
 
@@ -1065,10 +1010,8 @@ async def run_generate_stream_async(
 ) -> StreamCompletionResult:
     """Traced asynchronous raw text completion."""
     _ensure_telemetry(project_name, phoenix_url)
-
     on_chunk, chunk_state = _make_chat_chunk_handler()
     console.print("[bold cyan]Response:[/bold cyan] ", end="")
-
     t_start = time.perf_counter()
 
     result = await observe_generate_stream_async(
@@ -1107,14 +1050,12 @@ async def run_generate_stream_async(
         phoenix_url=phoenix_url,
         output_dir=output_dir,
     )
-
     return result
 
 
 def get_args() -> argparse.Namespace:
     import shutil
 
-    # Setup default output directory
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1174,7 +1115,6 @@ if __name__ == "__main__":
     from jet.adapters.llama_cpp.factory import get_llm_client
 
     args = get_args()
-
     output_dir = args.output_dir
 
     parsed_logit_bias: dict[str, int] | None = None
