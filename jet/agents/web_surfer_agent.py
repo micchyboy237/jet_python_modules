@@ -12,21 +12,41 @@ from playwright.async_api import Page, async_playwright
 initialize_telemetry(service_name="web-surfer-agent", endpoint=PHOENIX_BASE_URL)
 
 
+@tool(name="browser_navigate", description="Navigate the browser to a specific URL.")
+@performance_monitor(threshold_ms=2000)
 def browser_navigate(url: str) -> str:
     """Navigate the browser to a specific URL."""
+    # Note: This function is now synchronous for tracing purposes.
+    # The actual async execution happens in the wrapper below or via page context.
+    # However, Playwright actions are async. To keep spans clean, we'll wrap the async call.
     return f"Navigated to {url}"
 
 
+@tool(
+    name="browser_click",
+    description="Click an element identified by its ARIA role and accessible name.",
+)
+@performance_monitor(threshold_ms=2000)
 def browser_click(role: str, name: str) -> str:
     """Click an element identified by its ARIA role and accessible name."""
     return f"Clicked element with role '{role}' and name '{name}'"
 
 
+@tool(
+    name="browser_type",
+    description="Type text into a form field identified by its label.",
+)
+@performance_monitor(threshold_ms=2000)
 def browser_type(label: str, text: str) -> str:
     """Type text into a form field identified by its label."""
     return f"Typed '{text}' into field labeled '{label}'"
 
 
+@tool(
+    name="browser_extract",
+    description="Extract text content from elements matching a CSS selector.",
+)
+@performance_monitor(threshold_ms=2000)
 def browser_extract(selector: str) -> str:
     """Extract text content from elements matching a CSS selector."""
     return f"Extracted content using selector '{selector}'"
@@ -38,12 +58,8 @@ class LocalWebSurfer:
         self.max_steps = max_steps
         self.history: List[Dict] = []
         self.page: Page = None
-        self.tools_map = {
-            "browser_navigate": browser_navigate,
-            "browser_click": browser_click,
-            "browser_type": browser_type,
-            "browser_extract": browser_extract,
-        }
+        # We no longer need a tools_map for execution logic if we handle it manually,
+        # but we keep the schema for the LLM.
 
     async def initialize(self):
         """Start the Playwright browser."""
@@ -64,10 +80,11 @@ class LocalWebSurfer:
         except Exception as e:
             return f"[ERROR] Observation failed: {str(e)}"
 
-    @tool(description="Executes a browser action based on LLM tool call.")
-    @performance_monitor(threshold_ms=2000)
     async def execute_action(self, tool_call) -> str:
-        """Translate an LLM tool call into a Playwright action."""
+        """
+        Translate an LLM tool call into a Playwright action.
+        Calls the decorated helper functions to ensure proper span naming.
+        """
         func_name = tool_call.name
         args = tool_call.arguments
         if isinstance(args, str):
@@ -76,31 +93,33 @@ class LocalWebSurfer:
             except json.JSONDecodeError:
                 return f"[ERROR] Failed to parse arguments for {func_name}"
 
-        func = self.tools_map.get(func_name)
-        if not func:
-            return f"[ERROR] Unknown tool: {func_name}"
-
         try:
             if func_name == "browser_navigate":
                 await self.page.goto(args["url"], wait_until="domcontentloaded")
-                return func(**args)
+                return browser_navigate(**args)
+
             elif func_name == "browser_click":
                 locator = self.page.get_by_role(args["role"], name=args["name"])
                 await locator.click(timeout=5000)
                 await self.page.wait_for_load_state("domcontentloaded")
-                return func(**args)
+                return browser_click(**args)
+
             elif func_name == "browser_type":
                 locator = self.page.get_by_label(args["label"])
                 await locator.fill(args["text"])
-                return func(**args)
+                return browser_type(**args)
+
             elif func_name == "browser_extract":
                 elements = await self.page.query_selector_all(args["selector"])
                 texts = [await el.inner_text() for el in elements[:5]]
-                return json.dumps(texts)
+                result_json = json.dumps(texts)
+                # We call the decorated function just for the span, passing a summary
+                return browser_extract(selector=args["selector"])
+
         except Exception as e:
             return f"[ERROR] Execution of {func_name} failed: {str(e)}"
 
-        return "[ERROR] Execution failed."
+        return f"[ERROR] Unknown tool: {func_name}"
 
     @chain(name="plan_and_act_step")
     async def run_step(
