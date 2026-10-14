@@ -16,9 +16,6 @@ initialize_telemetry(service_name="web-surfer-agent", endpoint=PHOENIX_BASE_URL)
 @performance_monitor(threshold_ms=2000)
 def browser_navigate(url: str) -> str:
     """Navigate the browser to a specific URL."""
-    # Note: This function is now synchronous for tracing purposes.
-    # The actual async execution happens in the wrapper below or via page context.
-    # However, Playwright actions are async. To keep spans clean, we'll wrap the async call.
     return f"Navigated to {url}"
 
 
@@ -58,8 +55,6 @@ class LocalWebSurfer:
         self.max_steps = max_steps
         self.history: List[Dict] = []
         self.page: Page = None
-        # We no longer need a tools_map for execution logic if we handle it manually,
-        # but we keep the schema for the LLM.
 
     async def initialize(self):
         """Start the Playwright browser."""
@@ -113,7 +108,7 @@ class LocalWebSurfer:
                 elements = await self.page.query_selector_all(args["selector"])
                 texts = [await el.inner_text() for el in elements[:5]]
                 result_json = json.dumps(texts)
-                # We call the decorated function just for the span, passing a summary
+                # Call the decorated function for the span, passing the selector
                 return browser_extract(selector=args["selector"])
 
         except Exception as e:
