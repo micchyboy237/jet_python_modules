@@ -5,7 +5,7 @@ from typing import Dict, List
 from jet.adapters.llama_cpp.config import LLM_MODEL, PHOENIX_BASE_URL
 from jet.adapters.llama_cpp.llm_utils_observed import achat
 from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
-from jet_telemetry import agent, initialize_telemetry, performance_monitor, tool
+from jet_telemetry import agent, chain, initialize_telemetry, performance_monitor, tool
 from playwright.async_api import Page, async_playwright
 
 # Initialize telemetry for this agent
@@ -80,11 +80,6 @@ class LocalWebSurfer:
         if not func:
             return f"[ERROR] Unknown tool: {func_name}"
 
-        # Set specific tool name attribute for better visibility in traces
-        # Note: The @tool decorator sets the generic name, but we can't easily
-        # change it dynamically per call without complex wrappers.
-        # However, the parameters will show which action was taken.
-
         try:
             if func_name == "browser_navigate":
                 await self.page.goto(args["url"], wait_until="domcontentloaded")
@@ -106,6 +101,56 @@ class LocalWebSurfer:
             return f"[ERROR] Execution of {func_name} failed: {str(e)}"
 
         return "[ERROR] Execution failed."
+
+    @chain(name="plan_and_act_step")
+    async def run_step(
+        self, messages: list, tools_schema: list, step_num: int
+    ) -> tuple[list, bool]:
+        """
+        Executes a single step of the agent loop: Observe -> Plan -> Act.
+        Returns updated messages and a boolean indicating if the task is done.
+        """
+        print(f"\n--- Step {step_num} ---")
+
+        # 1. Observe
+        observation = await self.observe()
+        messages.append(
+            {"role": "user", "content": f"Current Page State:\n{observation}"}
+        )
+
+        print(f"[THINKING] Asking {self.model_name} for next move...")
+
+        # 2. Plan (LLM Call)
+        response: StreamCompletionResult = await achat(
+            prompt_or_messages=messages,
+            model=self.model_name,
+            tools=tools_schema,
+            tool_registry=None,  # We handle execution manually to access self.page
+            project_name="web-surfer-agent",
+        )
+
+        messages.append({"role": "assistant", "content": response.content})
+
+        # 3. Act
+        if response.has_tool_calls:
+            for tc in response.tool_calls:
+                print(f"[ACTION] Calling {tc.name} with {tc.arguments}")
+                result = await self.execute_action(tc)
+                print(f"[RESULT] {result}")
+
+                # Append tool result to messages for next turn
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tc.name,
+                        "content": result,
+                    }
+                )
+            return messages, False  # Continue loop
+        else:
+            print(f"[FINAL ANSWER]: {response.content}")
+            return messages, True  # Task done
 
     @agent(name="web-surfer-agent")
     async def run(self, goal: str):
@@ -197,46 +242,8 @@ class LocalWebSurfer:
         ]
 
         for step in range(self.max_steps):
-            print(f"\n--- Step {step + 1} ---")
-
-            # 1. Observe
-            observation = await self.observe()
-            messages.append(
-                {"role": "user", "content": f"Current Page State:\n{observation}"}
-            )
-
-            print(f"[THINKING] Asking {self.model_name} for next move...")
-
-            # 2. Plan (LLM Call)
-            # achat creates its own LLM span internally via llm_utils_observed
-            response: StreamCompletionResult = await achat(
-                prompt_or_messages=messages,
-                model=self.model_name,
-                tools=tools_schema,
-                tool_registry=None,  # We handle execution manually to access self.page
-                project_name="web-surfer-agent",
-            )
-
-            messages.append({"role": "assistant", "content": response.content})
-
-            # 3. Act
-            if response.has_tool_calls:
-                for tc in response.tool_calls:
-                    print(f"[ACTION] Calling {tc.name} with {tc.arguments}")
-                    result = await self.execute_action(tc)
-                    print(f"[RESULT] {result}")
-
-                    # Append tool result to messages for next turn
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "name": tc.name,
-                            "content": result,
-                        }
-                    )
-            else:
-                print(f"[FINAL ANSWER]: {response.content}")
+            messages, is_done = await self.run_step(messages, tools_schema, step + 1)
+            if is_done:
                 break
 
         print("\n[SUCCESS] Agent finished.")
