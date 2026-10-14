@@ -109,42 +109,6 @@ def extract_json(raw: str) -> dict | list | None:
     return None
 
 
-def _is_empty_value(v: Any) -> bool:
-    """Check if a value should be treated as missing/empty for entity extraction."""
-    if v is None:
-        return True
-    if isinstance(v, str) and not v.strip():
-        return True
-    if isinstance(v, list) and len(v) == 0:
-        return True
-    if isinstance(v, dict) and len(v) == 0:
-        return True
-    return False
-
-
-def _sanitize_extracted_data(data: Any) -> Any:
-    """Recursively remove empty/null values from extracted JSON before validation.
-    This prevents type mismatch errors when the LLM outputs empty strings or nulls
-    for fields it couldn't derive from context. By removing these keys entirely,
-    Pydantic's Optional fields correctly default to None.
-    """
-    if isinstance(data, dict):
-        sanitized = {}
-        for k, v in data.items():
-            sanitized_v = _sanitize_extracted_data(v)
-            if not _is_empty_value(sanitized_v):
-                sanitized[k] = sanitized_v
-        return sanitized
-    elif isinstance(data, list):
-        sanitized = []
-        for item in data:
-            sanitized_item = _sanitize_extracted_data(item)
-            if not _is_empty_value(sanitized_item):
-                sanitized.append(sanitized_item)
-        return sanitized
-    return data
-
-
 def resolve_response_format(
     response_format: Any,
 ) -> ResolvedFormat:
@@ -263,11 +227,10 @@ def parse_structured_content(
 ) -> StructuredResult:
     """Parse and validate raw model output against a resolved format.
     Validation priority:
-    1. Sanitize extracted JSON (remove empty/null values to prevent type mismatches)
-    2. Pydantic model_validate (if model_type set)
-    3. Modern JSON Schema validation (jsonschema-rs or jsonschema fallback)
-    4. Grammar mode (trusted via GBNF constraints)
-    5. Fallback: raw JSON extraction only
+    1. Pydantic model_validate (if model_type set)
+    2. Modern JSON Schema validation (jsonschema-rs or jsonschema fallback)
+    3. Grammar mode (trusted via GBNF constraints)
+    4. Fallback: raw JSON extraction only
     """
     if resolved.output_format == OutputFormat.TEXT:
         return StructuredResult(
@@ -288,15 +251,13 @@ def parse_structured_content(
             validator_backend=_VALIDATOR_BACKEND,
         )
 
-    sanitized = _sanitize_extracted_data(extracted)
-    if sanitized != extracted:
-        logger.debug(
-            "🧹 Sanitized extracted data: removed empty/null values before validation"
-        )
+    # NOTE: We do NOT sanitize here. Let the validator handle empty/null values
+    # strictly according to the schema. This ensures required fields are actually
+    # validated and type errors are caught.
 
     if resolved.model_type is not None and PYDANTIC_AVAILABLE:
         try:
-            instance = resolved.model_type.model_validate(sanitized)
+            instance = resolved.model_type.model_validate(extracted)
             logger.debug(
                 f"✅ Validated against {resolved.model_type.__name__} (pydantic)"
             )
@@ -313,7 +274,7 @@ def parse_structured_content(
             return StructuredResult(
                 success=False,
                 content=content,
-                parsed=sanitized,
+                parsed=extracted,
                 error="Pydantic validation failed",
                 format_used=resolved.output_format,
                 validation_errors=errors,
@@ -323,7 +284,7 @@ def parse_structured_content(
     if resolved.schema is not None and _Draft202012Validator is not None:
         try:
             validator = _Draft202012Validator(resolved.schema)
-            errors_list = list(validator.iter_errors(sanitized))
+            errors_list = list(validator.iter_errors(extracted))
             if errors_list:
                 validation_msgs = [
                     f"{'.'.join(str(p) for p in err.absolute_path) or '(root)'}: {err.message}"
@@ -336,7 +297,7 @@ def parse_structured_content(
                 return StructuredResult(
                     success=False,
                     content=content,
-                    parsed=sanitized,
+                    parsed=extracted,
                     error=f"JSON Schema validation failed ({len(errors_list)} errors)",
                     format_used=resolved.output_format,
                     validation_errors=validation_msgs,
@@ -348,7 +309,7 @@ def parse_structured_content(
             return StructuredResult(
                 success=True,
                 content=content,
-                parsed=sanitized,
+                parsed=extracted,
                 format_used=resolved.output_format,
                 validator_backend=_VALIDATOR_BACKEND,
             )
@@ -359,7 +320,7 @@ def parse_structured_content(
             return StructuredResult(
                 success=False,
                 content=content,
-                parsed=sanitized,
+                parsed=extracted,
                 error=f"Validator error ({_VALIDATOR_BACKEND}): {exc}",
                 format_used=resolved.output_format,
                 validator_backend=_VALIDATOR_BACKEND,
@@ -370,7 +331,7 @@ def parse_structured_content(
         return StructuredResult(
             success=True,
             content=content,
-            parsed=sanitized,
+            parsed=extracted,
             format_used=OutputFormat.GRAMMAR,
             validator_backend="gbnf",
         )
@@ -381,7 +342,7 @@ def parse_structured_content(
     return StructuredResult(
         success=True,
         content=content,
-        parsed=sanitized,
+        parsed=extracted,
         format_used=resolved.output_format,
         validator_backend=None,
     )
