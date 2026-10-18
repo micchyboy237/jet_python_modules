@@ -1,5 +1,5 @@
-from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL
-from smolagents import CodeAgent, OpenAIModel, ToolCallingAgent, ToolCollection
+from jet.adapters.smolagents.chat import ChatLlamaCpp
+from smolagents import CodeAgent, ToolCallingAgent, ToolCollection
 
 # Define the strict allow-list for browser tools
 ALLOWED_TOOLS = {
@@ -22,11 +22,7 @@ ALLOWED_TOOLS = {
 }
 
 # 1. Setup Local Llama.cpp Model
-model = OpenAIModel(
-    model_id=LLM_MODEL,
-    api_base=LLM_BASE_URL,
-    api_key="sk-no-key-required",
-)
+model = ChatLlamaCpp()
 
 # 2. Connect to your running Playwright MCP Server
 mcp_config = {"url": "http://localhost:8931/mcp", "transport": "streamable-http"}
