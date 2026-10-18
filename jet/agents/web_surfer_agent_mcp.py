@@ -1,3 +1,56 @@
+"""
+Web Surfer MCP Agent - Automated Web Interaction with LLM
+
+This agent uses an LLM to autonomously navigate and interact with web pages
+via the Model Context Protocol (MCP) browser tools. It can perform actions
+like clicking, typing, navigating, and extracting information from web pages.
+
+The agent follows a thought-action loop where it:
+1. Receives an accessibility snapshot of the current page
+2. Uses an LLM to decide the next action
+3. Executes the action via MCP browser tools
+4. Repeats until the goal is achieved or limits are reached
+
+Features:
+- Configurable starting URL, MCP server, and LLM settings
+- Automatic retry and error handling
+- Protection against infinite loops (max steps and repeat detection)
+- Rich console output with color-coded messages
+- OpenTelemetry tracing via jet-telemetry for observability
+
+Usage Examples:
+    # Basic usage with default settings
+    python web_surfer_agent_mcp.py "Add a todo item 'Buy Milk' and mark it done"
+    # Custom starting URL
+    python web_surfer_agent_mcp.py -u https://example.com "Find the contact page"
+    # Custom MCP server and LLM model
+    python web_surfer_agent_mcp.py -ms http://remote:8931/mcp -lm llama-3.2 "Search for Python docs"
+    # Adjust LLM parameters for more creative responses
+    python web_surfer_agent_mcp.py -t 0.7 -mt 1000 -pp 0.5 "Write a blog post draft"
+    # Increase max steps for complex tasks
+    python web_surfer_agent_mcp.py -s 30 -r 5 "Complete a multi-step form"
+    # Minimal output (errors only)
+    python web_surfer_agent_mcp.py -ll ERROR "Quick task"
+    # Show all available options
+    python web_surfer_agent_mcp.py --help
+
+Command Line Arguments:
+    user_goal          The task description for the agent (positional)
+    -u, --url          Starting URL (default: https://demo.playwright.dev/todomvc)
+    -ms, --mcp-server  MCP server URL (default: http://localhost:8931/mcp)
+    -la, --llama-api   LLaMA API endpoint URL
+    -lm, --llama-model LLM model name
+    -s, --max-steps    Maximum iteration steps (default: 15)
+    -r, --max-repeats  Max repeated actions before stopping (default: 3)
+    -t, --temperature  LLM temperature (default: 0.2)
+    -mt, --max-tokens  Max tokens for LLM response (default: 500)
+    -tp, --top-p       Top-p sampling parameter (default: 0.95)
+    -pp, --presence-penalty  Presence penalty (default: 1.5)
+    -et, --enable-thinking   Enable thinking mode (default: True)
+    -ll, --log-level   Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
+    -tn, --trace-name  Trace/project name for telemetry (default: web-surfer-agent)
+"""
+
 import argparse
 import asyncio
 import json
@@ -8,23 +61,22 @@ from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL
 from mcp import ClientSession
 
 try:
-    from mcp.client.streamable_http import streamable_http_client  # newer SDK
+    from mcp.client.streamable_http import streamable_http_client
 except ImportError:
-    from mcp.client.streamable_http import (  # older SDK name
+    from mcp.client.streamable_http import (
         streamablehttp_client as streamable_http_client,
     )
 
+# Initialize telemetry early
+from jet_telemetry import get_trace_url, initialize_telemetry
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("web_surfer_agent")
-logging.getLogger("mcp").setLevel(
-    logging.WARNING
-)  # hides the huge tools/list and message dumps
-
+logging.getLogger("mcp").setLevel(logging.WARNING)
 MCP_SERVER_URL = "http://localhost:8931/mcp"
 LLAMA_API_URL = f"{LLM_BASE_URL}/chat/completions"
-
 MAX_STEPS = 15
-MAX_REPEATS = 3  # same action N times in a row => stop
+MAX_REPEATS = 3
 ALLOWED_TOOLS = {
     "browser_navigate",
     "browser_navigate_back",
@@ -44,24 +96,18 @@ ALLOWED_TOOLS = {
     "browser_wait_for",
     "browser_close",
 }
-# Optional args the LLM may use. Everything else optional is hidden and stripped.
 SAFE_OPTIONAL = {"browser_type": {"submit"}}
-
 SYSTEM_PROMPT = """
 You are a Web Surfer Agent. Your goal is to interact with web pages to fulfill user requests.
 You will be given an 'Accessibility Snapshot' of the current page.
 Elements have reference IDs like [ref=e5]. Pass that ID (e.g. "e5") as the "target" argument.
-
 Available Tools (parameter? = optional):
 {tool_docs}
-
 Rules:
 - To press Enter after typing, use browser_type with "submit": true.
 - Only use the argument names listed above. Do not invent arguments.
-
 Respond ONLY with a JSON object. Example:
 {"thought": "Type the todo and press Enter", "action": "browser_type", "args": {"target": "e8", "text": "Buy Milk", "submit": true}}
-
 If an action FAILED, read the error and fix your arguments.
 When the task is complete, use: {"thought": "...", "action": "finish", "args": {"answer": "..."}}
 """
@@ -70,16 +116,12 @@ When the task is complete, use: {"thought": "...", "action": "finish", "args": {
 def get_args():
     """Parse command-line arguments with 1-2 char shorthands for keyword args."""
     parser = argparse.ArgumentParser(description="Run the Web Surfer MCP Agent.")
-
-    # Positional argument (no shorthand needed)
     parser.add_argument(
         "user_goal",
         nargs="?",
         default="Add a todo item 'Buy Milk' and then mark it as done.",
         help="Goal for the agent to accomplish (default: %(default)s)",
     )
-
-    # URL configuration - 1 char shorthand
     parser.add_argument(
         "-u",
         "--url",
@@ -87,8 +129,6 @@ def get_args():
         default="https://demo.playwright.dev/todomvc",
         help="Starting URL for the browser (default: %(default)s)",
     )
-
-    # MCP Server URL - 2 char shorthand
     parser.add_argument(
         "-ms",
         "--mcp-server",
@@ -96,8 +136,6 @@ def get_args():
         default=MCP_SERVER_URL,
         help=f"MCP server URL (default: {MCP_SERVER_URL})",
     )
-
-    # LLM API URL - 2 char shorthand
     parser.add_argument(
         "-la",
         "--llama-api",
@@ -105,8 +143,6 @@ def get_args():
         default=LLAMA_API_URL,
         help=f"LLaMA API URL (default: {LLAMA_API_URL})",
     )
-
-    # LLM Model - 2 char shorthand
     parser.add_argument(
         "-lm",
         "--llama-model",
@@ -114,8 +150,6 @@ def get_args():
         default=LLM_MODEL,
         help=f"LLaMA model name (default: {LLM_MODEL})",
     )
-
-    # Max steps - 2 char shorthand
     parser.add_argument(
         "-s",
         "--max-steps",
@@ -124,8 +158,6 @@ def get_args():
         default=MAX_STEPS,
         help=f"Maximum number of steps (default: {MAX_STEPS})",
     )
-
-    # Max repeats - 2 char shorthand
     parser.add_argument(
         "-r",
         "--max-repeats",
@@ -134,8 +166,6 @@ def get_args():
         default=MAX_REPEATS,
         help=f"Maximum repeated actions before stopping (default: {MAX_REPEATS})",
     )
-
-    # Temperature - 1 char shorthand
     parser.add_argument(
         "-t",
         "--temperature",
@@ -144,8 +174,6 @@ def get_args():
         default=0.2,
         help="LLM temperature for response generation (default: 0.2)",
     )
-
-    # Max tokens - 2 char shorthand
     parser.add_argument(
         "-mt",
         "--max-tokens",
@@ -154,8 +182,6 @@ def get_args():
         default=500,
         help="Maximum tokens for LLM response (default: 500)",
     )
-
-    # Top P - 2 char shorthand
     parser.add_argument(
         "-tp",
         "--top-p",
@@ -164,8 +190,6 @@ def get_args():
         default=0.95,
         help="Top-p sampling parameter (default: 0.95)",
     )
-
-    # Presence penalty - 2 char shorthand
     parser.add_argument(
         "-pp",
         "--presence-penalty",
@@ -174,8 +198,6 @@ def get_args():
         default=1.5,
         help="Presence penalty for LLM (default: 1.5)",
     )
-
-    # Enable thinking - flag with 2 char shorthand
     parser.add_argument(
         "-et",
         "--enable-thinking",
@@ -184,8 +206,6 @@ def get_args():
         default=True,
         help="Enable thinking mode in chat template (default: True)",
     )
-
-    # Log level - 2 char shorthand
     parser.add_argument(
         "-ll",
         "--log-level",
@@ -194,7 +214,13 @@ def get_args():
         default="INFO",
         help="Logging level (default: INFO)",
     )
-
+    parser.add_argument(
+        "-tn",
+        "--trace-name",
+        dest="trace_name",
+        default="web-surfer-agent",
+        help="Trace/project name for telemetry (default: %(default)s)",
+    )
     return parser.parse_args()
 
 
@@ -227,22 +253,24 @@ def is_tool_error(result, text: str) -> bool:
     return bool(flag) or text.lstrip().startswith("### Error")
 
 
+from jet_telemetry import performance_monitor, tool
+
+
+@tool(name="mcp_browser_tool", description="Execute MCP browser tool action")
+@performance_monitor(threshold_ms=5000)
 async def execute_tool(session, tools_by_name, name, args):
     """Run one tool. Returns (ok, text). Never raises for tool-level errors."""
-    tool = tools_by_name.get(name)
-    if tool is None:
+    tool_obj = tools_by_name.get(name)
+    if tool_obj is None:
         return False, f"Unknown tool '{name}'. Use one of: {sorted(tools_by_name)}"
-
-    allowed = allowed_params(tool)
+    allowed = allowed_params(tool_obj)
     dropped = set(args) - allowed
     if dropped:
         logger.warning("✂️ Dropping unsupported args %s for %s", sorted(dropped), name)
         args = {k: v for k, v in args.items() if k in allowed}
-
-    missing = [k for k in tool.input_schema.get("required", []) if k not in args]
+    missing = [k for k in tool_obj.input_schema.get("required", []) if k not in args]
     if missing:
         return False, f"Missing required args {missing} for {name}."
-
     result = await session.call_tool(name, arguments=args)
     text = result.content[0].text if result.content else ""
     if is_tool_error(result, text):
@@ -250,6 +278,11 @@ async def execute_tool(session, tools_by_name, name, args):
     return True, text
 
 
+from jet_telemetry import llm
+
+
+@llm(model_name="llama-cpp", provider="llama_cpp")
+@performance_monitor(threshold_ms=10000)
 async def call_llama(messages, args=None):
     """Send messages to local llama.cpp server and get response."""
     llama_api_url = args.llama_api_url if args else LLAMA_API_URL
@@ -259,7 +292,6 @@ async def call_llama(messages, args=None):
     top_p = args.top_p if args else 0.95
     presence_penalty = args.presence_penalty if args else 1.5
     enable_thinking = args.enable_thinking if args else True
-
     payload = {
         "model": llama_model,
         "messages": messages,
@@ -283,44 +315,41 @@ async def call_llama(messages, args=None):
         return None
 
 
+from jet_telemetry import agent, chain
+
+
+@agent(name="web-surfer-loop")
 async def run_agent(goal: str, args=None):
     logger.info("🚀 Starting Web Surfer Agent for: %r", goal)
-
     mcp_server_url = args.mcp_server_url if args else MCP_SERVER_URL
     logger.info("Connecting via Streamable HTTP to: %s", mcp_server_url)
-
-    # `async with` opens AND closes the connection for us
     async with streamable_http_client(mcp_server_url) as streams:
         read_stream, write_stream = (
             streams[0],
             streams[1],
-        )  # 3rd item (session id getter) unused
+        )
         logger.info("✅ Connected")
         await _run_session(read_stream, write_stream, goal, args)
 
 
+@chain(name="web-surfer-session")
 async def _run_session(read_stream, write_stream, goal: str, args=None):
     async with ClientSession(read_stream, write_stream) as session:
         await session.initialize()
         logger.info("✅ Session initialized")
-
-        # Ask the server what tools really exist, then keep only the ones we need
         tools = (await session.list_tools()).tools
         tools_by_name = {t.name: t for t in tools if t.name in ALLOWED_TOOLS}
         logger.info("🧰 Tools given to LLM: %s", sorted(tools_by_name))
         system_prompt = SYSTEM_PROMPT.replace(
             "{tool_docs}", build_tool_docs(tools_by_name.values())
         )
-
         start_url = args.start_url if args else "https://demo.playwright.dev/todomvc"
         max_steps = args.max_steps if args else MAX_STEPS
         max_repeats = args.max_repeats if args else MAX_REPEATS
-
         logger.info("🌐 Navigating to %s", start_url)
         await session.call_tool("browser_navigate", arguments={"url": start_url})
         result = await session.call_tool("browser_snapshot", arguments={})
         current_snapshot = result.content[0].text
-
         messages = [
             {"role": "system", "content": system_prompt},
             {
@@ -328,7 +357,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                 "content": f"Goal: {goal}\n\nCurrent Page Snapshot:\n{current_snapshot}",
             },
         ]
-
         last_call, repeats = None, 0
         for step in range(1, max_steps + 1):
             logger.info("🧠 Step %d/%d: thinking...", step, max_steps)
@@ -337,7 +365,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                 logger.error("No response from LLM, stopping")
                 break
             logger.info("🤖 LLM Response: %s", llm_response)
-
             try:
                 clean_json = (
                     llm_response.replace("```json", "").replace("```", "").strip()
@@ -350,16 +377,12 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                     {"role": "user", "content": "Please respond with valid JSON."}
                 )
                 continue
-
             action = decision.get("action")
             args_dict = decision.get("args", {})
             logger.info("💡 Thought: %s", decision.get("thought"))
-
             if action == "finish":
                 logger.info("🏁 Task Complete: %s", args_dict.get("answer"))
                 break
-
-            # Stop if the model is stuck repeating the exact same call
             call_key = (action, json.dumps(args_dict, sort_keys=True))
             repeats = repeats + 1 if call_key == last_call else 1
             last_call = call_key
@@ -368,7 +391,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                     "🔁 Same action repeated %d times, stopping: %s", repeats, call_key
                 )
                 break
-
             logger.info("🛠️ Executing: %s with %s", action, args_dict)
             try:
                 ok, text = await execute_tool(session, tools_by_name, action, args_dict)
@@ -383,7 +405,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                     break
                 logger.error("⚠️ Tool execution error: %s", e)
                 ok, text = False, str(e)
-
             if ok:
                 logger.info("✅ Action OK")
                 current_snapshot = text
@@ -394,7 +415,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                     f"Action FAILED: {text}\n"
                     f"Fix the arguments and try again.\n\nPage is unchanged:\n{current_snapshot}"
                 )
-
             messages.append({"role": "assistant", "content": llm_response})
             messages.append({"role": "user", "content": feedback})
         else:
@@ -403,8 +423,14 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
 
 if __name__ == "__main__":
     args = get_args()
-
-    # Update logging level if specified
     logging.getLogger().setLevel(getattr(logging, args.log_level))
 
+    # Initialize telemetry with custom trace name
+    initialize_telemetry(service_name=args.trace_name)
+
     asyncio.run(run_agent(args.user_goal, args))
+
+    # Print trace URL for debugging/sharing
+    trace_url = get_trace_url()
+    if trace_url:
+        print(f"\n📊 View trace in Phoenix: {trace_url}")
