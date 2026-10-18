@@ -43,7 +43,7 @@ user_goal          The task description for the agent (positional)
 -mt, --max-tokens  Max tokens for LLM response (default: 500)
 -tp, --top-p       Top-p sampling parameter (default: 0.95)
 -pp, --presence-penalty  Presence penalty (default: 1.5)
--et, --enable-thinking   Enable thinking mode (default: True)
+-et, --enable-thinking   Enable thinking mode (default: False)
 -ll, --log-level   Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
 -tn, --trace-name  Trace/project name for telemetry (default: web-surfer-agent)
 """
@@ -132,7 +132,7 @@ Rules:
 - To press Enter after typing, use browser_type with "submit": true.
 - Only use the argument names listed above. Do not invent arguments.
 - If you need to see the current state of the page, use 'browser_snapshot'.
-- If the snapshot is empty, try using 'browser_wait_for' with time=2 to let the page load.
+- If the snapshot is empty or incomplete, use 'browser_wait_for' with time=2 to let the page load.
 
 Respond ONLY with a JSON object. Example:
 {"thought": "I see a search bar with ref=e8. I will type my query there.", "action": "browser_type", "args": {"target": "e8", "text": "Buy Milk", "submit": true}}
@@ -307,6 +307,7 @@ async def execute_tool(session, tools_by_name, name, args):
     if missing:
         return False, f"Missing required args {missing} for {name}."
 
+    logger.info("🛠️ Executing tool: %s with args: %s", name, args)
     try:
         result = await session.call_tool(name, arguments=args)
         text = result.content[0].text if result.content else ""
@@ -318,12 +319,20 @@ async def execute_tool(session, tools_by_name, name, args):
                 span.set_attribute("tool.error_message", text[:500])
 
         if is_tool_error(result, text):
+            logger.warning("❌ Tool %s failed: %s", name, text[:100])
             return False, text
+
+        logger.info(
+            "✅ Tool %s succeeded. Output preview: %s...",
+            name,
+            text[:100].replace("\n", " "),
+        )
         return True, text
     except Exception as e:
         if span.is_recording():
             span.set_attribute("tool.success", False)
             span.set_attribute("tool.error_message", str(e)[:500])
+        logger.error("⚠️ Tool execution error for %s: %s", name, e)
         raise
 
 
@@ -340,6 +349,7 @@ async def call_llama(messages, args=None):
     enable_thinking = args.enable_thinking if args else False
 
     try:
+        logger.info("🧠 Calling LLM (%s)...", llama_model)
         result = await achat(
             prompt_or_messages=messages,
             model=llama_model,
@@ -382,13 +392,37 @@ async def run_agent(goal: str, args=None):
     try:
         async with streamable_http_client(mcp_server_url) as streams:
             read_stream, write_stream = streams[0], streams[1]
-            logger.info("✅ Connected")
+            logger.info("✅ Connected to MCP Server")
             await _run_session(read_stream, write_stream, goal, args)
     except Exception as e:
         if span.is_recording():
             span.set_attribute("agent.error", str(e)[:500])
         logger.error("💥 Agent error: %s", e)
         raise
+
+
+async def _wait_for_stable_snapshot(session, max_attempts=3, delay=1.0):
+    """
+    Wait for the page snapshot to stabilize (stop changing).
+    Returns the final stable snapshot text.
+    """
+    last_snapshot = ""
+    for i in range(max_attempts):
+        result = await session.call_tool("browser_snapshot", arguments={})
+        current_snapshot = result.content[0].text
+
+        # Check if snapshot is significantly different from last one
+        if current_snapshot == last_snapshot:
+            logger.info("📸 Snapshot stabilized after %d attempts.", i + 1)
+            return current_snapshot
+
+        last_snapshot = current_snapshot
+        if i < max_attempts - 1:
+            logger.debug("⏳ Waiting %.1fs for page to stabilize...", delay)
+            await asyncio.sleep(delay)
+
+    logger.warning("⚠️ Snapshot did not fully stabilize, using latest.")
+    return last_snapshot
 
 
 @chain(name="web-surfer-session")
@@ -422,16 +456,18 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
         logger.info("🌐 Navigating to %s", start_url)
         await session.call_tool("browser_navigate", arguments={"url": start_url})
 
-        # Initial snapshot with retry for empty pages
-        result = await session.call_tool("browser_snapshot", arguments={})
-        current_snapshot = result.content[0].text
+        # Wait for stable snapshot instead of immediate capture
+        logger.info("⏳ Waiting for page to stabilize...")
+        current_snapshot = await _wait_for_stable_snapshot(session)
 
-        # Handle empty snapshots (common in SPAs)
-        if not current_snapshot.strip() or "Snapshot" not in current_snapshot:
-            logger.warning("⚠️ Initial snapshot empty, waiting for page load...")
-            await session.call_tool("browser_wait_for", arguments={"time": 2})
-            result = await session.call_tool("browser_snapshot", arguments={})
-            current_snapshot = result.content[0].text
+        snap_len = len(current_snapshot)
+        if snap_len < 50:
+            logger.warning(
+                "⚠️ Initial snapshot is very small (%d chars). Page may not have loaded.",
+                snap_len,
+            )
+        else:
+            logger.info("📸 Initial snapshot captured (%d chars).", snap_len)
 
         if session_span.is_recording():
             if "Page URL:" in current_snapshot:
@@ -484,7 +520,7 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                 )
                 step_span.set_attribute("agent.step.number", step)
 
-                logger.info("🧠 Step %d/%d: thinking...", step, max_steps)
+                logger.info("🧠 Step %d/%d: Thinking...", step, max_steps)
                 llm_response = await call_llama(messages, args)
 
                 if not llm_response:
@@ -492,7 +528,7 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                     step_span.set_attribute("agent.step.outcome", "llm_error")
                     break
 
-                logger.info("🤖 LLM Response: %s", llm_response)
+                logger.info("🤖 LLM Decision: %s", llm_response[:100])
                 try:
                     decision = json.loads(llm_response)
                 except json.JSONDecodeError:
@@ -549,7 +585,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                         session_span.set_attribute("agent.steps_taken", step_count)
                     break
 
-                logger.info("🛠️ Executing: %s with %s", action, args_dict)
                 try:
                     ok, text = await execute_tool(
                         session, tools_by_name, action, args_dict
@@ -557,22 +592,23 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
 
                     # Always refresh snapshot after action unless it was already a snapshot
                     if ok and action != "browser_snapshot":
-                        snap = await session.call_tool("browser_snapshot", arguments={})
-                        text = snap.content[0].text
+                        logger.info("📸 Refreshing snapshot after action...")
+                        current_snapshot = await _wait_for_stable_snapshot(session)
+                        text = current_snapshot
 
                     if ok:
                         success_count += 1
                         step_span.set_attribute("agent.step.outcome", "success")
                         logger.info("✅ Action OK")
-                        current_snapshot = text
                         feedback = f"Action Result (OK):\n{text}"
                     else:
                         failure_count += 1
                         step_span.set_attribute("agent.step.outcome", "failed")
-                        logger.warning("❌ Action FAILED: %s", text)
+                        logger.warning("❌ Action FAILED: %s", text[:100])
                         feedback = (
                             f"Action FAILED: {text}\n"
                             f"Fix the arguments and try again.\n"
+                            f"Remember to use [ref=ID] tags from the snapshot.\n"
                             f"Page is unchanged:\n{current_snapshot}"
                         )
                 except Exception as e:
