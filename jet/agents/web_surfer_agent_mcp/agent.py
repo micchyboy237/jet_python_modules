@@ -72,6 +72,48 @@ async def call_llama(messages, args=None):
         return None
 
 
+async def _generate_search_query(
+    goal: str, last_thought: str | None, current_url: str
+) -> str:
+    """
+    Ask the LLM to generate a concise, keyword-rich search query for RAG retrieval
+    from the ARIA snapshot. Focuses on UI elements, labels, roles, and states.
+    """
+    query_prompt = f"""
+You are an expert at searching web page accessibility snapshots. 
+Goal: {goal}
+Current URL: {current_url}
+Last Thought: {last_thought or "N/A"}
+
+Generate a short, keyword-based search query to find relevant UI elements in the page snapshot. 
+Focus on:
+- Element roles (button, input, link, heading, listitem)
+- Visible text labels or placeholders
+- States (disabled, checked, selected)
+- Structural containers (navbar, footer, modal, form)
+
+Example:
+Goal: "Log in with email test@example.com"
+Query: "input email password button login sign in form"
+
+Return ONLY the query string.
+"""
+    try:
+        # Use a simple chat call without structured output for speed
+        result = await achat(
+            prompt_or_messages=[{"role": "user", "content": query_prompt}],
+            model=DEFAULT_LLM_MODEL,  # Or a smaller/faster model if available
+            temperature=0.1,
+            max_tokens=50,
+        )
+        query = result.content.strip().strip('"').strip("'")
+        logger.debug(f"🔍 Generated RAG Query: {query}")
+        return query
+    except Exception as e:
+        logger.warning(f"Failed to generate search query: {e}. Falling back to goal.")
+        return goal
+
+
 @agent(name="web-surfer-loop")
 async def run_agent(goal: str, args=None):
     """
@@ -100,7 +142,7 @@ async def run_agent(goal: str, args=None):
         raise
 
 
-async def _wait_for_stable_snapshot(session, max_attempts=3, delay=1.0):
+async def _wait_for_stable_snapshot(session, max_attempts=8, delay=1.0):
     """
     Wait for the page snapshot to stabilize (stop changing).
     Returns the final stable snapshot text.
@@ -212,8 +254,11 @@ async def _initialize_session(session, goal: str, args=None):
             except (IndexError, ValueError):
                 pass
 
-    # Use RAG to get relevant initial context based on the goal
-    initial_context = _get_rag_context(query=goal, snapshot=current_snapshot, top_k=5)
+    # Generate an optimized search query for the initial context
+    initial_query = await _generate_search_query(goal, None, start_url)
+    initial_context = _get_rag_context(
+        query=initial_query, snapshot=current_snapshot, top_k=5
+    )
 
     initial_messages = [
         {"role": "system", "content": system_prompt},
@@ -411,18 +456,31 @@ async def _execute_step(
                 logger.info("📸 Refreshing snapshot after action...")
                 current_snapshot = await _wait_for_stable_snapshot(session)
 
-                # Use thought as query for next context
-                query = thought if thought else goal
+                # Extract current URL from snapshot for better query generation
+                current_url = "unknown"
+                for line in current_snapshot.split("\n"):
+                    if "Page URL:" in line:
+                        current_url = line.split("Page URL:")[1].strip()
+                        break
+
+                # Generate optimized search query for next context
+                next_query = await _generate_search_query(goal, thought, current_url)
                 rag_context = _get_rag_context(
-                    query=query, snapshot=current_snapshot, top_k=3
+                    query=next_query, snapshot=current_snapshot, top_k=3
                 )
 
                 feedback = f"Action Result (OK):\n{text}\n\nRelevant Page Context:\n{rag_context}"
             else:
                 # Action failed
-                query = thought if thought else goal
+                current_url = "unknown"
+                for line in current_snapshot.split("\n"):
+                    if "Page URL:" in line:
+                        current_url = line.split("Page URL:")[1].strip()
+                        break
+
+                next_query = await _generate_search_query(goal, thought, current_url)
                 rag_context = _get_rag_context(
-                    query=query, snapshot=current_snapshot, top_k=3
+                    query=next_query, snapshot=current_snapshot, top_k=3
                 )
 
                 logger.warning("❌ Action FAILED: %s", text[:100])
@@ -465,9 +523,15 @@ async def _execute_step(
             logger.error("⚠️ Tool execution error: %s", e)
             ok, text = False, str(e)
 
-            query = thought if thought else goal
+            current_url = "unknown"
+            for line in current_snapshot.split("\n"):
+                if "Page URL:" in line:
+                    current_url = line.split("Page URL:")[1].strip()
+                    break
+
+            next_query = await _generate_search_query(goal, thought, current_url)
             rag_context = _get_rag_context(
-                query=query, snapshot=current_snapshot, top_k=3
+                query=next_query, snapshot=current_snapshot, top_k=3
             )
 
             feedback = f"Action FAILED: {text}\nRelevant Page Context:\n{rag_context}"
