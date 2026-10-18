@@ -43,13 +43,36 @@ class RankedChunkResult(TypedDict):
     metadata: ChunkMetadata
 
 
+def format_chunk_for_rag(
+    rank: int, score: float, text: str, metadata: ChunkMetadata
+) -> str:
+    """Format a single chunk for LLM RAG context injection in Markdown.
+
+    Args:
+        rank: Result rank (1-based).
+        score: Cosine similarity score.
+        text: Chunk content.
+        metadata: Chunk metadata.
+
+    Returns:
+        Formatted markdown string suitable for LLM context.
+    """
+    return (
+        f"### Document {rank} (Relevance: {score:.4f})\n"
+        f"- **Chunk Index**: {metadata['chunk_index']}\n"
+        f"- **Position**: Characters {metadata['start_idx']}–{metadata['end_idx']}\n"
+        f"\n"
+        f"{text}\n"
+    )
+
+
 def find_snapshot(
     query: str,
     text: str | list[str],
     top_k: int = 5,
     min_score: float = 0.2,
     model: str = EMBED_MODEL,
-) -> tuple[list[RankedChunkResult], list[ChunkResult]]:
+) -> tuple[str, list[RankedChunkResult], list[ChunkResult]]:
     """Find relevant chunks using vector similarity search.
 
     Args:
@@ -60,11 +83,10 @@ def find_snapshot(
         model: Embedding model to use.
 
     Returns:
-        Tuple of (ranked_results, all_chunks) where ranked_results contains:
-        - rank: Result rank (1-based)
-        - score: Cosine similarity score (0-1)
-        - text: Chunk content
-        - metadata: Chunk metadata (chunk_index, start_idx, end_idx)
+        Tuple of (rag_context, ranked_results, all_chunks) where:
+        - rag_context: Joined formatted chunks optimized for LLM RAG (Markdown)
+        - ranked_results: List of ranked chunk results with metadata
+        - all_chunks: All generated chunks from the source text
     """
     console.print(
         "[cyan]Starting metadata-rich chunking demo with vector search...[/cyan]"
@@ -82,7 +104,7 @@ def find_snapshot(
 
     if not chunks:
         console.print("[red]No chunks generated[/red]")
-        return [], []
+        return "", [], []
 
     documents = [chunk["content"] for chunk in chunks]
     metadata: list[ChunkMetadata] = [
@@ -107,23 +129,46 @@ def find_snapshot(
 
     # Step 3: Filter by min_score and enrich with metadata
     ranked_results: list[RankedChunkResult] = []
+    rag_fragments: list[str] = []
+
     for result in search_results:
         if result["score"] >= min_score:
             idx = result["index"]
+            chunk_metadata = metadata[idx]
+
             ranked_results.append(
                 {
                     "rank": result["rank"],
                     "score": result["score"],
                     "text": result["text"],
-                    "metadata": metadata[idx],
+                    "metadata": chunk_metadata,
                 }
             )
+
+            # Format for RAG context
+            rag_fragments.append(
+                format_chunk_for_rag(
+                    rank=result["rank"],
+                    score=result["score"],
+                    text=result["text"],
+                    metadata=chunk_metadata,
+                )
+            )
+
+    # Build complete markdown document
+    rag_context = ""
+    if rag_fragments:
+        rag_context = (
+            f'# Retrieved Context for Query: "{query}"\n\n'
+            f"> Found {len(ranked_results)} relevant chunks with minimum relevance score of {min_score}\n\n"
+            "---\n\n"
+        ) + "\n---\n\n".join(rag_fragments)
 
     console.print(
         f"[green]Found {len(ranked_results)} relevant chunks (min_score={min_score})[/green]"
     )
 
-    return ranked_results, chunks
+    return rag_context, ranked_results, chunks
 
 
 if __name__ == "__main__":
@@ -131,10 +176,11 @@ if __name__ == "__main__":
     with open(DOC_PATH, "r", encoding="utf-8") as f:
         text = f.read()
 
-    ranked_results, chunks = find_snapshot(query, text)
+    rag_context, ranked_results, chunks = find_snapshot(query, text)
 
     chunks_path = OUTPUT_DIR / "chunks.json"
     ranked_results_path = OUTPUT_DIR / "ranked_results.json"
+    rag_context_path = OUTPUT_DIR / "rag_context.md"
 
     with open(chunks_path, "w", encoding="utf-8") as f:
         json.dump(chunks, f, indent=2, ensure_ascii=False)
@@ -142,11 +188,17 @@ if __name__ == "__main__":
     with open(ranked_results_path, "w", encoding="utf-8") as f:
         json.dump(ranked_results, f, indent=2, ensure_ascii=False)
 
+    with open(rag_context_path, "w", encoding="utf-8") as f:
+        f.write(rag_context)
+
     console.print(
         f"[bold green]✓ Generated {len(chunks)} chunks[/bold green] ([link=file://{chunks_path}]{chunks_path.name}[/link])"
     )
     console.print(
         f"[bold green]✓ Generated {len(ranked_results)} ranked results[/bold green] ([link=file://{ranked_results_path}]{ranked_results_path.name}[/link])"
+    )
+    console.print(
+        f"[bold green]✓ Generated RAG context ({len(rag_context)} chars)[/bold green] ([link=file://{rag_context_path}]{rag_context_path.name}[/link])"
     )
 
     # Display top results
@@ -160,3 +212,12 @@ if __name__ == "__main__":
             )
             preview = result["text"][:100].replace("\n", " ")
             console.print(f"   Preview: {preview}...")
+
+    # Display RAG context preview
+    if rag_context:
+        console.print("\n[bold cyan]RAG Context Preview (Markdown):[/bold cyan]")
+        preview_lines = rag_context.split("\n")[:20]
+        for line in preview_lines:
+            console.print(f"  [dim]{line}[/dim]")
+        if len(rag_context.split("\n")) > 20:
+            console.print("  [dim]...[/dim]")
