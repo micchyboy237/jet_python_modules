@@ -1,72 +1,63 @@
 """
 Web Surfer MCP Agent - Automated Web Interaction with LLM
-
 This agent uses an LLM to autonomously navigate and interact with web pages
 via the Model Context Protocol (MCP) browser tools. It can perform actions
 like clicking, typing, navigating, and extracting information from web pages.
-
 The agent follows a thought-action loop where it:
-    1. Receives an accessibility snapshot of the current page
-    2. Uses an LLM to decide the next action
-    3. Executes the action via MCP browser tools
-    4. Repeats until the goal is achieved or limits are reached
-
+1. Receives an accessibility snapshot of the current page
+2. Uses an LLM to decide the next action
+3. Executes the action via MCP browser tools
+4. Repeats until the goal is achieved or limits are reached
 Features:
-    - Configurable starting URL, MCP server, and LLM settings
-    - Automatic retry and error handling
-    - Protection against infinite loops (max steps and repeat detection)
-    - Rich console output with color-coded messages
-    - OpenTelemetry tracing via jet-telemetry for observability
-    - Comprehensive span coverage for all agent operations
-    - Proper nested hierarchy for agent steps, LLM calls, and tool executions
-
+- Configurable starting URL, MCP server, and LLM settings
+- Automatic retry and error handling
+- Protection against infinite loops (max steps and repeat detection)
+- Rich console output with color-coded messages
+- OpenTelemetry tracing via jet-telemetry for observability
+- Comprehensive span coverage for all agent operations
+- Proper nested hierarchy for agent steps, LLM calls, and tool executions
 Usage Examples:
-    # Basic usage with default settings
-    python web_surfer_agent_mcp.py "Add a todo item 'Buy Milk' and mark it done"
-
-    # Custom starting URL
-    python web_surfer_agent_mcp.py -u https://example.com "Find the contact page"
-
-    # Custom MCP server and LLM model
-    python web_surfer_agent_mcp.py -ms http://remote:8931/mcp -lm llama-3.2 "Search for Python docs"
-
-    # Adjust LLM parameters for more creative responses
-    python web_surfer_agent_mcp.py -t 0.7 -mt 1000 -pp 0.5 "Write a blog post draft"
-
-    # Increase max steps for complex tasks
-    python web_surfer_agent_mcp.py -s 30 -r 5 "Complete a multi-step form"
-
-    # Minimal output (errors only)
-    python web_surfer_agent_mcp.py -ll ERROR "Quick task"
-
-    # Show all available options
-    python web_surfer_agent_mcp.py --help
-
+# Basic usage with default settings
+python web_surfer_agent_mcp.py "Add a todo item 'Buy Milk' and mark it done"
+# Custom starting URL
+python web_surfer_agent_mcp.py -u https://example.com "Find the contact page"
+# Custom MCP server and LLM model
+python web_surfer_agent_mcp.py -ms http://remote:8931/mcp -lm llama-3.2 "Search for Python docs"
+# Adjust LLM parameters for more creative responses
+python web_surfer_agent_mcp.py -t 0.7 -mt 1000 -pp 0.5 "Write a blog post draft"
+# Increase max steps for complex tasks
+python web_surfer_agent_mcp.py -s 30 -r 5 "Complete a multi-step form"
+# Minimal output (errors only)
+python web_surfer_agent_mcp.py -ll ERROR "Quick task"
+# Show all available options
+python web_surfer_agent_mcp.py --help
 Command Line Arguments:
-    user_goal          The task description for the agent (positional)
-    -u, --url          Starting URL (default: https://demo.playwright.dev/todomvc)
-    -ms, --mcp-server  MCP server URL (default: http://localhost:8931/mcp)
-    -la, --llama-api   LLaMA API endpoint URL
-    -lm, --llama-model LLM model name
-    -s, --max-steps    Maximum iteration steps (default: 15)
-    -r, --max-repeats  Max repeated actions before stopping (default: 3)
-    -t, --temperature  LLM temperature (default: 0.2)
-    -mt, --max-tokens  Max tokens for LLM response (default: 500)
-    -tp, --top-p       Top-p sampling parameter (default: 0.95)
-    -pp, --presence-penalty  Presence penalty (default: 1.5)
-    -et, --enable-thinking   Enable thinking mode (default: True)
-    -ll, --log-level   Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
-    -tn, --trace-name  Trace/project name for telemetry (default: web-surfer-agent)
+user_goal          The task description for the agent (positional)
+-u, --url          Starting URL (default: https://demo.playwright.dev/todomvc)
+-ms, --mcp-server  MCP server URL (default: http://localhost:8931/mcp)
+-la, --llama-api   LLaMA API endpoint URL
+-lm, --llama-model LLM model name
+-s, --max-steps    Maximum iteration steps (default: 15)
+-r, --max-repeats  Max repeated actions before stopping (default: 3)
+-t, --temperature  LLM temperature (default: 0.2)
+-mt, --max-tokens  Max tokens for LLM response (default: 500)
+-tp, --top-p       Top-p sampling parameter (default: 0.95)
+-pp, --presence-penalty  Presence penalty (default: 1.5)
+-et, --enable-thinking   Enable thinking mode (default: True)
+-ll, --log-level   Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
+-tn, --trace-name  Trace/project name for telemetry (default: web-surfer-agent)
 """
 
 import argparse
 import asyncio
 import json
 import logging
+from typing import Any, Dict
 
-import requests
 from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL
+from jet.adapters.llama_cpp.llm_utils_observed import achat
 from mcp import ClientSession
+from pydantic import BaseModel, Field
 
 try:
     from mcp.client.streamable_http import streamable_http_client
@@ -74,9 +65,7 @@ except ImportError:
     from mcp.client.streamable_http import (
         streamablehttp_client as streamable_http_client,
     )
-
-# Initialize telemetry early
-from jet_telemetry import get_trace_url, initialize_telemetry
+from jet_telemetry import agent, chain, get_trace_url, initialize_telemetry, tool
 from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 from opentelemetry import trace as otel_trace
 from opentelemetry.trace import SpanKind
@@ -89,6 +78,7 @@ MCP_SERVER_URL = "http://localhost:8931/mcp"
 LLAMA_API_URL = f"{LLM_BASE_URL}/chat/completions"
 MAX_STEPS = 15
 MAX_REPEATS = 3
+
 ALLOWED_TOOLS = {
     "browser_navigate",
     "browser_navigate_back",
@@ -107,18 +97,46 @@ ALLOWED_TOOLS = {
     "browser_wait_for",
     "browser_close",
 }
+
 SAFE_OPTIONAL = {"browser_type": {"submit"}}
+
+
+class AgentDecision(BaseModel):
+    """Structured output model for the agent's decision."""
+
+    thought: str = Field(description="The reasoning behind the next action")
+    action: str = Field(
+        description="The name of the tool to execute, or 'finish' if done"
+    )
+    args: Dict[str, Any] = Field(
+        default_factory=dict, description="Arguments for the tool"
+    )
+
+
 SYSTEM_PROMPT = """
-You are a Web Surfer Agent. Your goal is to interact with web pages to fulfill user requests.
+You are an expert Web Surfer Agent. Your goal is to interact with web pages to fulfill user requests.
 You will be given an 'Accessibility Snapshot' of the current page.
-Elements have reference IDs like [ref=e5]. Pass that ID (e.g. "e5") as the "target" argument.
+
+CRITICAL RULES FOR INTELLIGENCE:
+1. ALWAYS analyze the 'Current Page Snapshot' provided in the user message before deciding on an action.
+2. Identify the current URL and Page Title from the snapshot to understand your location.
+3. Look for specific elements (search bars, buttons, links) by their [ref=ID] tags.
+4. If you are unsure where an element is, use 'browser_find' to locate it by text or selector.
+5. NEVER guess the state of the page. If the snapshot shows you are on a homepage, do not try to go 'back'.
+6. If an action fails, read the error message AND re-examine the snapshot to understand why.
+
 Available Tools (parameter? = optional):
 {tool_docs}
+
 Rules:
 - To press Enter after typing, use browser_type with "submit": true.
 - Only use the argument names listed above. Do not invent arguments.
+- If you need to see the current state of the page, use 'browser_snapshot'.
+- If the snapshot is empty, try using 'browser_wait_for' with time=2 to let the page load.
+
 Respond ONLY with a JSON object. Example:
-{"thought": "Type the todo and press Enter", "action": "browser_type", "args": {"target": "e8", "text": "Buy Milk", "submit": true}}
+{"thought": "I see a search bar with ref=e8. I will type my query there.", "action": "browser_type", "args": {"target": "e8", "text": "Buy Milk", "submit": true}}
+
 If an action FAILED, read the error and fix your arguments.
 When the task is complete, use: {"thought": "...", "action": "finish", "args": {"answer": "..."}}
 """
@@ -214,8 +232,8 @@ def get_args():
         "--enable-thinking",
         dest="enable_thinking",
         action="store_true",
-        default=True,
-        help="Enable thinking mode in chat template (default: True)",
+        default=False,
+        help="Enable thinking mode in chat template (default: False)",
     )
     parser.add_argument(
         "-ll",
@@ -264,67 +282,6 @@ def is_tool_error(result, text: str) -> bool:
     return bool(flag) or text.lstrip().startswith("### Error")
 
 
-from jet_telemetry import llm, tool
-
-
-@llm(model_name="llama-cpp", provider="llama_cpp")
-async def call_llama(messages, args=None):
-    """
-    Send messages to local llama.cpp server and get response.
-    Captures input messages and explicitly sets output messages for observability.
-    """
-    llama_api_url = args.llama_api_url if args else LLAMA_API_URL
-    llama_model = args.llama_model if args else LLM_MODEL
-    temperature = args.temperature if args else 0.2
-    max_tokens = args.max_tokens if args else 500
-    top_p = args.top_p if args else 0.95
-    presence_penalty = args.presence_penalty if args else 1.5
-    enable_thinking = args.enable_thinking if args else True
-
-    payload = {
-        "model": llama_model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "top_p": top_p,
-        "presence_penalty": presence_penalty,
-        "extra_body": {
-            "chat_template_kwargs": {
-                "enable_thinking": enable_thinking,
-            },
-        },
-    }
-
-    logger.info("Calling llama.cpp (%d messages)", len(messages))
-
-    span = otel_trace.get_current_span()
-    if span.is_recording():
-        span.set_attribute("llm.request.model", llama_model)
-        span.set_attribute("llm.request.message_count", len(messages))
-
-    try:
-        response = requests.post(llama_api_url, json=payload)
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-
-        # Explicitly capture LLM output for audit trail
-        if span.is_recording():
-            span.set_attribute(
-                SpanAttributes.LLM_OUTPUT_MESSAGES,
-                json.dumps([{"role": "assistant", "content": content}]),
-            )
-            span.set_attribute("llm.response.success", True)
-            span.set_attribute("llm.response.length_chars", len(content))
-
-        return content
-    except Exception as e:
-        if span.is_recording():
-            span.set_attribute("llm.response.success", False)
-            span.set_attribute("llm.response.error", str(e)[:500])
-        logger.error("❌ Error calling llama.cpp: %s", e)
-        return None
-
-
 @tool(name="mcp_browser_tool", description="Execute MCP browser tool action")
 async def execute_tool(session, tools_by_name, name, args):
     """
@@ -354,9 +311,8 @@ async def execute_tool(session, tools_by_name, name, args):
         result = await session.call_tool(name, arguments=args)
         text = result.content[0].text if result.content else ""
 
-        # Explicitly capture tool output for audit trail
         if span.is_recording():
-            span.set_attribute("tool.output", text[:2000])  # Truncate for span size
+            span.set_attribute("tool.output", text[:2000])
             span.set_attribute("tool.success", not is_tool_error(result, text))
             if is_tool_error(result, text):
                 span.set_attribute("tool.error_message", text[:500])
@@ -371,7 +327,43 @@ async def execute_tool(session, tools_by_name, name, args):
         raise
 
 
-from jet_telemetry import agent, chain
+async def call_llama(messages, args=None):
+    """
+    Send messages to local llama.cpp server using llm_utils_observed.
+    Uses structured output for reliable JSON parsing.
+    """
+    llama_model = args.llama_model if args else LLM_MODEL
+    temperature = args.temperature if args else 0.2
+    max_tokens = args.max_tokens if args else 500
+    top_p = args.top_p if args else 0.95
+    presence_penalty = args.presence_penalty if args else 1.5
+    enable_thinking = args.enable_thinking if args else False
+
+    try:
+        result = await achat(
+            prompt_or_messages=messages,
+            model=llama_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            presence_penalty=presence_penalty,
+            enable_thinking=enable_thinking,
+            response_format=AgentDecision,
+        )
+        if result.structured and result.structured.success:
+            decision = result.structured.parsed
+            return json.dumps(decision.model_dump())
+        else:
+            logger.warning(
+                "⚠️ Structured output failed: %s",
+                result.structured.error
+                if result.structured
+                else "No structured result",
+            )
+            return result.content
+    except Exception as e:
+        logger.error("❌ Error calling llama.cpp via llm_utils_observed: %s", e)
+        return None
 
 
 @agent(name="web-surfer-loop")
@@ -381,15 +373,12 @@ async def run_agent(goal: str, args=None):
     Manages the MCP connection and delegates to session handler.
     """
     logger.info("🚀 Starting Web Surfer Agent for: %r", goal)
-
-    # Set agent-level attributes
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute("agent.goal", goal)
 
     mcp_server_url = args.mcp_server_url if args else MCP_SERVER_URL
     logger.info("Connecting via Streamable HTTP to: %s", mcp_server_url)
-
     try:
         async with streamable_http_client(mcp_server_url) as streams:
             read_stream, write_stream = streams[0], streams[1]
@@ -409,16 +398,12 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
     Handles initialization, navigation, and the main reasoning loop with proper nesting.
     """
     tracer = otel_trace.get_tracer(__name__)
-
     async with ClientSession(read_stream, write_stream) as session:
-        # Initialize session
         await session.initialize()
         tools = (await session.list_tools()).tools
         tools_by_name = {t.name: t for t in tools if t.name in ALLOWED_TOOLS}
-
         logger.info("✅ Session initialized with %d tools", len(tools_by_name))
 
-        # Capture tool registry in span
         session_span = otel_trace.get_current_span()
         if session_span.is_recording():
             session_span.set_attribute(
@@ -434,15 +419,20 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
         max_steps = args.max_steps if args else MAX_STEPS
         max_repeats = args.max_repeats if args else MAX_REPEATS
 
-        # Initial Navigation
         logger.info("🌐 Navigating to %s", start_url)
         await session.call_tool("browser_navigate", arguments={"url": start_url})
 
-        # Capture initial snapshot
+        # Initial snapshot with retry for empty pages
         result = await session.call_tool("browser_snapshot", arguments={})
         current_snapshot = result.content[0].text
 
-        # Extract URL and title from initial snapshot for context
+        # Handle empty snapshots (common in SPAs)
+        if not current_snapshot.strip() or "Snapshot" not in current_snapshot:
+            logger.warning("⚠️ Initial snapshot empty, waiting for page load...")
+            await session.call_tool("browser_wait_for", arguments={"time": 2})
+            result = await session.call_tool("browser_snapshot", arguments={})
+            current_snapshot = result.content[0].text
+
         if session_span.is_recording():
             if "Page URL:" in current_snapshot:
                 try:
@@ -474,7 +464,7 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": f"Goal: {goal}\n\nCurrent Page Snapshot:\n{current_snapshot}",
+                "content": f"Goal: {goal}\nCurrent Page Snapshot:\n{current_snapshot}",
             },
         ]
 
@@ -485,13 +475,9 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
 
         for step in range(1, max_steps + 1):
             step_count = step
-
-            # Create a nested span for each reasoning step to ensure proper hierarchy
-            # FIX: Use SpanKind.INTERNAL for the protocol, but set OpenInference kind as attribute
             with tracer.start_as_current_span(
                 f"agent_step_{step}", kind=SpanKind.INTERNAL
             ) as step_span:
-                # Set the semantic kind for Phoenix/OpenInference
                 step_span.set_attribute(
                     SpanAttributes.OPENINFERENCE_SPAN_KIND,
                     OpenInferenceSpanKindValues.AGENT.value,
@@ -499,20 +485,16 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                 step_span.set_attribute("agent.step.number", step)
 
                 logger.info("🧠 Step %d/%d: thinking...", step, max_steps)
-
                 llm_response = await call_llama(messages, args)
+
                 if not llm_response:
                     logger.error("No response from LLM, stopping")
                     step_span.set_attribute("agent.step.outcome", "llm_error")
                     break
 
                 logger.info("🤖 LLM Response: %s", llm_response)
-
                 try:
-                    clean_json = (
-                        llm_response.replace("```json", "").replace("```", "").strip()
-                    )
-                    decision = json.loads(clean_json)
+                    decision = json.loads(llm_response)
                 except json.JSONDecodeError:
                     logger.warning("⚠️ Failed to parse JSON from LLM. Retrying...")
                     messages.append({"role": "assistant", "content": llm_response})
@@ -532,8 +514,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                         "agent.step.answer", args_dict.get("answer", "")
                     )
                     logger.info("🏁 Task Complete: %s", args_dict.get("answer"))
-
-                    # Update session-level completion stats
                     if session_span.is_recording():
                         session_span.set_attribute("agent.completion.success", True)
                         session_span.set_attribute(
@@ -561,7 +541,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                     step_span.set_attribute(
                         "agent.step.outcome", "max_repeats_exceeded"
                     )
-
                     if session_span.is_recording():
                         session_span.set_attribute("agent.completion.success", False)
                         session_span.set_attribute(
@@ -571,12 +550,12 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                     break
 
                 logger.info("🛠️ Executing: %s with %s", action, args_dict)
-
                 try:
                     ok, text = await execute_tool(
                         session, tools_by_name, action, args_dict
                     )
 
+                    # Always refresh snapshot after action unless it was already a snapshot
                     if ok and action != "browser_snapshot":
                         snap = await session.call_tool("browser_snapshot", arguments={})
                         text = snap.content[0].text
@@ -593,14 +572,13 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                         logger.warning("❌ Action FAILED: %s", text)
                         feedback = (
                             f"Action FAILED: {text}\n"
-                            f"Fix the arguments and try again.\n\nPage is unchanged:\n{current_snapshot}"
+                            f"Fix the arguments and try again.\n"
+                            f"Page is unchanged:\n{current_snapshot}"
                         )
-
                 except Exception as e:
                     failure_count += 1
                     step_span.set_attribute("agent.step.outcome", "exception")
                     step_span.set_attribute("agent.step.error", str(e)[:500])
-
                     if "Session terminated" in str(e):
                         logger.error(
                             "💥 MCP session is gone (server restarted/crashed?). Stopping."
@@ -613,10 +591,11 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                                 "agent.failure.reason", "session_terminated"
                             )
                         break
-
                     logger.error("⚠️ Tool execution error: %s", e)
                     ok, text = False, str(e)
-                    feedback = f"Action FAILED: {text}\n\nPage is unchanged:\n{current_snapshot}"
+                    feedback = (
+                        f"Action FAILED: {text}\nPage is unchanged:\n{current_snapshot}"
+                    )
 
                 messages.append({"role": "assistant", "content": llm_response})
                 messages.append({"role": "user", "content": feedback})
@@ -630,7 +609,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                 session_span.set_attribute("agent.actions_successful", success_count)
                 session_span.set_attribute("agent.actions_failed", failure_count)
 
-        # Handle graceful shutdown to prevent ClosedResourceError
         logger.info("🔒 Closing MCP session gracefully...")
         try:
             await asyncio.sleep(0.5)
@@ -642,7 +620,7 @@ if __name__ == "__main__":
     args = get_args()
     logging.getLogger().setLevel(getattr(logging, args.log_level))
 
-    # Initialize telemetry with custom trace name
+    # Initialize telemetry with the resolved project name
     initialize_telemetry(service_name=args.trace_name)
 
     try:
@@ -653,7 +631,6 @@ if __name__ == "__main__":
         logger.error("💥 Fatal error: %s", e)
         raise
     finally:
-        # Print trace URL for debugging/sharing
         trace_url = get_trace_url()
         if trace_url:
             print(f"\n📊 View trace in Phoenix: {trace_url}")

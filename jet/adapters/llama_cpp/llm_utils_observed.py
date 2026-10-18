@@ -2,59 +2,47 @@
 High-level sync/async interface to llama.cpp-compatible servers (OpenAI API
 protocol). Provides automatic tracing, agentic tool-use loops, vision input,
 streaming, and structured output validation via OpenTelemetry and Phoenix.
-
 ## Function Selection
 | Need                               | Sync       | Async      |
 |------------------------------------|------------|------------|
 | Chat / multi-turn / tools / vision | chat()     | achat()    |
 | Raw text completion (no chat fmt)  | generate() | agenerate()|
-
 Use chat()/achat() unless you specifically need raw-prompt completion with
 no chat template. generate()/agenerate() do NOT support tools, vision, or
 structured output.
-
 ## Quick Start
-
 from jet.adapters.llama_cpp.llm_utils_observed import chat
-
 # Simple chat (traced by default)
 result = chat("Explain OpenTelemetry in one sentence.")
 print(result.content)
-
 # Agentic tool use (auto-executed)
 result = chat(
-    "What's the weather in Tokyo?",
-    tools=[{"type": "function", "function": {"name": "get_weather", ...}}],
-    tool_registry={"get_weather": get_weather_fn},
+"What's the weather in Tokyo?",
+tools=[{"type": "function", "function": {"name": "get_weather", ...}}],
+tool_registry={"get_weather": get_weather_fn},
 )
-
 # Structured output via Pydantic
 class Answer(BaseModel):
-    summary: str
-
+summary: str
 result = chat("Summarize X", response_format=Answer)
 if result.structured.success:
-    answer = result.structured.parsed
-
+answer = result.structured.parsed
 # Vision
 result = chat("Describe this image", image_source="path/or/url.jpg")
-
 ## Structured Output (response_format) — chat()/achat() ONLY
 Accepts any of these types; resolution and validation are fully automatic:
 - **Pydantic BaseModel class**: Schema extracted, injected into API request,
-  and output validated + parsed into a model instance.
+and output validated + parsed into a model instance.
 - **JSON Schema dict** (with "properties"/"$schema" or "type":"array"+"items"):
-  Wrapped as json_schema format; output validated against the schema using
-  Draft 2020-12 rules.
+Wrapped as json_schema format; output validated against the schema using
+Draft 2020-12 rules.
 - **Grammar dict** {"type": "grammar", "grammar": "<GBNF>"}: Routed to
-  extra_body for llama.cpp token-level constraints. Guarantees valid output.
-  ⚠️ Requires enable_thinking=False.
+extra_body for llama.cpp token-level constraints. Guarantees valid output.
+⚠️ Requires enable_thinking=False.
 - **Raw dict** {"type": "json_object"} or {"type": "json_schema"}: Passed
-  through unchanged to the API.
+through unchanged to the API.
 - **None** (default): Plain text, no parsing.
-
 ⚠️ generate()/agenerate() cannot use response_format at all.
-
 ### Accessing Validated Results
 After streaming completes, result.structured is a StructuredResult containing:
 - .success (bool): Whether parsing and validation succeeded.
@@ -62,21 +50,17 @@ After streaming completes, result.structured is a StructuredResult containing:
 - .error (str | None): Human-readable failure description.
 - .validation_errors (list[str]): Individual field-level validation failures.
 - .validator_backend (str | None): Which validator was used (for observability).
-
 Always check .success before reading .parsed.
-
 ## Parameters Reference
-
 ### Input
 - prompt_or_messages (str | list[dict]): Prompt string or OpenAI messages list.
-  Default: "What is OpenTelemetry in one sentence?"
+Default: "What is OpenTelemetry in one sentence?"
 - model (str): Model ID served by llama.cpp. Default: MODEL env var or
-  "qwen3.5-uncensored:2b".
+"qwen3.5-uncensored:2b".
 - image_source (str | None): Local path, URL, or bytes for vision input.
-  chat()/achat() only.
+chat()/achat() only.
 - system_message (str | None): Optional system message to guide the model.
-  Overrides any system message in prompt_or_messages if provided as a list.
-
+Overrides any system message in prompt_or_messages if provided as a list.
 ### Sampling
 - max_tokens (int, default 16384)
 - temperature (float, default 0.7; use 0.0–0.3 for reliable structured output)
@@ -90,35 +74,30 @@ Always check .success before reading .parsed.
 - seed (int | None): For reproducible generation.
 - stop (list[str] | None): Stop sequences, max 4.
 - enable_thinking (bool, default False): Request reasoning tokens.
-  MUST be False when response_format uses grammar.
-
+MUST be False when response_format uses grammar.
 ### Tools (chat()/achat() only)
 - tools (list[dict] | None): OpenAI-format function definitions.
 - tool_choice (str | dict | None): "auto" | "none" | "required" | specific fn.
 - tool_registry (dict[str, Callable] | None): Name→executor map. Providing this
-  enables an automatic agentic loop: model calls tool → executor runs → result
-  fed back → repeat until done. Omit to receive raw tool_calls for manual handling.
+enables an automatic agentic loop: model calls tool → executor runs → result
+fed back → repeat until done. Omit to receive raw tool_calls for manual handling.
 - max_tool_rounds (int, default 10): Cap on agentic loop iterations.
-  Only applies when tool_registry is set.
-
+Only applies when tool_registry is set.
 ### Structured Output (chat()/achat() only)
 - response_format (Any): See Structured Output section above.
-
 ### Observability
-- project_name (str): Phoenix project for trace grouping. Empty string disables
-  observability setup but still uses the observed engine.
-  Default: "<func>-llm-utils-obs".
+- project_name (str | None): Phoenix project for trace grouping.
+  If None, attempts to inherit from existing telemetry context.
+  Falls back to default if no context exists. Empty string disables observability.
 - phoenix_url (str): Phoenix server base URL. Default: PHOENIX_URL constant.
 - session_id (str | None): Groups related traces as one conversation thread.
 - output_dir (Path | str | None): Directory to save exported trace JSONL files.
-  If None, no export is performed.
-
+If None, no export is performed.
 ### Client / Misc
 - client (OpenAI | AsyncOpenAI | None): Pre-configured client. If None, one is
-  created via get_llm_client()/get_async_llm_client().
+created via get_llm_client()/get_async_llm_client().
 - extra_body_params (dict | None): Merged into API request extra_body for
-  llama.cpp-specific params. Grammar is auto-routed here when applicable.
-
+llama.cpp-specific params. Grammar is auto-routed here when applicable.
 ## Return Type
 All four functions return StreamCompletionResult with:
 - .content (str): Full response text.
@@ -127,16 +106,15 @@ All four functions return StreamCompletionResult with:
 - .finish_reason (str | None): API finish reason.
 - .has_tool_calls (bool): Property; True if tool_calls is non-empty.
 - .structured (StructuredResult | None): Only populated when response_format is used.
-
 ## Key Behaviors
 - Observability auto-configures whenever project_name is non-empty.
-  Setup is idempotent (safe to call multiple times across functions).
+Setup is idempotent (safe to call multiple times across functions).
 - Structured output parsing happens AFTER the stream completes. The validator
-  backend is selected once at module import and logged automatically.
+backend is selected once at module import and logged automatically.
 - Grammar mode moves the GBNF string from response_format into extra_body
-  transparently; callers always pass it via response_format regardless.
+transparently; callers always pass it via response_format regardless.
 - When tool_registry is provided, the agentic loop runs entirely inside the
-  function. Without it, tool_calls are returned for external orchestration.
+function. Without it, tool_calls are returned for external orchestration.
 """
 
 import argparse
@@ -163,12 +141,34 @@ DEFAULT_GENERATE_PROJECT_NAME = "generate-llm-utils-default"
 DEFAULT_AGENERATE_PROJECT_NAME = "agenerate-llm-utils-default"
 
 
+def _resolve_project_name(explicit_name: str | None, default_name: str) -> str | None:
+    """
+    Resolve the project name using the following priority:
+    1. Explicitly passed name (if not None)
+    2. Existing context from get_project_name()
+    3. Default name for this function type
+
+    Returns None if observability should be disabled (e.g. explicit empty string).
+    """
+    # 1. Use explicit name if provided
+    if explicit_name is not None:
+        return explicit_name if explicit_name else None
+
+    # 2. Try to get from existing telemetry context
+    context_name = get_project_name()
+    if context_name:
+        return context_name
+
+    # 3. Fall back to default
+    return default_name
+
+
 def chat(
     prompt_or_messages: str
     | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    project_name: str = DEFAULT_CHAT_PROJECT_NAME,
+    project_name: str | None = None,
     phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: OpenAI | None = None,
@@ -197,10 +197,12 @@ def chat(
     """Synchronous multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
 
-    if project_name is None:
-        project_name = DEFAULT_CHAT_PROJECT_NAME
+    # Resolve project name
+    final_project_name = _resolve_project_name(project_name, DEFAULT_CHAT_PROJECT_NAME)
 
-    initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
+    # Initialize telemetry only if we have a project name
+    if final_project_name:
+        initialize_telemetry(service_name=final_project_name, endpoint=phoenix_url)
 
     from jet.libs.llama_cpp.usage.chat_stream_observability import (
         run_chat_stream as _obs_chat,
@@ -208,10 +210,9 @@ def chat(
 
     logger.debug(
         f"💬 chat() called with type={type(prompt_or_messages).__name__}, "
-        f"project={project_name}"
+        f"project={final_project_name}"
     )
 
-    # Convert output_dir to Path if it's a string
     resolved_output_dir = (
         Path(output_dir) if isinstance(output_dir, str) else output_dir
     )
@@ -219,7 +220,7 @@ def chat(
     return _obs_chat(
         prompt_or_messages=prompt_or_messages,
         model=model,
-        project_name=project_name,
+        project_name=final_project_name,
         phoenix_url=phoenix_url,
         image_source=image_source,
         client=client,
@@ -252,7 +253,7 @@ async def achat(
     | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    project_name: str = DEFAULT_ACHAT_PROJECT_NAME,
+    project_name: str | None = None,
     phoenix_url: str = PHOENIX_URL,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
@@ -281,20 +282,22 @@ async def achat(
     """Async multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
 
-    if project_name is None:
-        project_name = DEFAULT_ACHAT_PROJECT_NAME
+    # Resolve project name
+    final_project_name = _resolve_project_name(project_name, DEFAULT_ACHAT_PROJECT_NAME)
 
-    initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
+    # Initialize telemetry only if we have a project name
+    if final_project_name:
+        initialize_telemetry(service_name=final_project_name, endpoint=phoenix_url)
+
     from jet.libs.llama_cpp.usage.chat_stream_observability import (
         run_chat_stream_async as _obs_achat,
     )
 
     logger.debug(
         f"💬 achat() called with type={type(prompt_or_messages).__name__}, "
-        f"project={project_name}"
+        f"project={final_project_name}"
     )
 
-    # Convert output_dir to Path if it's a string
     resolved_output_dir = (
         Path(output_dir) if isinstance(output_dir, str) else output_dir
     )
@@ -302,7 +305,7 @@ async def achat(
     return await _obs_achat(
         prompt_or_messages=prompt_or_messages,
         model=model,
-        project_name=project_name,
+        project_name=final_project_name,
         phoenix_url=phoenix_url,
         image_source=image_source,
         client=client,
@@ -334,7 +337,7 @@ def generate(
     prompt: str,
     model: str = MODEL,
     *,
-    project_name: str = DEFAULT_GENERATE_PROJECT_NAME,
+    project_name: str | None = None,
     phoenix_url: str = PHOENIX_URL,
     client: OpenAI | None = None,
     max_tokens: int = 16384,
@@ -355,19 +358,23 @@ def generate(
     """Synchronous raw text generation alternative to chat()."""
     from jet.logger import logger
 
-    if project_name is None:
-        project_name = DEFAULT_GENERATE_PROJECT_NAME
+    # Resolve project name
+    final_project_name = _resolve_project_name(
+        project_name, DEFAULT_GENERATE_PROJECT_NAME
+    )
 
-    initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
+    # Initialize telemetry only if we have a project name
+    if final_project_name:
+        initialize_telemetry(service_name=final_project_name, endpoint=phoenix_url)
+
     from jet.libs.llama_cpp.usage.chat_stream_observability import (
         run_generate_stream as _obs_generate,
     )
 
     logger.debug(
-        f"✏️ generate() called with prompt length={len(prompt)}, project={project_name}"
+        f"✏️ generate() called with prompt length={len(prompt)}, project={final_project_name}"
     )
 
-    # Convert output_dir to Path if it's a string
     resolved_output_dir = (
         Path(output_dir) if isinstance(output_dir, str) else output_dir
     )
@@ -375,7 +382,7 @@ def generate(
     return _obs_generate(
         prompt=prompt,
         model=model,
-        project_name=project_name,
+        project_name=final_project_name,
         phoenix_url=phoenix_url,
         client=client,
         max_tokens=max_tokens,
@@ -399,7 +406,7 @@ async def agenerate(
     prompt: str,
     model: str = MODEL,
     *,
-    project_name: str = DEFAULT_AGENERATE_PROJECT_NAME,
+    project_name: str | None = None,
     phoenix_url: str = PHOENIX_URL,
     client: AsyncOpenAI | None = None,
     max_tokens: int = 16384,
@@ -420,19 +427,23 @@ async def agenerate(
     """Asynchronous raw text generation alternative to achat()."""
     from jet.logger import logger
 
-    if project_name is None:
-        project_name = DEFAULT_AGENERATE_PROJECT_NAME
+    # Resolve project name
+    final_project_name = _resolve_project_name(
+        project_name, DEFAULT_AGENERATE_PROJECT_NAME
+    )
 
-    initialize_telemetry(service_name=project_name, endpoint=PHOENIX_URL)
+    # Initialize telemetry only if we have a project name
+    if final_project_name:
+        initialize_telemetry(service_name=final_project_name, endpoint=phoenix_url)
+
     from jet.libs.llama_cpp.usage.chat_stream_observability import (
         run_generate_stream_async as _obs_agenerate,
     )
 
     logger.debug(
-        f"✏️ agenerate() called with prompt length={len(prompt)}, project={project_name}"
+        f"✏️ agenerate() called with prompt length={len(prompt)}, project={final_project_name}"
     )
 
-    # Convert output_dir to Path if it's a string
     resolved_output_dir = (
         Path(output_dir) if isinstance(output_dir, str) else output_dir
     )
@@ -440,7 +451,7 @@ async def agenerate(
     return await _obs_agenerate(
         prompt=prompt,
         model=model,
-        project_name=project_name,
+        project_name=final_project_name,
         phoenix_url=phoenix_url,
         client=client,
         max_tokens=max_tokens,
@@ -463,11 +474,9 @@ async def agenerate(
 def get_args() -> argparse.Namespace:
     import shutil
 
-    # Setup default output directory
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     parser = argparse.ArgumentParser(
         description="Stream vision-model chat completions with Phoenix observability."
     )
@@ -494,8 +503,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--project",
         type=str,
-        default="achat-llm-utils-default",
-        help="Phoenix project name to log traces under.",
+        default=None,
+        help="Phoenix project name to log traces under. Defaults to existing context or 'achat-llm-utils-default'.",
     )
     parser.add_argument(
         "--seed",
@@ -518,7 +527,6 @@ if __name__ == "__main__":
     from jet.logger import logger
 
     args = get_args()
-
     result = asyncio.run(
         achat(
             args.prompt,
@@ -529,15 +537,12 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
         )
     )
-
     display_all_resources()
-
     logger.info(f"get_project_name():", get_project_name())
     logger.info(f"get_service_name():", get_service_name())
     logger.info(f"get_trace_id():", get_trace_id())
     logger.info(f"get_trace_url():", get_trace_url())
     logger.info(f"get_spans_api_url():", get_spans_api_url())
-
     logger.info(
         f"📋 Result: {len(result.content)} chars, finish_reason={result.finish_reason}"
     )
