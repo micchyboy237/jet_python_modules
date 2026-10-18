@@ -18,6 +18,7 @@ Features:
     - Rich console output with color-coded messages
     - OpenTelemetry tracing via jet-telemetry for observability
     - Comprehensive span coverage for all agent operations
+    - Proper nested hierarchy for agent steps, LLM calls, and tool executions
 
 Usage Examples:
     # Basic usage with default settings
@@ -76,7 +77,9 @@ except ImportError:
 
 # Initialize telemetry early
 from jet_telemetry import get_trace_url, initialize_telemetry
+from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 from opentelemetry import trace as otel_trace
+from opentelemetry.trace import SpanKind
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("web_surfer_agent")
@@ -261,21 +264,77 @@ def is_tool_error(result, text: str) -> bool:
     return bool(flag) or text.lstrip().startswith("### Error")
 
 
-from jet_telemetry import performance_monitor, tool
+from jet_telemetry import llm, tool
+
+
+@llm(model_name="llama-cpp", provider="llama_cpp")
+async def call_llama(messages, args=None):
+    """
+    Send messages to local llama.cpp server and get response.
+    Captures input messages and explicitly sets output messages for observability.
+    """
+    llama_api_url = args.llama_api_url if args else LLAMA_API_URL
+    llama_model = args.llama_model if args else LLM_MODEL
+    temperature = args.temperature if args else 0.2
+    max_tokens = args.max_tokens if args else 500
+    top_p = args.top_p if args else 0.95
+    presence_penalty = args.presence_penalty if args else 1.5
+    enable_thinking = args.enable_thinking if args else True
+
+    payload = {
+        "model": llama_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "top_p": top_p,
+        "presence_penalty": presence_penalty,
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": enable_thinking,
+            },
+        },
+    }
+
+    logger.info("Calling llama.cpp (%d messages)", len(messages))
+
+    span = otel_trace.get_current_span()
+    if span.is_recording():
+        span.set_attribute("llm.request.model", llama_model)
+        span.set_attribute("llm.request.message_count", len(messages))
+
+    try:
+        response = requests.post(llama_api_url, json=payload)
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+
+        # Explicitly capture LLM output for audit trail
+        if span.is_recording():
+            span.set_attribute(
+                SpanAttributes.LLM_OUTPUT_MESSAGES,
+                json.dumps([{"role": "assistant", "content": content}]),
+            )
+            span.set_attribute("llm.response.success", True)
+            span.set_attribute("llm.response.length_chars", len(content))
+
+        return content
+    except Exception as e:
+        if span.is_recording():
+            span.set_attribute("llm.response.success", False)
+            span.set_attribute("llm.response.error", str(e)[:500])
+        logger.error("❌ Error calling llama.cpp: %s", e)
+        return None
 
 
 @tool(name="mcp_browser_tool", description="Execute MCP browser tool action")
-@performance_monitor(threshold_ms=5000)
 async def execute_tool(session, tools_by_name, name, args):
     """
     Run one MCP browser tool with proper telemetry.
-    Returns (ok, text). Never raises for tool-level errors.
+    Captures tool arguments and explicitly sets tool output for observability.
     """
     tool_obj = tools_by_name.get(name)
     if tool_obj is None:
         return False, f"Unknown tool '{name}'. Use one of: {sorted(tools_by_name)}"
 
-    # Add tool-specific attributes to current span
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute("mcp.tool.name", name)
@@ -295,169 +354,21 @@ async def execute_tool(session, tools_by_name, name, args):
         result = await session.call_tool(name, arguments=args)
         text = result.content[0].text if result.content else ""
 
+        # Explicitly capture tool output for audit trail
         if span.is_recording():
-            span.set_attribute("mcp.tool.success", not is_tool_error(result, text))
+            span.set_attribute("tool.output", text[:2000])  # Truncate for span size
+            span.set_attribute("tool.success", not is_tool_error(result, text))
             if is_tool_error(result, text):
-                span.set_attribute("mcp.tool.error_message", text[:500])
+                span.set_attribute("tool.error_message", text[:500])
 
         if is_tool_error(result, text):
             return False, text
         return True, text
     except Exception as e:
         if span.is_recording():
-            span.set_attribute("mcp.tool.success", False)
-            span.set_attribute("mcp.tool.error_message", str(e)[:500])
+            span.set_attribute("tool.success", False)
+            span.set_attribute("tool.error_message", str(e)[:500])
         raise
-
-
-@tool(
-    name="mcp_session_initialize",
-    description="Initialize MCP session and list available tools",
-)
-async def initialize_mcp_session(session):
-    """Initialize MCP session and retrieve available tools with telemetry."""
-    span = otel_trace.get_current_span()
-    if span.is_recording():
-        span.set_attribute("mcp.session.initialized", True)
-
-    await session.initialize()
-    tools = (await session.list_tools()).tools
-    tools_by_name = {t.name: t for t in tools if t.name in ALLOWED_TOOLS}
-
-    if span.is_recording():
-        span.set_attribute("mcp.tools.available_count", len(tools_by_name))
-        span.set_attribute("mcp.tools.names", json.dumps(sorted(tools_by_name.keys())))
-
-    return tools_by_name
-
-
-@tool(name="mcp_browser_navigate", description="Navigate browser to specified URL")
-async def navigate_to_url(session, url: str):
-    """Navigate to URL with telemetry tracking."""
-    span = otel_trace.get_current_span()
-    if span.is_recording():
-        span.set_attribute("browser.url", url)
-        span.set_attribute("browser.navigation.type", "navigate")
-
-    await session.call_tool("browser_navigate", arguments={"url": url})
-
-    if span.is_recording():
-        span.set_attribute("browser.navigation.success", True)
-
-
-@tool(
-    name="mcp_browser_snapshot",
-    description="Capture accessibility snapshot of current page",
-)
-async def capture_snapshot(session):
-    """Capture page snapshot with telemetry."""
-    result = await session.call_tool("browser_snapshot", arguments={})
-    snapshot_text = result.content[0].text if result.content else ""
-
-    span = otel_trace.get_current_span()
-    if span.is_recording():
-        # Extract URL and title from snapshot if present
-        if "Page URL:" in snapshot_text:
-            try:
-                url_line = [
-                    line for line in snapshot_text.split("\n") if "Page URL:" in line
-                ][0]
-                url = url_line.split("Page URL:")[1].strip()
-                span.set_attribute("browser.snapshot.url", url)
-            except (IndexError, ValueError):
-                pass
-
-        if "Page Title:" in snapshot_text:
-            try:
-                title_line = [
-                    line for line in snapshot_text.split("\n") if "Page Title:" in line
-                ][0]
-                title = title_line.split("Page Title:")[1].strip()
-                span.set_attribute("browser.snapshot.title", title)
-            except (IndexError, ValueError):
-                pass
-
-        # Count elements in snapshot
-        element_count = snapshot_text.count("[ref=")
-        span.set_attribute("browser.snapshot.element_count", element_count)
-
-    return snapshot_text
-
-
-from jet_telemetry import llm
-
-
-def _redact_snapshot_for_llm(snapshot: str, max_length: int = 2000) -> str:
-    """Redact and truncate snapshot content for LLM messages to prevent large spans."""
-    if len(snapshot) > max_length:
-        return f"[SNAPSHOT TRUNCATED: {len(snapshot)} chars, showing first {max_length}]\n{snapshot[:max_length]}..."
-    return snapshot
-
-
-@llm(model_name="llama-cpp", provider="llama_cpp")
-@performance_monitor(threshold_ms=10000)
-async def call_llama(messages, args=None):
-    """
-    Send messages to local llama.cpp server and get response.
-    Automatically redacts large snapshots from input messages.
-    """
-    llama_api_url = args.llama_api_url if args else LLAMA_API_URL
-    llama_model = args.llama_model if args else LLM_MODEL
-    temperature = args.temperature if args else 0.2
-    max_tokens = args.max_tokens if args else 500
-    top_p = args.top_p if args else 0.95
-    presence_penalty = args.presence_penalty if args else 1.5
-    enable_thinking = args.enable_thinking if args else True
-
-    # Create redacted copy of messages for telemetry
-    redacted_messages = []
-    for msg in messages:
-        redacted_msg = dict(msg)
-        content = msg.get("content", "")
-        if isinstance(content, str) and len(content) > 5000:
-            # Truncate very long messages (likely containing snapshots)
-            redacted_msg["content"] = _redact_snapshot_for_llm(content)
-        redacted_messages.append(redacted_msg)
-
-    payload = {
-        "model": llama_model,
-        "messages": redacted_messages,  # Use redacted version for telemetry
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "top_p": top_p,
-        "presence_penalty": presence_penalty,
-        "extra_body": {
-            "chat_template_kwargs": {
-                "enable_thinking": enable_thinking,
-            },
-        },
-    }
-
-    logger.info("Calling llama.cpp (%d messages)", len(messages))
-
-    span = otel_trace.get_current_span()
-    if span.is_recording():
-        span.set_attribute("llm.request.message_count", len(messages))
-        span.set_attribute("llm.request.model", llama_model)
-        span.set_attribute("llm.request.temperature", temperature)
-        span.set_attribute("llm.request.max_tokens", max_tokens)
-
-    try:
-        response = requests.post(llama_api_url, json=payload)
-        response.raise_for_status()
-        result = response.json()["choices"][0]["message"]["content"]
-
-        if span.is_recording():
-            span.set_attribute("llm.response.success", True)
-            span.set_attribute("llm.response.length_chars", len(result))
-
-        return result
-    except Exception as e:
-        if span.is_recording():
-            span.set_attribute("llm.response.success", False)
-            span.set_attribute("llm.response.error", str(e)[:500])
-        logger.error("❌ Error calling llama.cpp: %s", e)
-        return None
 
 
 from jet_telemetry import agent, chain
@@ -475,7 +386,6 @@ async def run_agent(goal: str, args=None):
     span = otel_trace.get_current_span()
     if span.is_recording():
         span.set_attribute("agent.goal", goal)
-        span.set_attribute("agent.start_time", str(asyncio.get_event_loop().time()))
 
     mcp_server_url = args.mcp_server_url if args else MCP_SERVER_URL
     logger.info("Connecting via Streamable HTTP to: %s", mcp_server_url)
@@ -490,22 +400,31 @@ async def run_agent(goal: str, args=None):
             span.set_attribute("agent.error", str(e)[:500])
         logger.error("💥 Agent error: %s", e)
         raise
-    finally:
-        if span.is_recording():
-            span.set_attribute("agent.end_time", str(asyncio.get_event_loop().time()))
 
 
 @chain(name="web-surfer-session")
 async def _run_session(read_stream, write_stream, goal: str, args=None):
     """
     Execute the web surfer session with full telemetry coverage.
-    Handles initialization, navigation, and the main reasoning loop.
+    Handles initialization, navigation, and the main reasoning loop with proper nesting.
     """
+    tracer = otel_trace.get_tracer(__name__)
+
     async with ClientSession(read_stream, write_stream) as session:
-        # Initialize session with telemetry
-        logger.info("Initializing MCP session...")
-        tools_by_name = await initialize_mcp_session(session)
+        # Initialize session
+        await session.initialize()
+        tools = (await session.list_tools()).tools
+        tools_by_name = {t.name: t for t in tools if t.name in ALLOWED_TOOLS}
+
         logger.info("✅ Session initialized with %d tools", len(tools_by_name))
+
+        # Capture tool registry in span
+        session_span = otel_trace.get_current_span()
+        if session_span.is_recording():
+            session_span.set_attribute(
+                "agent.registered_tools", json.dumps(sorted(tools_by_name.keys()))
+            )
+            session_span.set_attribute("agent.tools_count", len(tools_by_name))
 
         system_prompt = SYSTEM_PROMPT.replace(
             "{tool_docs}", build_tool_docs(tools_by_name.values())
@@ -515,12 +434,41 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
         max_steps = args.max_steps if args else MAX_STEPS
         max_repeats = args.max_repeats if args else MAX_REPEATS
 
-        # Navigate to start URL with telemetry
+        # Initial Navigation
         logger.info("🌐 Navigating to %s", start_url)
-        await navigate_to_url(session, start_url)
+        await session.call_tool("browser_navigate", arguments={"url": start_url})
 
         # Capture initial snapshot
-        current_snapshot = await capture_snapshot(session)
+        result = await session.call_tool("browser_snapshot", arguments={})
+        current_snapshot = result.content[0].text
+
+        # Extract URL and title from initial snapshot for context
+        if session_span.is_recording():
+            if "Page URL:" in current_snapshot:
+                try:
+                    url_line = [
+                        line
+                        for line in current_snapshot.split("\n")
+                        if "Page URL:" in line
+                    ][0]
+                    session_span.set_attribute(
+                        "browser.initial_url", url_line.split("Page URL:")[1].strip()
+                    )
+                except (IndexError, ValueError):
+                    pass
+            if "Page Title:" in current_snapshot:
+                try:
+                    title_line = [
+                        line
+                        for line in current_snapshot.split("\n")
+                        if "Page Title:" in line
+                    ][0]
+                    session_span.set_attribute(
+                        "browser.initial_title",
+                        title_line.split("Page Title:")[1].strip(),
+                    )
+                except (IndexError, ValueError):
+                    pass
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -537,134 +485,157 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
 
         for step in range(1, max_steps + 1):
             step_count = step
-            logger.info("🧠 Step %d/%d: thinking...", step, max_steps)
 
-            llm_response = await call_llama(messages, args)
-            if not llm_response:
-                logger.error("No response from LLM, stopping")
-                break
-
-            logger.info("🤖 LLM Response: %s", llm_response)
-
-            try:
-                clean_json = (
-                    llm_response.replace("```json", "").replace("```", "").strip()
+            # Create a nested span for each reasoning step to ensure proper hierarchy
+            # FIX: Use SpanKind.INTERNAL for the protocol, but set OpenInference kind as attribute
+            with tracer.start_as_current_span(
+                f"agent_step_{step}", kind=SpanKind.INTERNAL
+            ) as step_span:
+                # Set the semantic kind for Phoenix/OpenInference
+                step_span.set_attribute(
+                    SpanAttributes.OPENINFERENCE_SPAN_KIND,
+                    OpenInferenceSpanKindValues.AGENT.value,
                 )
-                decision = json.loads(clean_json)
-            except json.JSONDecodeError:
-                logger.warning("⚠️ Failed to parse JSON from LLM. Retrying...")
-                messages.append({"role": "assistant", "content": llm_response})
-                messages.append(
-                    {"role": "user", "content": "Please respond with valid JSON."}
-                )
-                continue
+                step_span.set_attribute("agent.step.number", step)
 
-            action = decision.get("action")
-            args_dict = decision.get("args", {})
-            logger.info("💡 Thought: %s", decision.get("thought"))
+                logger.info("🧠 Step %d/%d: thinking...", step, max_steps)
 
-            if action == "finish":
-                logger.info("🏁 Task Complete: %s", args_dict.get("answer"))
-
-                # Set completion attributes on chain span
-                chain_span = otel_trace.get_current_span()
-                if chain_span.is_recording():
-                    chain_span.set_attribute(
-                        "agent.completion.answer", args_dict.get("answer", "")
-                    )
-                    chain_span.set_attribute("agent.completion.success", True)
-                    chain_span.set_attribute("agent.steps_taken", step_count)
-                    chain_span.set_attribute("agent.actions_successful", success_count)
-                    chain_span.set_attribute("agent.actions_failed", failure_count)
-
-                break
-
-            call_key = (action, json.dumps(args_dict, sort_keys=True))
-            repeats = repeats + 1 if call_key == last_call else 1
-            last_call = call_key
-
-            if repeats >= max_repeats:
-                logger.error(
-                    "🔁 Same action repeated %d times, stopping: %s", repeats, call_key
-                )
-
-                # Set failure attributes
-                chain_span = otel_trace.get_current_span()
-                if chain_span.is_recording():
-                    chain_span.set_attribute("agent.completion.success", False)
-                    chain_span.set_attribute(
-                        "agent.failure.reason", "max_repeats_exceeded"
-                    )
-                    chain_span.set_attribute("agent.steps_taken", step_count)
-
-                break
-
-            logger.info("🛠️ Executing: %s with %s", action, args_dict)
-
-            try:
-                ok, text = await execute_tool(session, tools_by_name, action, args_dict)
-
-                if ok and action != "browser_snapshot":
-                    snap = await capture_snapshot(session)
-                    text = snap
-
-                if ok:
-                    success_count += 1
-                    logger.info("✅ Action OK")
-                    current_snapshot = text
-                    feedback = f"Action Result (OK):\n{text}"
-                else:
-                    failure_count += 1
-                    logger.warning("❌ Action FAILED: %s", text)
-                    feedback = (
-                        f"Action FAILED: {text}\n"
-                        f"Fix the arguments and try again.\n\nPage is unchanged:\n{current_snapshot}"
-                    )
-
-            except Exception as e:
-                failure_count += 1
-                if "Session terminated" in str(e):
-                    logger.error(
-                        "💥 MCP session is gone (server restarted/crashed?). Stopping."
-                    )
-
-                    chain_span = otel_trace.get_current_span()
-                    if chain_span.is_recording():
-                        chain_span.set_attribute("agent.completion.success", False)
-                        chain_span.set_attribute(
-                            "agent.failure.reason", "session_terminated"
-                        )
-
+                llm_response = await call_llama(messages, args)
+                if not llm_response:
+                    logger.error("No response from LLM, stopping")
+                    step_span.set_attribute("agent.step.outcome", "llm_error")
                     break
 
-                logger.error("⚠️ Tool execution error: %s", e)
-                ok, text = False, str(e)
-                feedback = (
-                    f"Action FAILED: {text}\n\nPage is unchanged:\n{current_snapshot}"
-                )
+                logger.info("🤖 LLM Response: %s", llm_response)
 
-            messages.append({"role": "assistant", "content": llm_response})
-            messages.append({"role": "user", "content": feedback})
+                try:
+                    clean_json = (
+                        llm_response.replace("```json", "").replace("```", "").strip()
+                    )
+                    decision = json.loads(clean_json)
+                except json.JSONDecodeError:
+                    logger.warning("⚠️ Failed to parse JSON from LLM. Retrying...")
+                    messages.append({"role": "assistant", "content": llm_response})
+                    messages.append(
+                        {"role": "user", "content": "Please respond with valid JSON."}
+                    )
+                    step_span.set_attribute("agent.step.outcome", "parse_error")
+                    continue
+
+                action = decision.get("action")
+                args_dict = decision.get("args", {})
+                logger.info("💡 Thought: %s", decision.get("thought"))
+
+                if action == "finish":
+                    step_span.set_attribute("agent.step.outcome", "completed")
+                    step_span.set_attribute(
+                        "agent.step.answer", args_dict.get("answer", "")
+                    )
+                    logger.info("🏁 Task Complete: %s", args_dict.get("answer"))
+
+                    # Update session-level completion stats
+                    if session_span.is_recording():
+                        session_span.set_attribute("agent.completion.success", True)
+                        session_span.set_attribute(
+                            "agent.completion.answer", args_dict.get("answer", "")
+                        )
+                        session_span.set_attribute("agent.steps_taken", step_count)
+                        session_span.set_attribute(
+                            "agent.actions_successful", success_count
+                        )
+                        session_span.set_attribute(
+                            "agent.actions_failed", failure_count
+                        )
+                    break
+
+                call_key = (action, json.dumps(args_dict, sort_keys=True))
+                repeats = repeats + 1 if call_key == last_call else 1
+                last_call = call_key
+
+                if repeats >= max_repeats:
+                    logger.error(
+                        "🔁 Same action repeated %d times, stopping: %s",
+                        repeats,
+                        call_key,
+                    )
+                    step_span.set_attribute(
+                        "agent.step.outcome", "max_repeats_exceeded"
+                    )
+
+                    if session_span.is_recording():
+                        session_span.set_attribute("agent.completion.success", False)
+                        session_span.set_attribute(
+                            "agent.failure.reason", "max_repeats_exceeded"
+                        )
+                        session_span.set_attribute("agent.steps_taken", step_count)
+                    break
+
+                logger.info("🛠️ Executing: %s with %s", action, args_dict)
+
+                try:
+                    ok, text = await execute_tool(
+                        session, tools_by_name, action, args_dict
+                    )
+
+                    if ok and action != "browser_snapshot":
+                        snap = await session.call_tool("browser_snapshot", arguments={})
+                        text = snap.content[0].text
+
+                    if ok:
+                        success_count += 1
+                        step_span.set_attribute("agent.step.outcome", "success")
+                        logger.info("✅ Action OK")
+                        current_snapshot = text
+                        feedback = f"Action Result (OK):\n{text}"
+                    else:
+                        failure_count += 1
+                        step_span.set_attribute("agent.step.outcome", "failed")
+                        logger.warning("❌ Action FAILED: %s", text)
+                        feedback = (
+                            f"Action FAILED: {text}\n"
+                            f"Fix the arguments and try again.\n\nPage is unchanged:\n{current_snapshot}"
+                        )
+
+                except Exception as e:
+                    failure_count += 1
+                    step_span.set_attribute("agent.step.outcome", "exception")
+                    step_span.set_attribute("agent.step.error", str(e)[:500])
+
+                    if "Session terminated" in str(e):
+                        logger.error(
+                            "💥 MCP session is gone (server restarted/crashed?). Stopping."
+                        )
+                        if session_span.is_recording():
+                            session_span.set_attribute(
+                                "agent.completion.success", False
+                            )
+                            session_span.set_attribute(
+                                "agent.failure.reason", "session_terminated"
+                            )
+                        break
+
+                    logger.error("⚠️ Tool execution error: %s", e)
+                    ok, text = False, str(e)
+                    feedback = f"Action FAILED: {text}\n\nPage is unchanged:\n{current_snapshot}"
+
+                messages.append({"role": "assistant", "content": llm_response})
+                messages.append({"role": "user", "content": feedback})
 
         else:
             logger.warning("⏹️ Reached MAX_STEPS (%d) without finishing", max_steps)
-
-            # Set max steps reached attributes
-            chain_span = otel_trace.get_current_span()
-            if chain_span.is_recording():
-                chain_span.set_attribute("agent.completion.success", False)
-                chain_span.set_attribute("agent.failure.reason", "max_steps_exceeded")
-                chain_span.set_attribute("agent.steps_taken", step_count)
-                chain_span.set_attribute("agent.actions_successful", success_count)
-                chain_span.set_attribute("agent.actions_failed", failure_count)
+            if session_span.is_recording():
+                session_span.set_attribute("agent.completion.success", False)
+                session_span.set_attribute("agent.failure.reason", "max_steps_exceeded")
+                session_span.set_attribute("agent.steps_taken", step_count)
+                session_span.set_attribute("agent.actions_successful", success_count)
+                session_span.set_attribute("agent.actions_failed", failure_count)
 
         # Handle graceful shutdown to prevent ClosedResourceError
         logger.info("🔒 Closing MCP session gracefully...")
         try:
-            # Give streams time to flush any pending messages
             await asyncio.sleep(0.5)
         except Exception:
-            pass  # Ignore any errors during cleanup
+            pass
 
 
 if __name__ == "__main__":
