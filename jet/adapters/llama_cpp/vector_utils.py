@@ -4,7 +4,6 @@ from typing import TypedDict
 import numpy as np
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
-from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
 
 
 class VectorSearchResult(TypedDict):
@@ -14,6 +13,25 @@ class VectorSearchResult(TypedDict):
     index: int
     score: float
     text: str
+
+
+def cosine_similarity(query_emb: np.ndarray, doc_embs: np.ndarray) -> np.ndarray:
+    """Compute cosine similarity between query embedding and document embeddings.
+
+    Args:
+        query_emb: Query embedding vector (1D array).
+        doc_embs: Document embeddings (2D array, shape: [n_docs, emb_dim]).
+
+    Returns:
+        Array of cosine similarity scores (shape: [n_docs]).
+    """
+    # Normalize embeddings to unit length
+    query_norm = query_emb / (np.linalg.norm(query_emb) + 1e-8)
+    doc_norms = doc_embs / (np.linalg.norm(doc_embs, axis=1, keepdims=True) + 1e-8)
+
+    # Cosine similarity is the dot product of normalized vectors
+    similarities = np.dot(doc_norms, query_norm)
+    return similarities
 
 
 def vector_search(
@@ -44,7 +62,6 @@ def vector_search(
     if not documents:
         return [] if not return_embeddings else ([], np.array([]), np.array([]))
 
-    # Resolve prefixes: explicit arg > env var > None
     resolved_query_prefix = (
         query_prefix
         if query_prefix is not None
@@ -59,22 +76,30 @@ def vector_search(
     query_embedding = embed(query, prefix=resolved_query_prefix, model=embed_model)
     doc_embeddings = embed(documents, prefix=resolved_doc_prefix, model=embed_model)
 
-    similarities = [
-        cosine_similarity(query_embedding, doc_emb) for doc_emb in doc_embeddings
-    ]
+    # Ensure embeddings are numpy arrays
+    if isinstance(query_embedding, list):
+        query_embedding = np.array(query_embedding, dtype=np.float32)
+    if isinstance(doc_embeddings, list):
+        doc_embeddings = np.array(doc_embeddings, dtype=np.float32)
 
-    # Pair (index, score, text) and sort descending by score
-    scored = list(enumerate(zip(similarities, documents)))
-    scored.sort(key=lambda x: x[1][0], reverse=True)
+    # Handle single document case
+    if doc_embeddings.ndim == 1:
+        doc_embeddings = doc_embeddings.reshape(1, -1)
+
+    similarities = cosine_similarity(query_embedding, doc_embeddings)
+
+    # Create scored list with original indices
+    scored = [(idx, float(score)) for idx, score in enumerate(similarities)]
+    scored.sort(key=lambda x: x[1], reverse=True)
 
     results: list[VectorSearchResult] = []
-    for rank, (idx, (score, text)) in enumerate(scored, start=1):
+    for rank, (idx, score) in enumerate(scored, start=1):
         results.append(
             {
                 "rank": rank,
                 "index": idx,
-                "score": float(score),
-                "text": text,
+                "score": score,
+                "text": documents[idx],
             }
         )
         if top_n is not None and len(results) >= top_n:
@@ -86,8 +111,6 @@ def vector_search(
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     query = "What is a giant panda?"
     docs = [
         "The giant panda is a bear species endemic to China.",
@@ -100,12 +123,10 @@ if __name__ == "__main__":
     print("Vector Search Results:")
     print("=" * 60)
     results, query_emb, doc_embs = vector_search(query, docs, return_embeddings=True)
-
     print(f"Shape of query_embedding: {np.shape(query_emb)}")
     print(f"Size of query_embedding: {np.size(query_emb)}")
     print(f"Shape of doc_embeddings: {np.shape(doc_embs)}")
     print(f"Size of doc_embeddings: {np.size(doc_embs)}")
-
     print(f"\nQuery: {query}\n")
     print("Documents ranked by similarity:")
     for r in results:

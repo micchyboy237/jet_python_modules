@@ -11,6 +11,7 @@ except ImportError:
         streamablehttp_client as streamable_http_client,
     )
 from jet.adapters.llama_cpp.llm_utils_observed import achat
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet_telemetry import agent, chain
 from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 from opentelemetry import trace as otel_trace
@@ -205,6 +206,48 @@ async def _initialize_session(session, goal: str, args=None):
     )
 
 
+def _trim_messages(messages: list, max_tokens: int, model: str) -> list:
+    """
+    Trim message history to fit within max_tokens.
+    Always keeps the system prompt (index 0) and the most recent messages.
+    """
+    if len(messages) <= 1:
+        return messages
+
+    system_msg = messages[0]
+    conversation_history = messages[1:]
+
+    # Count tokens for system message once
+    system_tokens = count_tokens(
+        content=system_msg["content"], model=model, use_server=False
+    )
+
+    remaining_budget = max_tokens - system_tokens - 500  # Reserve buffer for response
+
+    if remaining_budget <= 0:
+        logger.warning(
+            "System prompt alone exceeds token budget. Truncating system prompt."
+        )
+        return [system_msg]
+
+    trimmed_history = []
+    current_tokens = 0
+
+    # Iterate backwards to keep most recent messages
+    for msg in reversed(conversation_history):
+        msg_tokens = count_tokens(content=msg["content"], model=model, use_server=False)
+
+        if current_tokens + msg_tokens <= remaining_budget:
+            trimmed_history.append(msg)
+            current_tokens += msg_tokens
+        else:
+            break
+
+    # Reverse back to chronological order and prepend system message
+    trimmed_history.reverse()
+    return [system_msg] + trimmed_history
+
+
 async def _execute_step(
     step: int,
     max_steps: int,
@@ -219,25 +262,12 @@ async def _execute_step(
     tracer,
 ):
     """
-    Execute a single step of the agent loop:
-    1. Call LLM
-    2. Parse decision
-    3. Execute tool
-    4. Update state
-
-    Returns:
-        dict: Updated state containing 'messages', 'current_snapshot', 'last_call', 'repeats',
-              'success_count', 'failure_count', 'should_break', 'break_reason'
+    Execute a single step of the agent loop.
+    Includes token management to prevent context overflow.
     """
     step_count = step
-    success_count = 0  # These need to be passed in/out or managed externally if we want strict purity,
-    # but for this refactor, we'll return updates.
+    success_count = 0
     failure_count = 0
-
-    # Note: success/failure counts are accumulated in the main loop in the original code.
-    # To keep _execute_step pure regarding side effects on counters, we return flags.
-    # However, to match the original logic exactly, we need to track these.
-    # Let's return the outcome details.
 
     with tracer.start_as_current_span(
         f"agent_step_{step}", kind=SpanKind.INTERNAL
@@ -248,8 +278,26 @@ async def _execute_step(
         )
         step_span.set_attribute("agent.step.number", step)
 
+        # --- Token Management Start ---
+        llama_model = args.llama_model if args else DEFAULT_LLM_MODEL
+        max_tokens_limit = args.max_tokens if args else DEFAULT_MAX_TOKENS
+
+        original_len = len(messages)
+        managed_messages = _trim_messages(messages, max_tokens_limit, llama_model)
+
+        if len(managed_messages) < original_len:
+            dropped = original_len - len(managed_messages)
+            logger.warning(
+                "📉 Context trimmed: Dropped %d old messages to fit token limit.",
+                dropped,
+            )
+            step_span.set_attribute("agent.context_trimmed", True)
+            step_span.set_attribute("agent.messages_dropped", dropped)
+        # --- Token Management End ---
+
         logger.info("🧠 Step %d/%d: Thinking...", step, max_steps)
-        llm_response = await call_llama(messages, args)
+        # Use managed_messages instead of raw messages
+        llm_response = await call_llama(managed_messages, args)
 
         if not llm_response:
             logger.error("No response from LLM, stopping")
@@ -257,7 +305,7 @@ async def _execute_step(
             return {
                 "should_break": True,
                 "break_reason": "llm_error",
-                "messages": messages,
+                "messages": messages,  # Return original to avoid losing state if needed
                 "current_snapshot": current_snapshot,
                 "last_call": last_call,
                 "repeats": repeats,
@@ -271,6 +319,7 @@ async def _execute_step(
             decision = json.loads(llm_response)
         except json.JSONDecodeError:
             logger.warning("⚠️ Failed to parse JSON from LLM. Retrying...")
+            # Append to original messages list so the error feedback is part of the history
             messages.append({"role": "assistant", "content": llm_response})
             messages.append(
                 {"role": "user", "content": "Please respond with valid JSON."}
@@ -378,6 +427,7 @@ async def _execute_step(
             success_delta = 0
             failure_delta = 1
 
+        # Append to the original messages list to maintain full history for next trim
         messages.append({"role": "assistant", "content": llm_response})
         messages.append({"role": "user", "content": feedback})
 
