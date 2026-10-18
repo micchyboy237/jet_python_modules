@@ -58,7 +58,6 @@ print("Prompt:", messages[0]["content"])
 stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
     model=os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed"),
     messages=messages,
-    temperature=0.0,
     tools=tools,
     stream_options={"include_usage": True},
     extra_body={
@@ -67,6 +66,10 @@ stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
         },
     },
     stream=True,
+    max_tokens=1024,
+    temperature=0.3,
+    top_p=0.95,
+    presence_penalty=1.5,
 )
 
 tool_calls: list[dict] = []

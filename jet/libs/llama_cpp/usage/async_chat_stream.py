@@ -1,10 +1,10 @@
 import asyncio
-import os
 
+from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL
 from openai import AsyncOpenAI
 
 client = AsyncOpenAI(
-    base_url=os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:1234/v1"),
+    base_url=LLM_BASE_URL,
     api_key="sk-1234",
 )
 
@@ -17,7 +17,7 @@ async def main():
         },
     ]
     stream = await client.chat.completions.create(
-        model="qwen3-instruct-2507:4b",
+        model=LLM_MODEL,
         messages=messages,
         max_tokens=1024,
         temperature=0.7,
