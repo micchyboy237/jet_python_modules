@@ -1,101 +1,77 @@
-Here is a comprehensive guide on the philosophy and usage of `jet-telemetry`.
+# Jet Telemetry: Complete Usage Guide & Philosophy
+
+## 1. Core Philosophy: "Structure is Semantics"
+
+`jet-telemetry` is designed to make observability **invisible** while ensuring **semantic richness**. It bridges the gap between raw OpenTelemetry and the specific needs of AI applications by enforcing a strict hierarchy that mirrors cognitive flow.
+
+### The Golden Rules
+
+1.  **Decorator-First:** Use decorators to wrap logic. This keeps business code clean and ensures consistent attribute capture.
+2.  **Hierarchy Matters:** Every trace should have a root (`@chain` or `@agent`). Leaf nodes (`@llm`, `@tool`) must be nested under parents to show context.
+3.  **Safety by Default:** PII (passwords, keys) is automatically redacted. Large vectors are never stored; only dimensions and metadata are captured.
+4.  **Lazy Initialization:** Decorators can be applied at module load time without crashing if telemetry isn't initialized yet.
 
 ---
 
-# Jet Telemetry: Usage Guide & Philosophy
+## 2. The Span Hierarchy Model
 
-## 1. Core Philosophy
+Your traces should follow this semantic tree to maximize debuggability in Arize Phoenix:
 
-`jet-telemetry` is designed to make **observability invisible** while remaining **semantically rich**. It bridges the gap between raw OpenTelemetry instrumentation and the specific needs of AI/LLM applications (RAG, Agents, Safety).
-
-### Key Principles:
-
-- **Decorator-First:** Use decorators (`@llm`, `@tool`, etc.) to wrap logic. This keeps business logic clean and ensures consistent attribute capture.
-- **Semantic Correctness:** Automatically maps Python functions to **OpenInference Span Kinds** (e.g., `LLM`, `RETRIEVER`, `AGENT`). This ensures compatibility with Arize Phoenix and other LLM observability platforms.
-- **Safety by Default:** Sensitive data (PII like passwords, API keys) is automatically redacted. Large vectors are never stored in spans; only their dimensions and metadata are captured.
-- **Lazy Initialization:** The library uses a `LazyPhoenixTracer`, allowing you to apply decorators at module load time without crashing if telemetry isn't initialized yet.
-- **Stackable Observability:** Decorators can be stacked. For example, you can combine `@performance_monitor`, `@cache_simulator`, and `@llm` on a single function to get latency, cache stats, and LLM semantics in one span.
-
----
-
-## 2. Getting Started
-
-### Installation
-
-```bash
-pip install jet-telemetry
+```mermaid
+graph TD
+    A[📦 CHAIN/AGENT: Root Context] --> B[🛡️ GUARDRAIL: Input Safety]
+    A --> C[🧠 LLM: Planning/Reasoning]
+    A --> D[🛠️ TOOL: External Action]
+    D --> E[🔍 RETRIEVER: Data Fetch]
+    E --> F[🧬 EMBEDDING: Vector Gen]
+    A --> G[📊 EVALUATOR: Quality Check]
+    G --> H[📝 PROMPT: Template Render]
 ```
 
-### Initialization
+### Why Nesting Matters
 
-Always initialize telemetry at the entry point of your application. This sets up the TracerProvider and connects to Arize Phoenix.
-
-```python
-from jet_telemetry import initialize_telemetry
-
-# Basic initialization
-initialize_telemetry(
-    service_name="my-ai-app",
-    endpoint="http://localhost:6006" # Default Phoenix URL
-)
-```
-
-> **Note:** The `service_name` becomes the **Project Name** in Phoenix.
+- **Agent Loops:** An `@agent` span wraps the entire loop. Each iteration’s `@llm` (planning) and `@tool` (execution) become children. This allows you to visualize "thought processes" over time.
+- **RAG Pipelines:** A `@retriever` span contains nested `@embedding` spans. If retrieval fails, you can drill down to see if it was an embedding error or a vector store timeout.
+- **Tool Registry:** By consistently using `@tool(name="...")`, Phoenix aggregates all unique tool names. You can query: _"Show me all traces where `tool.name = 'get_weather'` failed."_
 
 ---
 
 ## 3. The Decorator Toolkit
 
-The library provides specialized decorators for every layer of an AI stack.
-
 ### 🧠 Core AI Components
 
-| Decorator | Span Kind | Use Case                                                 | Key Attributes Captured                                           |
-| :-------- | :-------- | :------------------------------------------------------- | :---------------------------------------------------------------- |
-| `@llm`    | `LLM`     | Wraps calls to LLM providers (OpenAI, Llama.cpp, etc.).  | `llm.model_name`, `llm.input_messages` (redacted), `llm.provider` |
-| `@tool`   | `TOOL`    | Wraps external actions (API calls, DB lookups, Weather). | `tool.name`, `tool.description`, `tool.parameters`                |
-| `@agent`  | `AGENT`   | Wraps the main loop of an autonomous agent.              | `agent.name`                                                      |
-| `@chain`  | `CHAIN`   | Wraps orchestration logic (e.g., a full RAG pipeline).   | Acts as the root span for a trace.                                |
+| Decorator | Span Kind | Use Case                               | Key Attributes Captured                                           |
+| :-------- | :-------- | :------------------------------------- | :---------------------------------------------------------------- |
+| `@llm`    | `LLM`     | Wraps calls to LLM providers.          | `llm.model_name`, `llm.input_messages` (redacted), `llm.provider` |
+| `@tool`   | `TOOL`    | Wraps external actions (APIs, DBs).    | `tool.name`, `tool.description`, `tool.parameters`                |
+| `@agent`  | `AGENT`   | Wraps autonomous agent loops.          | `agent.name`                                                      |
+| `@chain`  | `CHAIN`   | Wraps orchestration logic (Root span). | Acts as the parent for all nested spans.                          |
 
 ### 🔍 RAG & Search Components
 
-| Decorator    | Span Kind   | Use Case                                 | Key Attributes Captured                                                           |
-| :----------- | :---------- | :--------------------------------------- | :-------------------------------------------------------------------------------- |
-| `@embedding` | `EMBEDDING` | Wraps text-to-vector generation.         | `embedding.model_name`, `embedding.text` (redacted), `embedding.vector_dimension` |
-| `@retriever` | `RETRIEVER` | Wraps vector store or keyword search.    | `retriever.model_name`, `retrieval.query`, `retrieval.document_count`             |
-| `@reranker`  | `RERANKER`  | Wraps re-scoring of retrieved documents. | `reranker.model_name`, `reranker.query`, `reranker.output_document_count`         |
+| Decorator    | Span Kind   | Use Case                              | Key Attributes Captured                                                           |
+| :----------- | :---------- | :------------------------------------ | :-------------------------------------------------------------------------------- |
+| `@embedding` | `EMBEDDING` | Wraps text-to-vector generation.      | `embedding.model_name`, `embedding.text` (redacted), `embedding.vector_dimension` |
+| `@retriever` | `RETRIEVER` | Wraps vector store or keyword search. | `retriever.model_name`, `retrieval.query`, `retrieval.document_count`             |
+| `@reranker`  | `RERANKER`  | Wraps re-scoring of documents.        | `reranker.model_name`, `reranker.query`, `reranker.output_document_count`         |
 
-### 🛡️ Safety & Evaluation
+### 🛡️ Safety, Eval & Prompting
 
 | Decorator    | Span Kind   | Use Case                           | Key Attributes Captured               |
 | :----------- | :---------- | :--------------------------------- | :------------------------------------ |
 | `@guardrail` | `GUARDRAIL` | Input/output safety checks.        | `guardrail.input`, `guardrail.result` |
-| `@evaluator` | `EVALUATOR` | LLM-as-a-judge or scoring logic.   | N/A (Custom attributes via span)      |
-| `@prompt`    | `PROMPT`    | Prompt templating/rendering steps. | N/A (Custom attributes via span)      |
+| `@evaluator` | `EVALUATOR` | LLM-as-a-judge or scoring logic.   | Custom attributes via span.           |
+| `@prompt`    | `PROMPT`    | Prompt templating/rendering steps. | Custom attributes via span.           |
 
 ---
 
-## 4. Best Practices & Patterns
+## 4. Advanced Patterns
 
-### A. The "Root Chain" Pattern
+### A. Decorator Stacking (Composability)
 
-Every trace should have a root. Use `@chain` on your top-level function to group all subsequent spans under a single Trace ID.
+You can stack multiple decorators to add cross-cutting concerns like performance monitoring, caching, or retry logic to a single span.
 
-```python
-from jet_telemetry import chain, get_trace_url
-
-@chain(name="my-rag-pipeline")
-async def run_rag(query: str):
-    # All nested @llm, @retriever calls will appear under this trace
-    result = await retrieve_and_answer(query)
-    return {"result": result, "trace_url": get_trace_url()}
-```
-
-### B. Stacking Decorators for Rich Context
-
-You can stack multiple decorators to add cross-cutting concerns like performance monitoring or caching to a specific span.
-
-**Example: A Tool with Retry, Cache, and Perf Monitoring**
+**Example: A Robust Tool**
 
 ```python
 from jet_telemetry import tool, performance_monitor
@@ -104,16 +80,37 @@ from jet_telemetry import tool, performance_monitor
 @tool(description="Search DB")
 @performance_monitor(threshold_ms=200) # Adds perf.duration_ms attribute
 @my_cache_decorator # Adds cache.hit attribute
+@retry_with_tracking(max_retries=3) # Adds retry.attempts attribute
 async def search_db(query: str):
     # Logic here
     pass
 ```
 
-_Result:_ A single `TOOL` span in Phoenix that contains tool semantics, latency metrics, and cache status.
+_Result:_ A single `TOOL` span in Phoenix that contains tool semantics, latency metrics, cache status, and retry history.
+
+### B. Composite Decorators
+
+For frequently used patterns, create a composite decorator to keep code clean.
+
+```python
+def fully_observed_llm(func=None, *, model_name: str = "llama-3"):
+    def decorator(f):
+        f = llm(model_name=model_name)(f)
+        f = prompt_tracker(f) # Custom decorator
+        f = performance_monitor(threshold_ms=1000)(f)
+        return f
+    if func is not None:
+        return decorator(func)
+    return decorator
+
+@fully_observed_llm(model_name="llama-3.2")
+async def smart_generate(prompt: str):
+    # ...
+```
 
 ### C. Streaming LLMs
 
-The `@llm` decorator works seamlessly with streaming. It captures the input messages before the stream starts. Ensure you pass `messages` as a keyword argument or positional arg that the decorator can inspect.
+The `@llm` decorator works seamlessly with streaming. It captures input messages before the stream starts.
 
 ```python
 @llm(model_name="llama-3.2-3b-instruct")
@@ -123,32 +120,27 @@ async def chat(messages: list):
         yield chunk
 ```
 
-### D. Handling Vectors
+### D. Hybrid Search (Retrieval + Reranking)
 
-Never pass raw embedding vectors into spans. The `@embedding` decorator automatically extracts the **dimension** of the vector but discards the actual float array to keep spans small and performant.
+Use `@retriever` and `@reranker` as siblings or nested steps under a `@chain`.
+
+```python
+@chain(name="hybrid-search")
+async def search(query: str):
+    # 1. Semantic Retrieval
+    docs = await vector_search(query)
+
+    # 2. Lexical Reranking
+    ranked = await bm25_rerank(query, docs)
+
+    return ranked
+```
 
 ---
 
-## 5. Advanced Features
-
-### Custom Attributes
-
-If a decorator doesn't capture something specific, you can manually add attributes to the current active span using OpenTelemetry directly.
-
-```python
-from opentelemetry import trace as otel_trace
-
-@tool(name="weather")
-async def get_weather(city: str):
-    span = otel_trace.get_current_span()
-    if span.is_recording():
-        span.set_attribute("custom.city_code", "TYO")
-    # ... logic
-```
+## 5. Utilities & Helpers
 
 ### Trace Management
-
-Use helpers to manage traces after execution.
 
 ```python
 from jet_telemetry import get_trace_url, export_spans_to_jsonl
@@ -164,7 +156,7 @@ export_spans_to_jsonl(
 )
 ```
 
-### Redaction & Hashing
+### Security & Hashing
 
 - **Redaction:** Automatic for fields containing "password", "ssn", "api_key", etc.
 - **Hashing:** Use `hash_prompt()` to create a unique ID for a prompt template without storing the full text.
@@ -176,41 +168,60 @@ prompt_hash = hash_prompt("Hello {name}") # Returns short hex string
 safe_text = redact("My password is 1234") # Returns "[REDACTED...]"
 ```
 
----
+### Manual Attribute Injection
 
-## 6. Example: Full RAG Pipeline
-
-This pattern combines retrieval, reranking, and generation into a single observable trace.
+If a decorator doesn't capture something specific, use OpenTelemetry directly on the current span.
 
 ```python
-from jet_telemetry import chain, embedding, retriever, reranker, llm
+from opentelemetry import trace as otel_trace
 
-@embedding(model_name="nomic-embed")
-def embed(text: str):
-    return model.encode(text)
-
-@retriever(name="vector-store", model_name="cosine-sim")
-def search(embedding: list):
-    return db.search(embedding, top_k=5)
-
-@reranker(name="cross-encoder", model_name="bge-reranker")
-def rerank(query: str, docs: list):
-    return model.rerank(query, docs)
-
-@llm(model_name="llama-3")
-def generate(context: str, query: str):
-    return model.chat(f"Context: {context}\nQ: {query}")
-
-@chain(name="full-rag")
-def rag_pipeline(query: str):
-    emb = embed(query)
-    docs = search(emb)
-    ranked = rerank(query, docs)
-    return generate("\n".join(ranked), query)
+@tool(name="weather")
+async def get_weather(city: str):
+    span = otel_trace.get_current_span()
+    if span.is_recording():
+        span.set_attribute("custom.city_code", "TYO")
+    # ... logic
 ```
 
-## 7. Troubleshooting
+---
 
-- **Empty Spans:** Ensure `initialize_telemetry()` is called **before** any decorated functions are executed.
-- **Missing Attributes:** Check that you are passing arguments in a way the decorator can inspect (e.g., `messages` for `@llm`).
-- **Phoenix Connection:** Verify the `endpoint` URL. If using local Phoenix, it's usually `http://localhost:6006/v1/traces`.
+## 6. Getting Started
+
+### Installation
+
+```bash
+pip install jet-telemetry
+```
+
+### Initialization
+
+Always initialize telemetry at the entry point of your application.
+
+```python
+from jet_telemetry import initialize_telemetry
+
+initialize_telemetry(
+    service_name="my-ai-app",
+    endpoint="http://localhost:6006" # Default Phoenix URL
+)
+```
+
+---
+
+## 7. Troubleshooting & Best Practices
+
+1.  **Flat Traces:** Always wrap your main logic in a `@chain` or `@agent`. Without a root, spans may appear disconnected.
+2.  **Missing Attributes:** Ensure you pass arguments (like `messages` for `@llm`) in a way the decorator can inspect.
+3.  **Async Context:** Use `async def` and `await` inside decorated functions. The decorators handle async context propagation automatically.
+4.  **Error Handling:** Let exceptions propagate. The decorators will record the exception on the span, making debugging easier.
+5.  **Large Payloads:** Never pass raw images or massive JSON blobs as arguments to decorated functions if they contain PII. Use references/IDs instead.
+
+### Summary Checklist for LLMs
+
+When generating code with `jet-telemetry`, ensure:
+
+- [ ] There is a root `@chain` or `@agent`.
+- [ ] All LLM calls are wrapped in `@llm` with `model_name`.
+- [ ] All external actions are wrapped in `@tool` with `name` and `description`.
+- [ ] RAG steps are properly nested (`@retriever` -> `@embedding`).
+- [ ] Sensitive data is handled via `redact()` or automatic PII filtering.
