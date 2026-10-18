@@ -11,6 +11,7 @@ except ImportError:
         streamablehttp_client as streamable_http_client,
     )
 from jet.adapters.llama_cpp.llm_utils_observed import achat
+from jet.adapters.llama_cpp.rag_utils.query_snapshot import find_snapshot
 from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet_telemetry import agent, chain
 from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
@@ -120,11 +121,36 @@ async def _wait_for_stable_snapshot(session, max_attempts=3, delay=1.0):
     return last_snapshot
 
 
+def _get_rag_context(query: str, snapshot: str, top_k: int = 5) -> str:
+    """
+    Retrieve relevant chunks from the snapshot using vector search.
+    Falls back to a truncated snapshot if no relevant chunks are found.
+    """
+    if not snapshot:
+        return ""
+
+    try:
+        rag_context, _, _ = find_snapshot(
+            query=query, text=snapshot, top_k=top_k, min_score=0.15
+        )
+        if rag_context:
+            return rag_context
+
+        # Fallback: Take first few lines if no relevant chunks found
+        lines = snapshot.split("\n")[:50]
+        return (
+            "\n".join(lines)
+            + "\n...(context truncated, use browser_snapshot if needed)"
+        )
+    except Exception as e:
+        logger.warning(f"RAG context retrieval failed: {e}. Using truncated snapshot.")
+        return snapshot[:2000] + "\n...(truncated due to RAG error)"
+
+
 async def _initialize_session(session, goal: str, args=None):
     """
     Initialize the MCP session, register tools, navigate to start URL,
     and capture the initial stable snapshot.
-
     Returns:
         tuple: (tools_by_name, system_prompt, initial_messages, current_snapshot, session_span)
     """
@@ -147,13 +173,11 @@ async def _initialize_session(session, goal: str, args=None):
     from .config import DEFAULT_START_URL
 
     start_url = args.start_url if args else DEFAULT_START_URL
-
     logger.info("🌐 Navigating to %s", start_url)
     await session.call_tool("browser_navigate", arguments={"url": start_url})
 
     logger.info("⏳ Waiting for page to stabilize...")
     current_snapshot = await _wait_for_stable_snapshot(session)
-
     snap_len = len(current_snapshot)
     if snap_len < 50:
         logger.warning(
@@ -163,7 +187,6 @@ async def _initialize_session(session, goal: str, args=None):
     else:
         logger.info("📸 Initial snapshot captured (%d chars).", snap_len)
 
-    # Extract metadata for telemetry
     if session_span.is_recording():
         if "Page URL:" in current_snapshot:
             try:
@@ -189,14 +212,16 @@ async def _initialize_session(session, goal: str, args=None):
             except (IndexError, ValueError):
                 pass
 
+    # Use RAG to get relevant initial context based on the goal
+    initial_context = _get_rag_context(query=goal, snapshot=current_snapshot, top_k=5)
+
     initial_messages = [
         {"role": "system", "content": system_prompt},
         {
             "role": "user",
-            "content": f"Goal: {goal}\nCurrent Page Snapshot:\n{current_snapshot}",
+            "content": f"Goal: {goal}\nRelevant Page Context:\n{initial_context}",
         },
     ]
-
     return (
         tools_by_name,
         system_prompt,
@@ -217,12 +242,10 @@ def _trim_messages(messages: list, max_tokens: int, model: str) -> list:
     system_msg = messages[0]
     conversation_history = messages[1:]
 
-    # Count tokens for system message once
     system_tokens = count_tokens(
         content=system_msg["content"], model=model, use_server=False
     )
-
-    remaining_budget = max_tokens - system_tokens - 500  # Reserve buffer for response
+    remaining_budget = max_tokens - system_tokens - 500
 
     if remaining_budget <= 0:
         logger.warning(
@@ -232,18 +255,14 @@ def _trim_messages(messages: list, max_tokens: int, model: str) -> list:
 
     trimmed_history = []
     current_tokens = 0
-
-    # Iterate backwards to keep most recent messages
     for msg in reversed(conversation_history):
         msg_tokens = count_tokens(content=msg["content"], model=model, use_server=False)
-
         if current_tokens + msg_tokens <= remaining_budget:
             trimmed_history.append(msg)
             current_tokens += msg_tokens
         else:
             break
 
-    # Reverse back to chronological order and prepend system message
     trimmed_history.reverse()
     return [system_msg] + trimmed_history
 
@@ -260,10 +279,12 @@ async def _execute_step(
     repeats: int,
     max_repeats: int,
     tracer,
+    last_decision: dict | None = None,
+    goal: str = "",
 ):
     """
     Execute a single step of the agent loop.
-    Includes token management to prevent context overflow.
+    Includes token management and RAG-based context injection to prevent context overflow.
     """
     step_count = step
     success_count = 0
@@ -278,13 +299,11 @@ async def _execute_step(
         )
         step_span.set_attribute("agent.step.number", step)
 
-        # --- Token Management Start ---
         llama_model = args.llama_model if args else DEFAULT_LLM_MODEL
         max_tokens_limit = args.max_tokens if args else DEFAULT_MAX_TOKENS
 
         original_len = len(messages)
         managed_messages = _trim_messages(messages, max_tokens_limit, llama_model)
-
         if len(managed_messages) < original_len:
             dropped = original_len - len(managed_messages)
             logger.warning(
@@ -293,10 +312,8 @@ async def _execute_step(
             )
             step_span.set_attribute("agent.context_trimmed", True)
             step_span.set_attribute("agent.messages_dropped", dropped)
-        # --- Token Management End ---
 
         logger.info("🧠 Step %d/%d: Thinking...", step, max_steps)
-        # Use managed_messages instead of raw messages
         llm_response = await call_llama(managed_messages, args)
 
         if not llm_response:
@@ -305,21 +322,20 @@ async def _execute_step(
             return {
                 "should_break": True,
                 "break_reason": "llm_error",
-                "messages": messages,  # Return original to avoid losing state if needed
+                "messages": messages,
                 "current_snapshot": current_snapshot,
                 "last_call": last_call,
                 "repeats": repeats,
                 "success_delta": 0,
                 "failure_delta": 0,
+                "decision": None,
             }
 
         logger.info("🤖 LLM Decision: %s", llm_response[:100])
-
         try:
             decision = json.loads(llm_response)
         except json.JSONDecodeError:
             logger.warning("⚠️ Failed to parse JSON from LLM. Retrying...")
-            # Append to original messages list so the error feedback is part of the history
             messages.append({"role": "assistant", "content": llm_response})
             messages.append(
                 {"role": "user", "content": "Please respond with valid JSON."}
@@ -333,17 +349,19 @@ async def _execute_step(
                 "repeats": repeats,
                 "success_delta": 0,
                 "failure_delta": 0,
+                "decision": None,
             }
 
         action = decision.get("action")
         args_dict = decision.get("args", {})
-        logger.info("💡 Thought: %s", decision.get("thought"))
+        thought = decision.get("thought", "")
+
+        logger.info("💡 Thought: %s", thought)
 
         if action == "finish":
             step_span.set_attribute("agent.step.outcome", "completed")
             step_span.set_attribute("agent.step.answer", args_dict.get("answer", ""))
             logger.info("🏁 Task Complete: %s", args_dict.get("answer"))
-
             return {
                 "should_break": True,
                 "break_reason": "completed",
@@ -354,6 +372,7 @@ async def _execute_step(
                 "repeats": repeats,
                 "success_delta": 0,
                 "failure_delta": 0,
+                "decision": decision,
             }
 
         call_key = (action, json.dumps(args_dict, sort_keys=True))
@@ -376,30 +395,51 @@ async def _execute_step(
                 "repeats": new_repeats,
                 "success_delta": 0,
                 "failure_delta": 0,
+                "decision": decision,
             }
 
         try:
             ok, text = await execute_tool(session, tools_by_name, action, args_dict)
-            if ok and action != "browser_snapshot":
+
+            # Determine context for next turn
+            # If agent explicitly asked for snapshot, give it all. Otherwise, use RAG.
+            if ok and action == "browser_snapshot":
+                logger.info("📸 Full snapshot requested by agent.")
+                current_snapshot = text  # Update snapshot from tool output
+                feedback = f"Action Result (OK):\n{text}"
+            elif ok:
                 logger.info("📸 Refreshing snapshot after action...")
                 current_snapshot = await _wait_for_stable_snapshot(session)
-                text = current_snapshot
 
-            if ok:
-                step_span.set_attribute("agent.step.outcome", "success")
-                logger.info("✅ Action OK")
-                feedback = f"Action Result (OK):\n{text}"
-                success_delta = 1
-                failure_delta = 0
+                # Use thought as query for next context
+                query = thought if thought else goal
+                rag_context = _get_rag_context(
+                    query=query, snapshot=current_snapshot, top_k=3
+                )
+
+                feedback = f"Action Result (OK):\n{text}\n\nRelevant Page Context:\n{rag_context}"
             else:
-                step_span.set_attribute("agent.step.outcome", "failed")
+                # Action failed
+                query = thought if thought else goal
+                rag_context = _get_rag_context(
+                    query=query, snapshot=current_snapshot, top_k=3
+                )
+
                 logger.warning("❌ Action FAILED: %s", text[:100])
                 feedback = (
                     f"Action FAILED: {text}\n"
                     f"Fix the arguments and try again.\n"
                     f"Remember to use [ref=ID] tags from the snapshot.\n"
-                    f"Page is unchanged:\n{current_snapshot}"
+                    f"Relevant Page Context:\n{rag_context}"
                 )
+
+            if ok:
+                step_span.set_attribute("agent.step.outcome", "success")
+                logger.info("✅ Action OK")
+                success_delta = 1
+                failure_delta = 0
+            else:
+                step_span.set_attribute("agent.step.outcome", "failed")
                 success_delta = 0
                 failure_delta = 1
 
@@ -419,15 +459,21 @@ async def _execute_step(
                     "repeats": new_repeats,
                     "success_delta": 0,
                     "failure_delta": 1,
+                    "decision": decision,
                 }
 
             logger.error("⚠️ Tool execution error: %s", e)
             ok, text = False, str(e)
-            feedback = f"Action FAILED: {text}\nPage is unchanged:\n{current_snapshot}"
+
+            query = thought if thought else goal
+            rag_context = _get_rag_context(
+                query=query, snapshot=current_snapshot, top_k=3
+            )
+
+            feedback = f"Action FAILED: {text}\nRelevant Page Context:\n{rag_context}"
             success_delta = 0
             failure_delta = 1
 
-        # Append to the original messages list to maintain full history for next trim
         messages.append({"role": "assistant", "content": llm_response})
         messages.append({"role": "user", "content": feedback})
 
@@ -439,6 +485,7 @@ async def _execute_step(
             "repeats": new_repeats,
             "success_delta": success_delta,
             "failure_delta": failure_delta,
+            "decision": decision,
         }
 
 
@@ -449,9 +496,7 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
     Handles initialization, navigation, and the main reasoning loop with proper nesting.
     """
     tracer = otel_trace.get_tracer(__name__)
-
     async with ClientSession(read_stream, write_stream) as session:
-        # Part 1: Initialization
         (
             tools_by_name,
             system_prompt,
@@ -472,12 +517,10 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
         failure_count = 0
         completed_answer = None
         break_reason = None
+        last_decision = None
 
-        # Part 2: Main Loop
         for step in range(1, max_steps + 1):
             step_count = step
-
-            # Part 3: Execute Single Step
             result = await _execute_step(
                 step=step,
                 max_steps=max_steps,
@@ -490,9 +533,10 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                 repeats=repeats,
                 max_repeats=max_repeats,
                 tracer=tracer,
+                last_decision=last_decision,
+                goal=goal,
             )
 
-            # Update state from result
             messages = result["messages"]
             current_snapshot = result["current_snapshot"]
             last_call = result["last_call"]
@@ -500,13 +544,15 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
             success_count += result["success_delta"]
             failure_count += result["failure_delta"]
 
+            # Update last_decision for next iteration's RAG query
+            last_decision = result.get("decision")
+
             if result["should_break"]:
                 break_reason = result.get("break_reason")
                 if break_reason == "completed":
                     completed_answer = result.get("answer")
                 break
 
-        # Part 4: Finalize Session Telemetry
         if session_span.is_recording():
             session_span.set_attribute("agent.steps_taken", step_count)
             session_span.set_attribute("agent.actions_successful", success_count)
@@ -519,7 +565,6 @@ async def _run_session(read_stream, write_stream, goal: str, args=None):
                 session_span.set_attribute("agent.completion.success", False)
                 session_span.set_attribute("agent.failure.reason", break_reason)
             else:
-                # Max steps exceeded
                 logger.warning("⏹️ Reached MAX_STEPS (%d) without finishing", max_steps)
                 session_span.set_attribute("agent.completion.success", False)
                 session_span.set_attribute("agent.failure.reason", "max_steps_exceeded")
