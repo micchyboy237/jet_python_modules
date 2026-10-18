@@ -39,7 +39,7 @@ user_goal          The task description for the agent (positional)
 -lm, --llama-model LLM model name
 -s, --max-steps    Maximum iteration steps (default: 15)
 -r, --max-repeats  Max repeated actions before stopping (default: 3)
--t, --temperature  LLM temperature (default: 0.2)
+-t, --temperature  LLM temperature (default: 0.3)
 -mt, --max-tokens  Max tokens for LLM response (default: 500)
 -tp, --top-p       Top-p sampling parameter (default: 0.95)
 -pp, --presence-penalty  Presence penalty (default: 1.5)
@@ -200,8 +200,8 @@ def get_args():
         "--temperature",
         dest="temperature",
         type=float,
-        default=0.2,
-        help="LLM temperature for response generation (default: 0.2)",
+        default=0.3,
+        help="LLM temperature for response generation (default: 0.3)",
     )
     parser.add_argument(
         "-mt",
@@ -342,7 +342,7 @@ async def call_llama(messages, args=None):
     Uses structured output for reliable JSON parsing.
     """
     llama_model = args.llama_model if args else LLM_MODEL
-    temperature = args.temperature if args else 0.2
+    temperature = args.temperature if args else 0.3
     max_tokens = args.max_tokens if args else 500
     top_p = args.top_p if args else 0.95
     presence_penalty = args.presence_penalty if args else 1.5

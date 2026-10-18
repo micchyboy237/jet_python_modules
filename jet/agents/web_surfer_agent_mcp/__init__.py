@@ -1,1 +1,1 @@
-"""Web Surfer Agent package with MCP support."""
+"""Web Surfer Agent with MCP support."""
