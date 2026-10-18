@@ -1,4 +1,4 @@
-# jet_python_modules/jet/agents/web_surfer_agent_mcp.py
+import argparse
 import asyncio
 import json
 import logging
@@ -27,10 +27,22 @@ MAX_STEPS = 15
 MAX_REPEATS = 3  # same action N times in a row => stop
 ALLOWED_TOOLS = {
     "browser_navigate",
-    "browser_click",
+    "browser_navigate_back",
     "browser_type",
     "browser_press_key",
+    "browser_hover",
+    "browser_find",
+    "browser_click",
+    "browser_fill_form",
+    "browser_select_option",
+    "browser_type",
+    "browser_handle_dialog",
+    "browser_evaluate",
+    "browser_run_code_unsafe",
     "browser_snapshot",
+    "browser_take_screenshot",
+    "browser_wait_for",
+    "browser_close",
 }
 # Optional args the LLM may use. Everything else optional is hidden and stripped.
 SAFE_OPTIONAL = {"browser_type": {"submit"}}
@@ -53,6 +65,137 @@ Respond ONLY with a JSON object. Example:
 If an action FAILED, read the error and fix your arguments.
 When the task is complete, use: {"thought": "...", "action": "finish", "args": {"answer": "..."}}
 """
+
+
+def get_args():
+    """Parse command-line arguments with 1-2 char shorthands for keyword args."""
+    parser = argparse.ArgumentParser(description="Run the Web Surfer MCP Agent.")
+
+    # Positional argument (no shorthand needed)
+    parser.add_argument(
+        "user_goal",
+        nargs="?",
+        default="Add a todo item 'Buy Milk' and then mark it as done.",
+        help="Goal for the agent to accomplish (default: %(default)s)",
+    )
+
+    # URL configuration - 1 char shorthand
+    parser.add_argument(
+        "-u",
+        "--url",
+        dest="start_url",
+        default="https://demo.playwright.dev/todomvc",
+        help="Starting URL for the browser (default: %(default)s)",
+    )
+
+    # MCP Server URL - 2 char shorthand
+    parser.add_argument(
+        "-ms",
+        "--mcp-server",
+        dest="mcp_server_url",
+        default=MCP_SERVER_URL,
+        help=f"MCP server URL (default: {MCP_SERVER_URL})",
+    )
+
+    # LLM API URL - 2 char shorthand
+    parser.add_argument(
+        "-la",
+        "--llama-api",
+        dest="llama_api_url",
+        default=LLAMA_API_URL,
+        help=f"LLaMA API URL (default: {LLAMA_API_URL})",
+    )
+
+    # LLM Model - 2 char shorthand
+    parser.add_argument(
+        "-lm",
+        "--llama-model",
+        dest="llama_model",
+        default=LLM_MODEL,
+        help=f"LLaMA model name (default: {LLM_MODEL})",
+    )
+
+    # Max steps - 2 char shorthand
+    parser.add_argument(
+        "-s",
+        "--max-steps",
+        dest="max_steps",
+        type=int,
+        default=MAX_STEPS,
+        help=f"Maximum number of steps (default: {MAX_STEPS})",
+    )
+
+    # Max repeats - 2 char shorthand
+    parser.add_argument(
+        "-r",
+        "--max-repeats",
+        dest="max_repeats",
+        type=int,
+        default=MAX_REPEATS,
+        help=f"Maximum repeated actions before stopping (default: {MAX_REPEATS})",
+    )
+
+    # Temperature - 1 char shorthand
+    parser.add_argument(
+        "-t",
+        "--temperature",
+        dest="temperature",
+        type=float,
+        default=0.2,
+        help="LLM temperature for response generation (default: 0.2)",
+    )
+
+    # Max tokens - 2 char shorthand
+    parser.add_argument(
+        "-mt",
+        "--max-tokens",
+        dest="max_tokens",
+        type=int,
+        default=500,
+        help="Maximum tokens for LLM response (default: 500)",
+    )
+
+    # Top P - 2 char shorthand
+    parser.add_argument(
+        "-tp",
+        "--top-p",
+        dest="top_p",
+        type=float,
+        default=0.95,
+        help="Top-p sampling parameter (default: 0.95)",
+    )
+
+    # Presence penalty - 2 char shorthand
+    parser.add_argument(
+        "-pp",
+        "--presence-penalty",
+        dest="presence_penalty",
+        type=float,
+        default=1.5,
+        help="Presence penalty for LLM (default: 1.5)",
+    )
+
+    # Enable thinking - flag with 2 char shorthand
+    parser.add_argument(
+        "-et",
+        "--enable-thinking",
+        dest="enable_thinking",
+        action="store_true",
+        default=True,
+        help="Enable thinking mode in chat template (default: True)",
+    )
+
+    # Log level - 2 char shorthand
+    parser.add_argument(
+        "-ll",
+        "--log-level",
+        dest="log_level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Logging level (default: INFO)",
+    )
+
+    return parser.parse_args()
 
 
 def allowed_params(tool) -> set:
@@ -107,24 +250,32 @@ async def execute_tool(session, tools_by_name, name, args):
     return True, text
 
 
-async def call_llama(messages):
+async def call_llama(messages, args=None):
     """Send messages to local llama.cpp server and get response."""
+    llama_api_url = args.llama_api_url if args else LLAMA_API_URL
+    llama_model = args.llama_model if args else LLM_MODEL
+    temperature = args.temperature if args else 0.2
+    max_tokens = args.max_tokens if args else 500
+    top_p = args.top_p if args else 0.95
+    presence_penalty = args.presence_penalty if args else 1.5
+    enable_thinking = args.enable_thinking if args else True
+
     payload = {
-        "model": LLM_MODEL,
+        "model": llama_model,
         "messages": messages,
-        "temperature": 0.2,
-        "max_tokens": 500,
-        "top_p": 0.95,
-        "presence_penalty": 1.5,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "top_p": top_p,
+        "presence_penalty": presence_penalty,
         "extra_body": {
             "chat_template_kwargs": {
-                "enable_thinking": True,
+                "enable_thinking": enable_thinking,
             },
         },
     }
     logger.info("Calling llama.cpp (%d messages)", len(messages))
     try:
-        response = requests.post(LLAMA_API_URL, json=payload)
+        response = requests.post(llama_api_url, json=payload)
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
     except Exception as e:
@@ -132,21 +283,23 @@ async def call_llama(messages):
         return None
 
 
-async def run_agent(goal: str):
+async def run_agent(goal: str, args=None):
     logger.info("🚀 Starting Web Surfer Agent for: %r", goal)
-    logger.info("Connecting via Streamable HTTP to: %s", MCP_SERVER_URL)
+
+    mcp_server_url = args.mcp_server_url if args else MCP_SERVER_URL
+    logger.info("Connecting via Streamable HTTP to: %s", mcp_server_url)
 
     # `async with` opens AND closes the connection for us
-    async with streamable_http_client(MCP_SERVER_URL) as streams:
+    async with streamable_http_client(mcp_server_url) as streams:
         read_stream, write_stream = (
             streams[0],
             streams[1],
         )  # 3rd item (session id getter) unused
         logger.info("✅ Connected")
-        await _run_session(read_stream, write_stream, goal)
+        await _run_session(read_stream, write_stream, goal, args)
 
 
-async def _run_session(read_stream, write_stream, goal: str):
+async def _run_session(read_stream, write_stream, goal: str, args=None):
     async with ClientSession(read_stream, write_stream) as session:
         await session.initialize()
         logger.info("✅ Session initialized")
@@ -159,7 +312,10 @@ async def _run_session(read_stream, write_stream, goal: str):
             "{tool_docs}", build_tool_docs(tools_by_name.values())
         )
 
-        start_url = "https://demo.playwright.dev/todomvc"
+        start_url = args.start_url if args else "https://demo.playwright.dev/todomvc"
+        max_steps = args.max_steps if args else MAX_STEPS
+        max_repeats = args.max_repeats if args else MAX_REPEATS
+
         logger.info("🌐 Navigating to %s", start_url)
         await session.call_tool("browser_navigate", arguments={"url": start_url})
         result = await session.call_tool("browser_snapshot", arguments={})
@@ -174,9 +330,9 @@ async def _run_session(read_stream, write_stream, goal: str):
         ]
 
         last_call, repeats = None, 0
-        for step in range(1, MAX_STEPS + 1):
-            logger.info("🧠 Step %d/%d: thinking...", step, MAX_STEPS)
-            llm_response = await call_llama(messages)
+        for step in range(1, max_steps + 1):
+            logger.info("🧠 Step %d/%d: thinking...", step, max_steps)
+            llm_response = await call_llama(messages, args)
             if not llm_response:
                 logger.error("No response from LLM, stopping")
                 break
@@ -196,26 +352,26 @@ async def _run_session(read_stream, write_stream, goal: str):
                 continue
 
             action = decision.get("action")
-            args = decision.get("args", {})
+            args_dict = decision.get("args", {})
             logger.info("💡 Thought: %s", decision.get("thought"))
 
             if action == "finish":
-                logger.info("🏁 Task Complete: %s", args.get("answer"))
+                logger.info("🏁 Task Complete: %s", args_dict.get("answer"))
                 break
 
             # Stop if the model is stuck repeating the exact same call
-            call_key = (action, json.dumps(args, sort_keys=True))
+            call_key = (action, json.dumps(args_dict, sort_keys=True))
             repeats = repeats + 1 if call_key == last_call else 1
             last_call = call_key
-            if repeats >= MAX_REPEATS:
+            if repeats >= max_repeats:
                 logger.error(
                     "🔁 Same action repeated %d times, stopping: %s", repeats, call_key
                 )
                 break
 
-            logger.info("🛠️ Executing: %s with %s", action, args)
+            logger.info("🛠️ Executing: %s with %s", action, args_dict)
             try:
-                ok, text = await execute_tool(session, tools_by_name, action, args)
+                ok, text = await execute_tool(session, tools_by_name, action, args_dict)
                 if ok and action != "browser_snapshot":
                     snap = await session.call_tool("browser_snapshot", arguments={})
                     text = snap.content[0].text
@@ -242,18 +398,13 @@ async def _run_session(read_stream, write_stream, goal: str):
             messages.append({"role": "assistant", "content": llm_response})
             messages.append({"role": "user", "content": feedback})
         else:
-            logger.warning("⏹️ Reached MAX_STEPS (%d) without finishing", MAX_STEPS)
+            logger.warning("⏹️ Reached MAX_STEPS (%d) without finishing", max_steps)
 
-
-import argparse
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run the Web Surfer MCP Agent.")
-    parser.add_argument(
-        "user_goal",
-        nargs="?",
-        default="Add a todo item 'Buy Milk' and then mark it as done.",
-        help="Goal for the agent to accomplish (default: %(default)s)",
-    )
-    args = parser.parse_args()
-    asyncio.run(run_agent(args.user_goal))
+    args = get_args()
+
+    # Update logging level if specified
+    logging.getLogger().setLevel(getattr(logging, args.log_level))
+
+    asyncio.run(run_agent(args.user_goal, args))
