@@ -19,11 +19,11 @@ Available Tools:
 {tools_json}
 CRITICAL RULES FOR INTERACTION:
 1. USE REFS DIRECTLY: When the snapshot shows an element like `- textbox "Job title" [ref=e39]`, use "e39" as the target.
-2. IMMEDIATE FINAL ANSWER: As soon as you have the information required by the goal, call `final_answer` immediately. Do not take extra steps like screenshots unless explicitly requested.
+2. IMMEDIATE FINAL ANSWER: As soon as you have the information required by the goal, call `final_answer` immediately.
 3. NO REDUNDANT ACTIONS: If a form is already filled or a button has been clicked, do not repeat the action. Check the snapshot state carefully.
-4. EFFICIENT FORM FILLING: Use `browser_fill_form` to fill multiple fields at once. Example: {{"fields": [{{"target": "e39", "value": "Software Developer"}}, {{"target": "e45", "value": "Taguig City"}}]}}.
+4. EFFICIENT FORM FILLING: Use `browser_fill_form` to fill multiple fields at once.
 5. STRUCTURED OUTPUT: If the goal asks for structured data (like JSON), pass the raw JSON object/array directly to the `result` argument of `final_answer`.
-6. EFFICIENCY: Choose the most direct path to the goal. If the answer is visible, use `final_answer` immediately. Avoid unnecessary navigation or waiting.
+6. EFFICIENCY: Choose the most direct path to the goal. Avoid unnecessary navigation or waiting.
 RESPONSE FORMAT:
 You must respond using the provided JSON schema. Ensure all required arguments for the chosen tool are present.
 """
@@ -117,6 +117,11 @@ class LocalAgent:
                 decision = await self._call_llm(
                     messages, response_format, step_dir, **kwargs
                 )
+
+                # CRITICAL FIX: Force finished=True if final_answer is called
+                if decision.tool == "final_answer":
+                    decision.finished = True
+
                 if decision.finished:
                     console.print("[bold green]Goal achieved.[/bold green]")
                     return "Goal achieved."
@@ -125,10 +130,6 @@ class LocalAgent:
 
                 # Execute tool
                 last_result = await self._execute_tool(decision, step_dir)
-
-                # CRITICAL FIX: If final_answer was called, stop immediately
-                if decision.tool == "final_answer":
-                    return "Goal achieved."
 
                 # Update prev_url for next step
                 prev_url = current_url
