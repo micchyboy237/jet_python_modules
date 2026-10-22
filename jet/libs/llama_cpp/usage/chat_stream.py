@@ -115,31 +115,34 @@ def print_stream_summary(
     ttft = (first_token_at - t_start) if first_token_at is not None else None
     console.print("─" * 60)
     console.print("📊 Summary")
+
     if result.usage:
-        tok_per_sec = (
-            result.usage.get("completion_tokens", 0) / total_secs
-            if total_secs > 0
-            else 0.0
-        )
+        prompt_tokens = result.usage.get("prompt_tokens", 0)
+        completion_tokens = result.usage.get("completion_tokens", 0)
+        total_tokens = result.usage.get("total_tokens", 0)
+
+        console.print("[bold]Usage Tokens:[/bold]")
+        console.print(f"   Prompt      : {prompt_tokens}")
+        console.print(f"   Completion  : {completion_tokens}")
+        console.print(f"   Total       : {total_tokens}")
+
+        tok_per_sec = completion_tokens / total_secs if total_secs > 0 else 0.0
+        console.print(f"   Throughput  : {tok_per_sec:.1f} tok/s")
+
+    console.print(f"   Duration         : {total_secs:.2f}s")
+    if ttft is not None:
+        console.print(f"   Time to first token: {ttft:.2f}s")
+
+    console.print(f"   Response length  : {len(result.content)} chars")
+    if result.finish_reason:
+        console.print(f"   Finish reason    : {result.finish_reason}")
+    if result.has_tool_calls:
+        console.print(f"   Tool calls       : {len(result.tool_calls)}")
+    if result.structured:
+        status = "✅" if result.structured.success else "⚠️"
         console.print(
-            f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / "
-            f"{result.usage.get('completion_tokens', 0)}c / "
-            f"{result.usage.get('total_tokens', 0)}t"
+            f"   Structured       : {status} {result.structured.format_used.value}"
         )
-        console.print(f"   Throughput       : {tok_per_sec:.1f} tok/s")
-        console.print(f"   Duration         : {total_secs:.2f}s")
-        if ttft is not None:
-            console.print(f"   Time to first token: {ttft:.2f}s")
-        console.print(f"   Response length  : {len(result.content)} chars")
-        if result.finish_reason:
-            console.print(f"   Finish reason    : {result.finish_reason}")
-        if result.has_tool_calls:
-            console.print(f"   Tool calls       : {len(result.tool_calls)}")
-        if result.structured:
-            status = "✅" if result.structured.success else "⚠️"
-            console.print(
-                f"   Structured       : {status} {result.structured.format_used.value}"
-            )
     console.print("─" * 60)
 
 

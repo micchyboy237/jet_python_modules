@@ -1,4 +1,3 @@
-# jet_python_modules/jet/adapters/llama_cpp/rag_utils/query_snapshot.py
 """
 Demo: Chunking with Metadata and LLM Reranking
 Shows how to generate ChunkResult objects for RAG indexing and find relevant chunks using LLM-based reranking.
@@ -114,15 +113,15 @@ Examples:
         "-k",
         "--top-k",
         type=int,
-        default=None,
-        help="Number of top results to return (default: None).",
+        default=10,
+        help="Number of top results to return (default: 10).",
     )
     parser.add_argument(
         "-m",
         "--min-score",
         type=float,
-        default=7.0,
-        help="Minimum relevance score threshold 0-10 (default: 7.0).",
+        default=0.0,
+        help="Minimum relevance score threshold 0-10 (default: 0.0).",
     )
     parser.add_argument(
         "--criteria",
@@ -131,10 +130,10 @@ Examples:
         help="Optional specific criteria for the LLM to focus on during ranking.",
     )
     parser.add_argument(
-        "--include-reasoning",
+        "--no-reasoning",
         action="store_true",
         default=False,
-        help="If set, LLM provides a reason for each ranking (default: False).",
+        help="If set, disables LLM reasoning explanations for each ranking (default: False).",
     )
     parser.add_argument(
         "--batch-overlap",
@@ -190,11 +189,11 @@ Examples:
 def find_snapshot(
     query: str,
     text: str | list[str],
-    top_k: int | None = None,
-    min_score: float = 7.0,
+    top_k: int | None = 10,
+    min_score: float = 0.0,
     model: str = LLM_MODEL,
     criteria: str | None = None,
-    include_reasoning: bool = False,
+    include_reasoning: bool = True,
     base_url: str | None = None,
     api_key: str | None = "not-needed",
     max_tokens: int | None = 8000,
@@ -355,7 +354,7 @@ if __name__ == "__main__":
         min_score=args.min_score,
         model=args.model,
         criteria=args.criteria,
-        include_reasoning=args.include_reasoning,
+        include_reasoning=not args.no_reasoning,
         base_url=args.base_url,
         api_key=args.api_key,
         max_tokens=args.max_tokens,
