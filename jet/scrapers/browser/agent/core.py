@@ -51,6 +51,7 @@ class LocalAgent:
         self.registry = registry
         self.output_dir = output_dir
         self.max_snapshot_chars = max_snapshot_chars
+        self.prev_url = "Unknown"  # Track previous URL across steps
 
     async def think_and_act(
         self, goal: str, initial_snapshot: str, max_steps: int = 15, **kwargs
@@ -59,15 +60,14 @@ class LocalAgent:
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(goal=goal, tools_json=tools_json)
         last_result = "None"
         current_state = initial_snapshot
-        prev_url = "Unknown"
+        # Initialize prev_url from toolbox
+        self.prev_url = await self.registry.toolbox._get_current_url()
         decision_schema = get_decision_schema()
         response_format = {"type": "json_schema", "json_schema": decision_schema}
         for i in range(max_steps):
             step_index = i + 1
             step_dir = get_step_dir(step_index, self.output_dir)
             console.print(f"[bold cyan]Step {step_index}:[/bold cyan] Thinking...")
-
-            # Refresh snapshot before LLM
             if i > 0 and not self.registry.toolbox.is_closed:
                 console.print("[dim]Refreshing snapshot before LLM decision...[/dim]")
                 try:
@@ -76,8 +76,6 @@ class LocalAgent:
                     )
                 except Exception as e:
                     console.print(f"[yellow]Failed to refresh snapshot: {e}[/yellow]")
-
-            # Get current URL
             current_url = "Unknown"
             if (
                 self.registry.toolbox.page
@@ -87,10 +85,7 @@ class LocalAgent:
                     current_url = self.registry.toolbox.page.url
                 except:
                     pass
-
             save_text(step_dir / "input_snapshot.md", current_state)
-
-            # Take start screenshot
             try:
                 await self.registry.toolbox.browser_take_screenshot(
                     filename=f"step_{step_index}_start.png", step_dir=step_dir
@@ -99,10 +94,9 @@ class LocalAgent:
                 console.print(
                     f"[yellow]Failed to capture start screenshot: {e}[/yellow]"
                 )
-
             user_prompt_content = USER_PROMPT_TEMPLATE.format(
                 url=current_url,
-                prev_url=prev_url,
+                prev_url=self.prev_url,
                 snapshot=current_state[: self.max_snapshot_chars],
                 last_result=last_result,
             )
@@ -117,24 +111,16 @@ class LocalAgent:
                 decision = await self._call_llm(
                     messages, response_format, step_dir, **kwargs
                 )
-
-                # CRITICAL FIX: Force finished=True if final_answer is called
                 if decision.tool == "final_answer":
                     decision.finished = True
-
                 if decision.finished:
                     console.print("[bold green]Goal achieved.[/bold green]")
                     return "Goal achieved."
                 console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
                 console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
-
-                # Execute tool
                 last_result = await self._execute_tool(decision, step_dir)
-
-                # Update prev_url for next step
-                prev_url = current_url
-
-                # Save output snapshot and screenshot
+                # Update prev_url after executing tool
+                self.prev_url = current_url
                 if not self.registry.toolbox.is_closed:
                     try:
                         output_state = await self.registry.toolbox.browser_snapshot(
@@ -148,7 +134,6 @@ class LocalAgent:
                         console.print(
                             f"[yellow]Failed to capture end state: {e}[/yellow]"
                         )
-
                 if self.registry.toolbox.is_closed:
                     return "Browser closed."
             except Exception as e:
@@ -181,8 +166,18 @@ class LocalAgent:
             messages=messages,
             seed=42,
             temperature=0.3,
+            top_p=0.95,
+            presence_penalty=1.5,
+            frequency_penalty=0.0,
             stream_options={"include_usage": True},
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body={
+                "top_k": 40,
+                "min_p": 0.0,
+                "repetition_penalty": 1.0,
+                "chat_template_kwargs": {
+                    "enable_thinking": False,
+                },
+            },
             stream=True,
             response_format=response_format,
             **kwargs,

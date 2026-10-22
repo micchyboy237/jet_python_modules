@@ -50,8 +50,12 @@ def run_chat_stream(
         temperature=0.7,
         top_p=0.95,
         presence_penalty=1.5,
+        frequency_penalty=0.0,
         stream_options={"include_usage": True},
         extra_body={
+            "top_k": 20,
+            "min_p": 0.0,
+            "repetition_penalty": 1.0,  # llama.cpp specific param
             "chat_template_kwargs": {
                 "enable_thinking": enable_thinking,
             },
