@@ -1,0 +1,10 @@
+{
+  "id": "indeed_search_structure",
+  "url": "https://ph.indeed.com",
+  "goal": "1. Find the search results list page, you may use sample inputs.\n2. Display the html structure containing the results.",
+  "expected_tools": ["browser_fill_form", "browser_click", "final_answer"],
+  "validation_criteria": {
+    "contains_html_tags": true,
+    "min_length": 500
+  }
+}

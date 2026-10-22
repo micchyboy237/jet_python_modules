@@ -1,16 +1,15 @@
-"""
-Agent Core Logic with Step-Level Retry
-"""
-
 import asyncio
 import json
 import uuid
 from pathlib import Path
 
-from jet.adapters.llama_cpp.llm_utils_observed import achat
+from jet.adapters.llama_cpp.llm_utils_observed import (
+    achat,
+)
 from jet.adapters.llama_cpp.rag_utils import RankedChunkResult, find_snapshot
 from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
+from jet.scrapers.browser.agent.memory import AgentMemory
 from jet.scrapers.browser.agent.registry import PlaywrightToolRegistry
 from jet.scrapers.browser.agent.templates import (
     SYSTEM_PROMPT_TEMPLATE,
@@ -35,7 +34,6 @@ class LocalAgent:
         max_snapshot_tokens: int = 3000,
         max_retries_per_step: int = 3,
     ):
-        # Note: We no longer initialize self.client here as achat handles client creation internally
         self.model = model
         self.registry = registry
         self.output_dir = output_dir
@@ -50,6 +48,7 @@ class LocalAgent:
         self.step_token_counts = []
         self.session_id = str(uuid.uuid4())[:8]
         self.history = []
+        self.memory = AgentMemory()
 
     @chain(name="refresh-browser-snapshot")
     async def _refresh_snapshot(self, step_dir: Path) -> str:
@@ -63,18 +62,76 @@ class LocalAgent:
             console.print(f"[yellow]Failed to refresh snapshot: {e}[/yellow]")
             return ""
 
+    @chain(name="generate-retrieval-query")
+    async def _generate_query(
+        self,
+        goal: str,
+        current_snapshot: str,
+        last_result: str,
+        memory_context: str = "",
+    ) -> str:
+        """
+        Generates a concise query for RAG retrieval based on the current goal,
+        page snapshot, last action result, AND accumulated memory.
+        """
+        system_prompt = (
+            "You are an assistant helping a browser agent retrieve relevant context from a page snapshot. "
+            "Generate a short, specific search query that will help find elements or text relevant to the user's goal. "
+            "Focus on interactive elements, labels, or content mentioned in the goal. "
+            "Do not include explanations, just the query string."
+        )
+
+        # Include memory context in the prompt to help generate better queries
+        memory_hint = (
+            f"\nRelevant History: {memory_context[:500]}" if memory_context else ""
+        )
+
+        user_prompt = (
+            f"User Goal: {goal}{memory_hint}\n"
+            f"Last Action Result: {last_result}\n"
+            f"Current Page Snapshot (truncated if long): {current_snapshot[:2000]}...\n"
+            "Query:"
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            result: StreamCompletionResult = await achat(
+                prompt_or_messages=messages,
+                model=self.model,
+                temperature=0.1,
+                max_tokens=50,
+            )
+            query = result.content.strip()
+            if query.startswith('"') and query.endswith('"'):
+                query = query[1:-1]
+            return query
+        except Exception as e:
+            console.print(
+                f"[yellow]Failed to generate query, falling back to goal: {e}[/yellow]"
+            )
+            return goal
+
     @chain(name="extract-snapshot-context")
     async def _ensure_snapshots_token_limit(
-        self, goal: str, current_snapshot: str
+        self, query: str, current_snapshot: str, memory_context: str = ""
     ) -> tuple[str, list[RankedChunkResult], int]:
-        """Extracts relevant context using RAG and ensures it fits within snapshot token limits."""
+        """Extracts relevant context using RAG and ensures it fits within snapshot token limits.
+        Now includes memory context in the searchable text."""
+
+        # Combine current snapshot with memory for RAG chunking/searching
+        text_to_chunk = current_snapshot
+        if memory_context:
+            text_to_chunk += "\n\n" + memory_context
+
         rag_context, ranked_results, _ = find_snapshot(
-            query=goal,
-            text=current_snapshot,
+            query=query,
+            text=text_to_chunk,  # Pass combined text
             top_k=10,
             min_score=3.0,
             model=self.model,
-            criteria="Focus on interactive elements, text content, and layout structure relevant to the goal.",
+            criteria="Focus on interactive elements, text content, and layout structure relevant to the query.",
             include_reasoning=True,
             max_tokens=self.max_snapshot_tokens,
             chunk_size=500,
@@ -207,17 +264,18 @@ class LocalAgent:
         self.history = []
         self.total_input_tokens = 0
         self.step_token_counts = []
+        self.memory.reset()  # Reset memory for new session
+
         last_result = "None"
         current_snapshot = initial_snapshot
         self.prev_url = await self.registry.toolbox._get_current_url()
-
-        # We can pass the Pydantic class directly to achat for automatic validation
         response_format = AgentDecision
 
         for i in range(max_steps):
             step_index = i + 1
             step_dir = get_step_dir(step_index, self.output_dir)
             success = False
+
             for attempt in range(1, self.max_retries_per_step + 1):
                 try:
                     if attempt > 1:
@@ -234,6 +292,7 @@ class LocalAgent:
                     console.print(
                         f"[bold cyan]Step {step_index} (Attempt {attempt}):[/bold cyan] Thinking..."
                     )
+
                     if i > 0 and attempt == 1:
                         refreshed = await self._refresh_snapshot(step_dir)
                         if refreshed:
@@ -249,11 +308,24 @@ class LocalAgent:
                         except:
                             pass
 
+                    # Get Memory Context
+                    memory_context = self.memory.get_context_string()
+
+                    query = await self._generate_query(
+                        goal, current_snapshot, last_result, memory_context
+                    )
+                    console.print(f"[dim]Generated RAG Query: {query[:100]}...[/dim]")
+
                     (
                         context_for_llm,
                         ranked_results,
                         snapshot_context_tokens,
-                    ) = await self._ensure_snapshots_token_limit(goal, current_snapshot)
+                    ) = await self._ensure_snapshots_token_limit(
+                        query,
+                        current_snapshot,
+                        memory_context,  # Pass memory here
+                    )
+
                     input_link = save_text(
                         step_dir / "input_snapshot.md", context_for_llm
                     )
@@ -278,6 +350,7 @@ class LocalAgent:
                         snapshot=context_for_llm,
                         last_result=last_result,
                     )
+
                     self.history.append(
                         {"role": "user", "content": user_prompt_content}
                     )
@@ -323,6 +396,10 @@ class LocalAgent:
                     last_result = await self._execute_tool_with_tracking(
                         decision, step_dir
                     )
+
+                    # Update Memory after successful tool execution
+                    self.memory.add_step(step_index, decision, last_result, current_url)
+
                     self.prev_url = current_url
 
                     if not self.registry.toolbox.is_closed:
@@ -403,8 +480,6 @@ class LocalAgent:
         streaming, structured output parsing, and telemetry.
         """
         model_name = kwargs.get("model", self.model)
-
-        # Prepare extra body params for llama.cpp specific settings
         extra_body_params = {
             "top_k": 40,
             "min_p": 0.0,
@@ -413,9 +488,6 @@ class LocalAgent:
                 "enable_thinking": False,
             },
         }
-
-        # Call achat with structured output support
-        # achat handles the streaming and accumulation internally
         result: StreamCompletionResult = await achat(
             prompt_or_messages=messages,
             model=model_name,
@@ -424,32 +496,22 @@ class LocalAgent:
             presence_penalty=1.5,
             frequency_penalty=0.0,
             max_tokens=16384,
-            response_format=response_format,  # Pass the Pydantic Class directly
+            response_format=response_format,
             extra_body_params=extra_body_params,
             seed=42,
-            # Observability context is handled by initialize_telemetry in main
         )
-
-        # Save raw response for debugging
         save_text(step_dir / "llm_raw_response.txt", result.content)
-
-        # Check if structured parsing succeeded
         if result.structured and result.structured.success:
-            decision = (
-                result.structured.parsed
-            )  # This is already an AgentDecision instance
+            decision = result.structured.parsed
             save_json(step_dir / "llm_decision.json", decision.model_dump())
             return decision
         else:
-            # Fallback to manual parsing if structured output failed
             error_msg = (
                 result.structured.error if result.structured else "Unknown error"
             )
             console.print(
                 f"[yellow]Structured parsing failed: {error_msg}. Falling back to manual parse.[/yellow]"
             )
-
-            # Manual JSON extraction fallback
             cleaned_content = self._clean_json_content(result.content)
             try:
                 decision = AgentDecision.model_validate_json(cleaned_content)

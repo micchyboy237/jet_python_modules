@@ -1,0 +1,22 @@
+# Retrieved Context for Query: "site:indeed.com "AI Engineer" "Remote""
+> Found 3 relevant chunks with minimum relevance score of 3.0/10
+---
+### Document 1 (Relevance: 9.0/10)
+- **Chunk Index**: 0
+- **Position**: Characters 0–649
+
+- generic [ref=f7e2]: - navigation [ref=f7e3]: - generic [ref=f7e4]: - link "Indeed Home" [ref=f7e5] [cursor=pointer]: - /url: https://www.indeed.com/ - img "Indeed logo" [ref=f7e6] - list [ref=f7e7]: - listitem [ref=f7e8]: - link "Find jobs" [ref=f7e9] [cursor=pointer]: - /url: https://www.indeed.com/ - listitem [ref=f7e10]: - link "Company Reviews" [ref=f7e11] [cursor=pointer]: - /url: https://www.indeed.com/companies - listitem [ref=f7e12]: - link "Find salaries" [ref=f7e13] [cursor=pointer]: - /url: https://www.indeed.com/career/salaries - list [ref=f7e15]: - listitem [ref=f7e16]: - link "Upload your resume" [ref=f7e17] [cursor=pointer]:
+
+---
+### Document 2 (Relevance: 3.0/10)
+- **Chunk Index**: 1
+- **Position**: Characters 802–1550
+
+- /url: https://www.indeed.com/promo/resume - listitem [ref=f7e18]: - link "Sign in" [ref=f7e19] [cursor=pointer]: - /url: https://secure.indeed.com/account/login?hl=en&continue=https%3A%2F%2Fwww.indeed.com - listitem [ref=f7e20]: - link "Employers / Post Job" [ref=f7e21] [cursor=pointer]: - /url: https://www.indeed.com/hire?hl=en&ikw=gnav-header-hire&isid=employerlink - main [ref=f7e22]: - heading "Request Blocked" [level=1] [ref=f7e23] - paragraph [ref=f7e24]: "You have been blocked. If you believe this in error, please go to support.indeed.com and reference the following information: Your Ray ID for this request is a4ec0da29b7e7de5 Your current IP for this request is 180.190.113.168" - link "Return home →" [ref=f7e25] [cursor=pointer]:
+
+---
+### Document 3 (Relevance: 3.0/10)
+- **Chunk Index**: 2
+- **Position**: Characters 1619–2057
+
+- /url: https://www.indeed.com/ - text: Return home - generic [ref=f7e26]: → - paragraph [ref=f7e27]: - link "Troubleshooting Cloudflare Errors" [ref=f7e28] [cursor=pointer]: - /url: https://www.indeed.com/help/job-seekers/articles/33465379855501-cloudflare-errors-basic-troubleshooting?hl=en - paragraph [ref=f7e29]: - text: Need more help? - link "Contact us" [ref=f7e30] [cursor=pointer]: - /url: https://www.indeed.com/support/contact

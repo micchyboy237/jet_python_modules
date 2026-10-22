@@ -1,0 +1,7 @@
+{
+  "step": 5,
+  "input_tokens": 10758,
+  "cumulative_tokens": 43250,
+  "snapshot_context_tokens": 835,
+  "ranked_chunks_count": 3
+}

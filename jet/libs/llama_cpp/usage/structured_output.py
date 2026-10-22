@@ -336,9 +336,9 @@ def parse_structured_content(
             validator_backend="gbnf",
         )
 
-    logger.debug(
-        "⚠️ No JSON Schema validator installed; returning extracted JSON without validation"
-    )
+    # logger.debug(
+    #     "⚠️ No JSON Schema validator installed; returning extracted JSON without validation"
+    # )
     return StructuredResult(
         success=True,
         content=content,

@@ -8,19 +8,19 @@ Summary:
 
 Usage Examples:
     # Basic usage within a DeepEval metric
-    from jet.adapters.deepeval.llamacpp_model import LlamacppModel
-    model = LlamacppModel()
+    from jet.adapters.deepeval.chat import ChatLlamaCpp
+    model = ChatLlamaCpp()
     response, cost = model.generate("What is the capital of France?")
 
     # With custom parameters
-    model = LlamacppModel(
+    model = ChatLlamaCpp(
         model="qwen3.5-uncensored:2b",
         temperature=0.3,
         max_tokens=512
     )
 
     # CLI usage
-    python -m jet.adapters.deepeval.llamacpp_model "Explain quantum entanglement" --temperature 0.7
+    python -m jet.adapters.deepeval.chat "Explain quantum entanglement" --temperature 0.7
 """
 
 from __future__ import annotations
@@ -32,13 +32,13 @@ from typing import Any, Dict, Optional
 
 from deepeval.models import DeepEvalBaseLLM
 from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL
-from jet.adapters.llama_cpp.llm_utils import achat, chat
+from jet.adapters.llama_cpp.llm_utils_observed import achat, chat
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 
-class LlamacppModel(DeepEvalBaseLLM):
+class ChatLlamaCpp(DeepEvalBaseLLM):
     """DeepEval LLM adapter backed by jet's llama.cpp infrastructure.
 
     Args:
@@ -91,14 +91,14 @@ class LlamacppModel(DeepEvalBaseLLM):
         # Initialize parent with model name for tracing/naming
         super().__init__(model=self.model_name)
 
-    def load_model(self, *args: Any, **kwargs: Any) -> "LlamacppModel":
+    def load_model(self, *args: Any, **kwargs: Any) -> "ChatLlamaCpp":
         """No-op: jet manages client lifecycle internally."""
         return self
 
     def generate(self, prompt: str, schema: Optional[BaseModel] = None) -> str:
         """Synchronous generation via jet.llm_utils.chat."""
         logger.debug(
-            "LlamacppModel.generate called | model=%s | temp=%.2f | schema=%s",
+            "ChatLlamaCpp.generate called | model=%s | temp=%.2f | schema=%s",
             self.model_name,
             self.temperature,
             schema.__name__ if schema else None,
@@ -126,7 +126,7 @@ class LlamacppModel(DeepEvalBaseLLM):
     async def a_generate(self, prompt: str, schema: Optional[BaseModel] = None) -> str:
         """Asynchronous generation via jet.llm_utils.achat."""
         logger.debug(
-            "LlamacppModel.a_generate called | model=%s | temp=%.2f | schema=%s",
+            "ChatLlamaCpp.a_generate called | model=%s | temp=%.2f | schema=%s",
             self.model_name,
             self.temperature,
             schema.__name__ if schema else None,
@@ -173,7 +173,7 @@ class LlamacppModel(DeepEvalBaseLLM):
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Test LlamacppModel DeepEval adapter against a local llama.cpp server.",
+        description="Test ChatLlamaCpp DeepEval adapter against a local llama.cpp server.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -235,7 +235,7 @@ if __name__ == "__main__":
 
     args = _build_parser().parse_args()
 
-    model = LlamacppModel(
+    model = ChatLlamaCpp(
         model=args.model,
         temperature=args.temperature,
         max_tokens=args.max_tokens,

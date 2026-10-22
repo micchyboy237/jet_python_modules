@@ -1,4 +1,4 @@
-"""Demo: capture filtered ARIA snapshots based on element interactivity."""
+"""Demo: capture ARIA snapshots filtered for interactive elements."""
 
 import asyncio
 import shutil
@@ -52,9 +52,8 @@ SAMPLE_HTML = """
 saved_files = []
 
 
-async def example_interactives() -> None:
-    """Example 1: Snapshot containing only interactive elements."""
-    console.rule("[bold]Example 1: Interactives Only[/bold]")
+async def main() -> None:
+    console.rule("[bold]Interactive Elements Snapshot[/bold]")
 
     # Save input
     input_file = OUTPUT_DIR / "input_mixed.html"
@@ -73,58 +72,6 @@ async def example_interactives() -> None:
 
     console.print("[bold green]Interactive Elements Snapshot:[/bold green]")
     console.print(snapshot)
-
-
-async def example_links() -> None:
-    """Example 2: Snapshot containing only links."""
-    console.rule("[bold]Example 2: Links Only[/bold]")
-
-    # Save input
-    input_file = OUTPUT_DIR / "input_mixed.html"
-    if not input_file.exists():
-        input_file.write_text(SAMPLE_HTML, encoding="utf-8")
-        saved_files.append(input_file)
-
-    snapshot = await capture_snapshot(
-        input_file, mode="ai", headless=True, filter_type="links"
-    )
-
-    # Save output
-    output_file = OUTPUT_DIR / "snapshot_links.txt"
-    output_file.write_text(snapshot, encoding="utf-8")
-    saved_files.append(output_file)
-
-    console.print("[bold green]Links Snapshot:[/bold green]")
-    console.print(snapshot)
-
-
-async def example_non_interactives() -> None:
-    """Example 3: Snapshot containing only non-interactive elements."""
-    console.rule("[bold]Example 3: Non-Interactives Only[/bold]")
-
-    # Save input
-    input_file = OUTPUT_DIR / "input_mixed.html"
-    if not input_file.exists():
-        input_file.write_text(SAMPLE_HTML, encoding="utf-8")
-        saved_files.append(input_file)
-
-    snapshot = await capture_snapshot(
-        input_file, mode="ai", headless=True, filter_type="non-interactives"
-    )
-
-    # Save output
-    output_file = OUTPUT_DIR / "snapshot_non_interactives.txt"
-    output_file.write_text(snapshot, encoding="utf-8")
-    saved_files.append(output_file)
-
-    console.print("[bold green]Non-Interactive Elements Snapshot:[/bold green]")
-    console.print(snapshot)
-
-
-async def main() -> None:
-    await example_interactives()
-    await example_links()
-    await example_non_interactives()
 
     console.rule("[bold]Generated Resources[/bold]")
     for f in saved_files:

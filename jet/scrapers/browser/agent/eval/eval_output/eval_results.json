@@ -1,0 +1,30 @@
+[
+  {
+    "task": {
+      "url": "https://ph.indeed.com",
+      "goal": "Search for 'AI Engineer' in 'Remote' location and list the first 3 job titles.",
+      "expected_output": "List of 3 job titles related to AI Engineer."
+    },
+    "result": {
+      "success": false,
+      "actual_output": "Error: [Errno 2] No such file or directory: '/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/browser/agent/eval_output/runs/initial_eval_snapshot.md'",
+      "goal": "Search for 'AI Engineer' in 'Remote' location and list the first 3 job titles.",
+      "url": "https://ph.indeed.com"
+    },
+    "error": true
+  },
+  {
+    "task": {
+      "url": "https://example.com",
+      "goal": "Find the title of the page.",
+      "expected_output": "Example Domain"
+    },
+    "result": {
+      "success": false,
+      "actual_output": "Error: [Errno 2] No such file or directory: '/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/browser/agent/eval_output/runs/initial_eval_snapshot.md'",
+      "goal": "Find the title of the page.",
+      "url": "https://example.com"
+    },
+    "error": true
+  }
+]
