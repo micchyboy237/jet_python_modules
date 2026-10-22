@@ -2,13 +2,13 @@
 
 ## 1. Core Philosophy: "Structure is Semantics"
 
-`jet-telemetry` is designed to make observability **invisible** while ensuring **semantic richness**. It bridges the gap between raw OpenTelemetry and the specific needs of AI applications by enforcing a strict hierarchy that mirrors cognitive flow.
+`jet-telemetry` makes observability **invisible** while ensuring **semantic richness**. It enforces a strict hierarchy that mirrors cognitive flow.
 
 ### The Golden Rules
 
-1.  **Decorator-First:** Use decorators to wrap logic. This keeps business code clean and ensures consistent attribute capture.
-2.  **Hierarchy Matters:** Every trace should have a root (`@chain` or `@agent`). Leaf nodes (`@llm`, `@tool`) must be nested under parents to show context.
-3.  **Safety by Default:** PII (passwords, keys) is automatically redacted. Large vectors are never stored; only dimensions and metadata are captured.
+1.  **Decorator-First:** Wrap logic to enforce consistent attribute capture.
+2.  **Hierarchy Matters:** Every trace must have a root (`@chain` or `@agent`). Leaf nodes (`@llm`, `@tool`) must be nested under parents.
+3.  **Safety by Default:** PII (passwords, keys) is auto-redacted. Large vectors are never stored; only dimensions are captured.
 4.  **Lazy Initialization:** Decorators can be applied at module load time without crashing if telemetry isn't initialized yet.
 
 ---
@@ -30,110 +30,106 @@ graph TD
 
 ### Why Nesting Matters
 
-- **Agent Loops:** An `@agent` span wraps the entire loop. Each iteration’s `@llm` (planning) and `@tool` (execution) become children. This allows you to visualize "thought processes" over time.
+- **Agent Loops:** An `@agent` span wraps the entire loop. Each iteration’s `@llm` (planning) and `@tool` (execution) become children, visualizing "thought processes."
 - **RAG Pipelines:** A `@retriever` span contains nested `@embedding` spans. If retrieval fails, you can drill down to see if it was an embedding error or a vector store timeout.
-- **Tool Registry:** By consistently using `@tool(name="...")`, Phoenix aggregates all unique tool names. You can query: _"Show me all traces where `tool.name = 'get_weather'` failed."_
+- **Tool Registry:** By consistently using `@tool(name="...")`, Phoenix aggregates all unique tool names for querying failures.
 
 ---
 
-## 3. The Decorator Toolkit
+## 3. The Decorator Toolkit & Attributes
 
-### 🧠 Core AI Components
+Every decorator captures specific **OpenInference** attributes.
 
-| Decorator | Span Kind | Use Case                               | Key Attributes Captured                                           |
-| :-------- | :-------- | :------------------------------------- | :---------------------------------------------------------------- |
-| `@llm`    | `LLM`     | Wraps calls to LLM providers.          | `llm.model_name`, `llm.input_messages` (redacted), `llm.provider` |
-| `@tool`   | `TOOL`    | Wraps external actions (APIs, DBs).    | `tool.name`, `tool.description`, `tool.parameters`                |
-| `@agent`  | `AGENT`   | Wraps autonomous agent loops.          | `agent.name`                                                      |
-| `@chain`  | `CHAIN`   | Wraps orchestration logic (Root span). | Acts as the parent for all nested spans.                          |
-
-### 🔍 RAG & Search Components
-
-| Decorator    | Span Kind   | Use Case                              | Key Attributes Captured                                                           |
-| :----------- | :---------- | :------------------------------------ | :-------------------------------------------------------------------------------- |
-| `@embedding` | `EMBEDDING` | Wraps text-to-vector generation.      | `embedding.model_name`, `embedding.text` (redacted), `embedding.vector_dimension` |
-| `@retriever` | `RETRIEVER` | Wraps vector store or keyword search. | `retriever.model_name`, `retrieval.query`, `retrieval.document_count`             |
-| `@reranker`  | `RERANKER`  | Wraps re-scoring of documents.        | `reranker.model_name`, `reranker.query`, `reranker.output_document_count`         |
-
-### 🛡️ Safety, Eval & Prompting
-
-| Decorator    | Span Kind   | Use Case                           | Key Attributes Captured               |
-| :----------- | :---------- | :--------------------------------- | :------------------------------------ |
-| `@guardrail` | `GUARDRAIL` | Input/output safety checks.        | `guardrail.input`, `guardrail.result` |
-| `@evaluator` | `EVALUATOR` | LLM-as-a-judge or scoring logic.   | Custom attributes via span.           |
-| `@prompt`    | `PROMPT`    | Prompt templating/rendering steps. | Custom attributes via span.           |
+| Decorator    | Span Kind   | Input Value (`INPUT_VALUE`) | Output Value (`OUTPUT_VALUE`)  | Key Semantic Attributes                                                     |
+| :----------- | :---------- | :-------------------------- | :----------------------------- | :-------------------------------------------------------------------------- |
+| `@llm`       | `LLM`       | JSON: `[{role, content}]`   | JSON: `[{role, content}]`      | `llm.model_name`, `llm.token_count.*`, `llm.provider`, `llm.input_messages` |
+| `@tool`      | `TOOL`      | JSON: `{params}`            | Text/JSON: Result              | `tool.name`, `tool.description`, `tool.parameters`                          |
+| `@agent`     | `AGENT`     | Text: User Query            | Text: Final Answer             | `agent.name`, `session.id`                                                  |
+| `@chain`     | `CHAIN`     | Text/JSON: Input            | Text/JSON: Output              | `session.id` (if provided)                                                  |
+| `@retriever` | `RETRIEVER` | Text: Query                 | JSON: `[{id, score, content}]` | `retrieval.documents`, `retrieval.document_count`                           |
+| `@embedding` | `EMBEDDING` | Text: Input String          | N/A (Dimension only)           | `embedding.model_name`, `embedding.vector_dimension`                        |
+| `@guardrail` | `GUARDRAIL` | Text: Content               | Text: Pass/Fail                | `guardrail.input`, `guardrail.result`                                       |
+| `@evaluator` | `EVALUATOR` | Text/JSON: Data             | Text: Score/Reason             | `evaluations`                                                               |
+| `@prompt`    | `PROMPT`    | N/A                         | Text: Rendered Prompt          | `prompt.template`, `prompt.variables`                                       |
 
 ---
 
 ## 4. Advanced Patterns
 
-### A. Decorator Stacking (Composability)
+### A. Agentic Workflows & Session Tracking
 
-You can stack multiple decorators to add cross-cutting concerns like performance monitoring, caching, or retry logic to a single span.
+Use `session_id` to group multi-turn traces in Phoenix.
 
-**Example: A Robust Tool**
+```python
+from jet_telemetry import agent, llm
+
+@agent(name="support_bot", session_id="user_123_session_456")
+async def handle_message(query: str):
+    # All spans inside this agent will share the same session.id
+    response = await generate_response(query)
+    return response
+```
+
+### B. Decorator Stacking (Composability)
+
+Stack decorators to add cross-cutting concerns like performance monitoring.
 
 ```python
 from jet_telemetry import tool, performance_monitor
 
-# Custom decorators (defined in your app) can also be stacked
 @tool(description="Search DB")
 @performance_monitor(threshold_ms=200) # Adds perf.duration_ms attribute
-@my_cache_decorator # Adds cache.hit attribute
-@retry_with_tracking(max_retries=3) # Adds retry.attempts attribute
 async def search_db(query: str):
-    # Logic here
     pass
 ```
 
-_Result:_ A single `TOOL` span in Phoenix that contains tool semantics, latency metrics, cache status, and retry history.
+### C. Gold Standard Example: RAG-Agent Flow
 
-### B. Composite Decorators
-
-For frequently used patterns, create a composite decorator to keep code clean.
+A complete flow demonstrating proper nesting, attribute capture, and session tracking.
 
 ```python
-def fully_observed_llm(func=None, *, model_name: str = "llama-3"):
-    def decorator(f):
-        f = llm(model_name=model_name)(f)
-        f = prompt_tracker(f) # Custom decorator
-        f = performance_monitor(threshold_ms=1000)(f)
-        return f
-    if func is not None:
-        return decorator(func)
-    return decorator
+from jet_telemetry import initialize_telemetry, agent, llm, retriever, tool, chain, guardrail, evaluator
 
-@fully_observed_llm(model_name="llama-3.2")
-async def smart_generate(prompt: str):
-    # ...
-```
+initialize_telemetry(service_name="rag-agent")
 
-### C. Streaming LLMs
+@chain(name="rag-pipeline", session_id="session_1")
+async def rag_pipeline(query: str):
+    # 1. Guardrail
+    safe_query = await check_safety(query)
 
-The `@llm` decorator works seamlessly with streaming. It captures input messages before the stream starts.
+    # 2. Retrieval
+    docs = await retrieve_docs(safe_query)
 
-```python
-@llm(model_name="llama-3.2-3b-instruct")
-async def chat(messages: list):
-    stream = await client.chat.completions.create(..., stream=True)
-    async for chunk in stream:
-        yield chunk
-```
+    # 3. LLM Generation
+    response = await generate_answer(safe_query, docs)
 
-### D. Hybrid Search (Retrieval + Reranking)
+    # 4. Evaluation
+    score = await evaluate_faithfulness(response, docs)
 
-Use `@retriever` and `@reranker` as siblings or nested steps under a `@chain`.
+    return response
 
-```python
-@chain(name="hybrid-search")
-async def search(query: str):
-    # 1. Semantic Retrieval
-    docs = await vector_search(query)
+@guardrail(name="input-check")
+async def check_safety(text: str):
+    return "PASS"
 
-    # 2. Lexical Reranking
-    ranked = await bm25_rerank(query, docs)
+@retriever(model_name="vector-store-v1")
+async def retrieve_docs(query: str):
+    # Returns list of dicts with 'id', 'score', 'content'
+    return [{"id": "1", "score": 0.9, "content": "Jet Telemetry is great"}]
 
-    return ranked
+@llm(model_name="gpt-4o", provider="openai")
+async def generate_answer(query: str, docs: list):
+    # Expects 'messages' argument for auto-capture
+    messages = [{"role": "user", "content": f"{query}\nContext: {docs}"}]
+    # Mock response object for demonstration
+    class MockResult:
+        choices = [type('obj', (object,), {'message': type('obj', (object,), {'role': 'assistant', 'content': 'Yes it is.'})})]
+        usage = type('obj', (object,), {'prompt_tokens': 10, 'completion_tokens': 5, 'total_tokens': 15})
+    return MockResult()
+
+@evaluator(name="faithfulness-check")
+async def evaluate_faithfulness(response: str, docs: list):
+    return {"score": 0.95, "reason": "Grounded in context"}
 ```
 
 ---
@@ -225,3 +221,4 @@ When generating code with `jet-telemetry`, ensure:
 - [ ] All external actions are wrapped in `@tool` with `name` and `description`.
 - [ ] RAG steps are properly nested (`@retriever` -> `@embedding`).
 - [ ] Sensitive data is handled via `redact()` or automatic PII filtering.
+- [ ] `session_id` is used for multi-turn conversations.

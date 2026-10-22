@@ -9,7 +9,8 @@
   - **Core:** `@llm`, `@tool`, `@chain`, `@agent`
   - **RAG & Search:** `@embedding`, `@retriever`, `@reranker`
   - **Safety & Eval:** `@guardrail`, `@evaluator`, `@prompt`
-- **Smart Attribute Capture:** Automatically captures model names, input messages, and retrieval metadata while redacting sensitive data (PII) and excluding large vectors.
+- **Full Fidelity Capture:** Automatically captures **Inputs**, **Outputs**, **Token Counts**, and **Metadata** while redacting sensitive data (PII) and excluding large vectors.
+- **Agentic Ready:** Supports `session.id` for multi-turn conversations and decision tracing.
 - **Minimalist API:** Easy-to-use decorators that support both synchronous and asynchronous workflows.
 - **Flexible Configuration:** Supports environment variables or direct code overrides for the collector endpoint.
 - **Trace Management:** Built-in helpers to generate shareable trace URLs and export spans to JSONL for offline analysis.

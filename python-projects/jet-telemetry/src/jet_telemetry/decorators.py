@@ -10,10 +10,10 @@ import inspect
 import json
 import time
 from functools import wraps
-from typing import Optional
+from typing import Any, Optional
 
 from openinference.semconv.trace import (
-    EmbeddingAttributes,
+    OpenInferenceSpanKindValues,
     RerankerAttributes,
     SpanAttributes,
 )
@@ -40,27 +40,15 @@ class LazyPhoenixTracer:
                     self._real_tracer = provider.get_tracer(__name__)
             except Exception:
                 pass
-
-        # Fallback to global OTel tracer if Phoenix isn't ready
         if self._real_tracer is None:
             return otel_trace.get_tracer(__name__)
         return self._real_tracer
 
     def __getattr__(self, name: str):
-        # Delegate attribute access (like .tool(), .llm(), .chain())
-        # to the real tracer at runtime
         real_tracer = self._get_real_tracer()
-
-        # Check if the real tracer has the requested attribute/method
         if hasattr(real_tracer, name):
             attr = getattr(real_tracer, name)
-            # If it's callable (like .tool()), we might need to wrap the call
-            # to ensure it returns something compatible, but usually
-            # arize-phoenix-otel tracers return decorators or span creators.
             return attr
-
-        # If the real tracer still doesn't have the attribute (e.g., OTel fallback),
-        # raise a helpful error instead of AttributeError on ProxyTracer
         raise AttributeError(
             f"Tracer method '{name}' not available. "
             f"Ensure initialize_telemetry() is called before using @{name} decorated functions."
@@ -72,7 +60,6 @@ class LazyPhoenixTracer:
         return real_tracer.start_as_current_span(*args, **kwargs)
 
 
-# Global lazy tracer instance
 _lazy_tracer = LazyPhoenixTracer()
 
 
@@ -83,12 +70,22 @@ def _get_tracer():
 
 def _redact(text: str) -> str:
     """Redact sensitive content from text before tracing."""
-    sensitive = ["ssn", "password", "api_key", "secret", "token"]
+    if not isinstance(text, str):
+        return str(text)
+    sensitive = ["ssn", "password", "api_key", "secret", "token", "credit_card"]
     lower = text.lower()
     for pattern in sensitive:
         if pattern in lower:
             return "[REDACTED]"
     return text
+
+
+def _safe_json_serialize(obj: Any) -> str:
+    """Safely serialize an object to JSON, handling non-serializable types."""
+    try:
+        return json.dumps(obj, default=str)
+    except Exception:
+        return str(obj)
 
 
 def performance_monitor(func=None, *, threshold_ms: float = 500):
@@ -147,85 +144,185 @@ def llm(
     model_name: str = "unknown",
     name: Optional[str] = None,
     provider: str = "llama_cpp",
+    session_id: Optional[str] = None,
 ):
     """
     Decorator for LLM calls using built-in Phoenix tracer.
-    Captures input messages and invocation parameters.
+    Captures input messages, output messages, tokens, and cost.
     """
 
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
-
-        # Get the decorated function from the lazy tracer
-        # Note: tracer.llm(...) will resolve the real tracer at call time inside __getattr__
-        # However, we need to be careful. tracer.llm returns a decorator.
-        # We must apply that decorator to f.
-
-        # To handle the lazy nature, we can't just do tracer.llm(...)(f) immediately
-        # if tracer.llm itself needs to be resolved.
-        # But __getattr__ returns the actual method from the real tracer.
-        # So tracer.llm(name=span_name) returns the phoenix decorator factory.
-
         try:
             phoenix_decorator_factory = tracer.llm(name=span_name)
             decorated = phoenix_decorator_factory(f)
         except AttributeError:
-            # Fallback if lazy resolution fails completely
             decorated = f
 
         @wraps(decorated)
         def wrapper(*args, **kwargs):
+            # Call the original/decorated function first to get result
+            result = decorated(*args, **kwargs)
+
             span = otel_trace.get_current_span()
             if span.is_recording():
                 span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model_name)
                 span.set_attribute(SpanAttributes.LLM_PROVIDER, provider)
+                if session_id:
+                    span.set_attribute(SpanAttributes.SESSION_ID, session_id)
+
+                # Capture Input
                 sig = inspect.signature(f)
                 bound_args = sig.bind(*args, **kwargs)
                 bound_args.apply_defaults()
+
                 if "messages" in bound_args.arguments:
                     msgs = bound_args.arguments["messages"]
                     if isinstance(msgs, list):
                         safe_msgs = [
                             {
-                                "role": m.get("role"),
-                                "content": _redact(str(m.get("content", ""))),
+                                "role": m.get("role")
+                                if isinstance(m, dict)
+                                else getattr(m, "role", "user"),
+                                "content": _redact(
+                                    str(
+                                        m.get("content", "")
+                                        if isinstance(m, dict)
+                                        else getattr(m, "content", "")
+                                    )
+                                ),
                             }
                             for m in msgs
                         ]
                         span.set_attribute(
-                            SpanAttributes.LLM_INPUT_MESSAGES, json.dumps(safe_msgs)
+                            SpanAttributes.LLM_INPUT_MESSAGES,
+                            _safe_json_serialize(safe_msgs),
                         )
-            return decorated(*args, **kwargs)
+                        span.set_attribute(
+                            SpanAttributes.INPUT_MIME_TYPE, "application/json"
+                        )
+
+                # Capture Output (if result is a standard completion object)
+                if hasattr(result, "choices") and result.choices:
+                    choice = result.choices[0]
+                    message = choice.message
+                    span.set_attribute(
+                        SpanAttributes.LLM_OUTPUT_MESSAGES,
+                        _safe_json_serialize(
+                            [
+                                {
+                                    "role": message.role,
+                                    "content": _redact(message.content),
+                                }
+                            ]
+                        ),
+                    )
+                    span.set_attribute(
+                        SpanAttributes.OUTPUT_MIME_TYPE, "application/json"
+                    )
+
+                    # Token Usage
+                    if hasattr(result, "usage") and result.usage:
+                        usage = result.usage
+                        if hasattr(usage, "prompt_tokens"):
+                            span.set_attribute(
+                                SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
+                                usage.prompt_tokens,
+                            )
+                        if hasattr(usage, "completion_tokens"):
+                            span.set_attribute(
+                                SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                                usage.completion_tokens,
+                            )
+                        if hasattr(usage, "total_tokens"):
+                            span.set_attribute(
+                                SpanAttributes.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens
+                            )
+
+            return result
 
         if inspect.iscoroutinefunction(f):
 
             @wraps(decorated)
             async def async_wrapper(*args, **kwargs):
+                result = await decorated(*args, **kwargs)
                 span = otel_trace.get_current_span()
                 if span.is_recording():
                     span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model_name)
                     span.set_attribute(SpanAttributes.LLM_PROVIDER, provider)
+                    if session_id:
+                        span.set_attribute(SpanAttributes.SESSION_ID, session_id)
+
                     sig = inspect.signature(f)
                     bound_args = sig.bind(*args, **kwargs)
                     bound_args.apply_defaults()
+
                     if "messages" in bound_args.arguments:
                         msgs = bound_args.arguments["messages"]
                         if isinstance(msgs, list):
                             safe_msgs = [
                                 {
-                                    "role": m.get("role"),
-                                    "content": _redact(str(m.get("content", ""))),
+                                    "role": m.get("role")
+                                    if isinstance(m, dict)
+                                    else getattr(m, "role", "user"),
+                                    "content": _redact(
+                                        str(
+                                            m.get("content", "")
+                                            if isinstance(m, dict)
+                                            else getattr(m, "content", "")
+                                        )
+                                    ),
                                 }
                                 for m in msgs
                             ]
                             span.set_attribute(
-                                SpanAttributes.LLM_INPUT_MESSAGES, json.dumps(safe_msgs)
+                                SpanAttributes.LLM_INPUT_MESSAGES,
+                                _safe_json_serialize(safe_msgs),
                             )
-                return await decorated(*args, **kwargs)
+                            span.set_attribute(
+                                SpanAttributes.INPUT_MIME_TYPE, "application/json"
+                            )
+
+                    if hasattr(result, "choices") and result.choices:
+                        choice = result.choices[0]
+                        message = choice.message
+                        span.set_attribute(
+                            SpanAttributes.LLM_OUTPUT_MESSAGES,
+                            _safe_json_serialize(
+                                [
+                                    {
+                                        "role": message.role,
+                                        "content": _redact(message.content),
+                                    }
+                                ]
+                            ),
+                        )
+                        span.set_attribute(
+                            SpanAttributes.OUTPUT_MIME_TYPE, "application/json"
+                        )
+
+                        if hasattr(result, "usage") and result.usage:
+                            usage = result.usage
+                            if hasattr(usage, "prompt_tokens"):
+                                span.set_attribute(
+                                    SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
+                                    usage.prompt_tokens,
+                                )
+                            if hasattr(usage, "completion_tokens"):
+                                span.set_attribute(
+                                    SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                                    usage.completion_tokens,
+                                )
+                            if hasattr(usage, "total_tokens"):
+                                span.set_attribute(
+                                    SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
+                                    usage.total_tokens,
+                                )
+
+                return result
 
             return async_wrapper
-
         return wrapper
 
     if func is not None:
@@ -236,6 +333,7 @@ def llm(
 def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = None):
     """
     Decorator for external interactions (Vector DB, APIs, Rerankers).
+    Captures tool parameters AND tool outputs.
     """
 
     def decorator(f):
@@ -245,7 +343,6 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
             kwargs["name"] = name
         if description:
             kwargs["description"] = description
-
         try:
             phoenix_decorator_factory = tracer.tool(**kwargs)
             decorated = phoenix_decorator_factory(f)
@@ -254,23 +351,36 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
 
         @wraps(decorated)
         def wrapper(*args, **kwargs):
+            result = decorated(*args, **kwargs)
             span = otel_trace.get_current_span()
             if span.is_recording():
                 if name:
                     span.set_attribute(SpanAttributes.TOOL_NAME, name)
                 if description:
                     span.set_attribute(SpanAttributes.TOOL_DESCRIPTION, description)
+
+                # Capture Parameters
                 if kwargs:
                     safe_params = {k: _redact(str(v)) for k, v in kwargs.items()}
                     span.set_attribute(
-                        SpanAttributes.TOOL_PARAMETERS, json.dumps(safe_params)
+                        SpanAttributes.TOOL_PARAMETERS,
+                        _safe_json_serialize(safe_params),
                     )
-            return decorated(*args, **kwargs)
+
+                # Capture Output
+                if result is not None:
+                    span.set_attribute(
+                        SpanAttributes.OUTPUT_VALUE, _redact(str(result))
+                    )
+                    span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
+
+            return result
 
         if inspect.iscoroutinefunction(f):
 
             @wraps(decorated)
             async def async_wrapper(*args, **kwargs):
+                result = await decorated(*args, **kwargs)
                 span = otel_trace.get_current_span()
                 if span.is_recording():
                     if name:
@@ -280,12 +390,19 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
                     if kwargs:
                         safe_params = {k: _redact(str(v)) for k, v in kwargs.items()}
                         span.set_attribute(
-                            SpanAttributes.TOOL_PARAMETERS, json.dumps(safe_params)
+                            SpanAttributes.TOOL_PARAMETERS,
+                            _safe_json_serialize(safe_params),
                         )
-                return await decorated(*args, **kwargs)
+                    if result is not None:
+                        span.set_attribute(
+                            SpanAttributes.OUTPUT_VALUE, _redact(str(result))
+                        )
+                        span.set_attribute(
+                            SpanAttributes.OUTPUT_MIME_TYPE, "text/plain"
+                        )
+                return result
 
             return async_wrapper
-
         return wrapper
 
     if func is not None:
@@ -293,7 +410,7 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
     return decorator
 
 
-def chain(func=None, *, name: Optional[str] = None):
+def chain(func=None, *, name: Optional[str] = None, session_id: Optional[str] = None):
     """
     Decorator for orchestration logic (RAG pipelines, Memory updates).
     Automatically remembers the Trace ID upon completion for lazy access.
@@ -303,17 +420,18 @@ def chain(func=None, *, name: Optional[str] = None):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
-
         if is_async:
 
             @wraps(f)
             async def async_wrapper(*args, **kwargs):
                 with tracer.start_as_current_span(span_name) as span:
-                    # Explicitly set the span kind to CHAIN for Phoenix/OpenInference
                     if span.is_recording():
                         span.set_attribute(
-                            SpanAttributes.OPENINFERENCE_SPAN_KIND, "CHAIN"
+                            SpanAttributes.OPENINFERENCE_SPAN_KIND,
+                            OpenInferenceSpanKindValues.CHAIN.value,
                         )
+                        if session_id:
+                            span.set_attribute(SpanAttributes.SESSION_ID, session_id)
                     try:
                         return await f(*args, **kwargs)
                     except Exception as e:
@@ -332,11 +450,13 @@ def chain(func=None, *, name: Optional[str] = None):
             @wraps(f)
             def sync_wrapper(*args, **kwargs):
                 with tracer.start_as_current_span(span_name) as span:
-                    # Explicitly set the span kind to CHAIN for Phoenix/OpenInference
                     if span.is_recording():
                         span.set_attribute(
-                            SpanAttributes.OPENINFERENCE_SPAN_KIND, "CHAIN"
+                            SpanAttributes.OPENINFERENCE_SPAN_KIND,
+                            OpenInferenceSpanKindValues.CHAIN.value,
                         )
+                        if session_id:
+                            span.set_attribute(SpanAttributes.SESSION_ID, session_id)
                     try:
                         return f(*args, **kwargs)
                     except Exception as e:
@@ -356,7 +476,7 @@ def chain(func=None, *, name: Optional[str] = None):
     return decorator
 
 
-def agent(func=None, *, name: Optional[str] = None):
+def agent(func=None, *, name: Optional[str] = None, session_id: Optional[str] = None):
     """
     Decorator for agent reasoning loops.
     """
@@ -365,7 +485,6 @@ def agent(func=None, *, name: Optional[str] = None):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
-
         if is_async:
 
             @wraps(f)
@@ -373,8 +492,13 @@ def agent(func=None, *, name: Optional[str] = None):
                 with tracer.start_as_current_span(span_name) as span:
                     if span.is_recording():
                         span.set_attribute(
-                            SpanAttributes.OPENINFERENCE_SPAN_KIND, "AGENT"
+                            SpanAttributes.OPENINFERENCE_SPAN_KIND,
+                            OpenInferenceSpanKindValues.AGENT.value,
                         )
+                        if session_id:
+                            span.set_attribute(SpanAttributes.SESSION_ID, session_id)
+                        if name:
+                            span.set_attribute(SpanAttributes.AGENT_NAME, name)
                     try:
                         return await f(*args, **kwargs)
                     except Exception as e:
@@ -389,8 +513,13 @@ def agent(func=None, *, name: Optional[str] = None):
                 with tracer.start_as_current_span(span_name) as span:
                     if span.is_recording():
                         span.set_attribute(
-                            SpanAttributes.OPENINFERENCE_SPAN_KIND, "AGENT"
+                            SpanAttributes.OPENINFERENCE_SPAN_KIND,
+                            OpenInferenceSpanKindValues.AGENT.value,
                         )
+                        if session_id:
+                            span.set_attribute(SpanAttributes.SESSION_ID, session_id)
+                        if name:
+                            span.set_attribute(SpanAttributes.AGENT_NAME, name)
                     try:
                         return f(*args, **kwargs)
                     except Exception as e:
@@ -409,14 +538,13 @@ def retriever(
 ):
     """
     Decorator for data retrieval steps (Vector DB, SQL, etc.).
-    Uses RETRIEVAL_DOCUMENTS for results but limits document content size.
+    Uses RETRIEVAL_DOCUMENTS for results.
     """
 
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
-
         if is_async:
 
             @wraps(f)
@@ -428,26 +556,37 @@ def retriever(
                         if model_name:
                             span.set_attribute("retriever.model_name", model_name)
                         if args:
-                            span.set_attribute("retrieval.query", _redact(str(args[0])))
+                            span.set_attribute(
+                                SpanAttributes.INPUT_VALUE, _redact(str(args[0]))
+                            )
+                            span.set_attribute(
+                                SpanAttributes.INPUT_MIME_TYPE, "text/plain"
+                            )
 
                     result = await f(*args, **kwargs)
 
                     if span.is_recording() and result:
                         if isinstance(result, list) and len(result) > 0:
-                            doc_metadata = []
+                            # Capture Document Metadata and Content (limited)
+                            documents = []
                             for i, doc in enumerate(result[:10]):
-                                meta = {"index": i}
+                                doc_entry = {"index": i}
                                 if isinstance(doc, dict):
-                                    if "score" in doc:
-                                        meta["score"] = doc["score"]
-                                    if "id" in doc:
-                                        meta["id"] = doc["id"]
-                                doc_metadata.append(meta)
+                                    doc_entry["score"] = doc.get("score")
+                                    doc_entry["id"] = doc.get("id")
+                                    # Limit content length to avoid large spans
+                                    content = str(doc.get("content", ""))[:500]
+                                    doc_entry["content"] = _redact(content)
+                                else:
+                                    doc_entry["content"] = _redact(str(doc)[:500])
+                                documents.append(doc_entry)
 
-                            span.set_attribute("retrieval.document_count", len(result))
                             span.set_attribute(
-                                "retrieval.documents.metadata", json.dumps(doc_metadata)
+                                SpanAttributes.RETRIEVAL_DOCUMENTS,
+                                _safe_json_serialize(documents),
                             )
+                            span.set_attribute("retrieval.document_count", len(result))
+
                     return result
 
             return async_wrapper
@@ -462,26 +601,35 @@ def retriever(
                         if model_name:
                             span.set_attribute("retriever.model_name", model_name)
                         if args:
-                            span.set_attribute("retrieval.query", _redact(str(args[0])))
+                            span.set_attribute(
+                                SpanAttributes.INPUT_VALUE, _redact(str(args[0]))
+                            )
+                            span.set_attribute(
+                                SpanAttributes.INPUT_MIME_TYPE, "text/plain"
+                            )
 
                     result = f(*args, **kwargs)
 
                     if span.is_recording() and result:
                         if isinstance(result, list) and len(result) > 0:
-                            doc_metadata = []
+                            documents = []
                             for i, doc in enumerate(result[:10]):
-                                meta = {"index": i}
+                                doc_entry = {"index": i}
                                 if isinstance(doc, dict):
-                                    if "score" in doc:
-                                        meta["score"] = doc["score"]
-                                    if "id" in doc:
-                                        meta["id"] = doc["id"]
-                                doc_metadata.append(meta)
+                                    doc_entry["score"] = doc.get("score")
+                                    doc_entry["id"] = doc.get("id")
+                                    content = str(doc.get("content", ""))[:500]
+                                    doc_entry["content"] = _redact(content)
+                                else:
+                                    doc_entry["content"] = _redact(str(doc)[:500])
+                                documents.append(doc_entry)
 
-                            span.set_attribute("retrieval.document_count", len(result))
                             span.set_attribute(
-                                "retrieval.documents.metadata", json.dumps(doc_metadata)
+                                SpanAttributes.RETRIEVAL_DOCUMENTS,
+                                _safe_json_serialize(documents),
                             )
+                            span.set_attribute("retrieval.document_count", len(result))
+
                     return result
 
             return sync_wrapper
@@ -494,14 +642,13 @@ def retriever(
 def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unknown"):
     """
     Decorator for embedding generation.
-    Captures text input but NOT the embedding vector to avoid large spans.
+    Captures text input and vector dimensions.
     """
 
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
-
         try:
             import numpy as np
         except ImportError:
@@ -519,13 +666,14 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                             SpanAttributes.EMBEDDING_MODEL_NAME, model_name
                         )
                         if args:
+                            text = str(args[0])
                             span.set_attribute(
-                                EmbeddingAttributes.EMBEDDING_TEXT,
-                                _redact(str(args[0])),
+                                SpanAttributes.INPUT_VALUE, _redact(text)
                             )
                             span.set_attribute(
-                                "embedding.text_length", len(str(args[0]))
+                                SpanAttributes.INPUT_MIME_TYPE, "text/plain"
                             )
+                            span.set_attribute("embedding.text_length", len(text))
 
                     result = await f(*args, **kwargs)
 
@@ -536,9 +684,9 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                         elif np is not None and isinstance(result, np.ndarray):
                             if result.ndim == 1:
                                 dim = len(result)
-
                         if dim is not None:
                             span.set_attribute("embedding.vector_dimension", dim)
+
                     return result
 
             return async_wrapper
@@ -554,13 +702,14 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                             SpanAttributes.EMBEDDING_MODEL_NAME, model_name
                         )
                         if args:
+                            text = str(args[0])
                             span.set_attribute(
-                                EmbeddingAttributes.EMBEDDING_TEXT,
-                                _redact(str(args[0])),
+                                SpanAttributes.INPUT_VALUE, _redact(text)
                             )
                             span.set_attribute(
-                                "embedding.text_length", len(str(args[0]))
+                                SpanAttributes.INPUT_MIME_TYPE, "text/plain"
                             )
+                            span.set_attribute("embedding.text_length", len(text))
 
                     result = f(*args, **kwargs)
 
@@ -571,9 +720,9 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                         elif np is not None and isinstance(result, np.ndarray):
                             if result.ndim == 1:
                                 dim = len(result)
-
                         if dim is not None:
                             span.set_attribute("embedding.vector_dimension", dim)
+
                     return result
 
             return sync_wrapper
@@ -588,15 +737,12 @@ def reranker(
 ):
     """
     Decorator for document reranking.
-    Uses RerankerAttributes for proper semantic conventions.
-    Captures metadata only, not full document content.
     """
 
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
-
         if is_async:
 
             @wraps(f)
@@ -627,8 +773,10 @@ def reranker(
                                     scores.append(doc["score"])
                             if scores:
                                 span.set_attribute(
-                                    "reranker.output_scores", json.dumps(scores)
+                                    "reranker.output_scores",
+                                    _safe_json_serialize(scores),
                                 )
+
                     return result
 
             return async_wrapper
@@ -662,8 +810,10 @@ def reranker(
                                     scores.append(doc["score"])
                             if scores:
                                 span.set_attribute(
-                                    "reranker.output_scores", json.dumps(scores)
+                                    "reranker.output_scores",
+                                    _safe_json_serialize(scores),
                                 )
+
                     return result
 
             return sync_wrapper
@@ -682,7 +832,6 @@ def guardrail(func=None, *, name: Optional[str] = None):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
-
         if is_async:
 
             @wraps(f)
@@ -691,12 +840,19 @@ def guardrail(func=None, *, name: Optional[str] = None):
                     span_name, openinference_span_kind="guardrail"
                 ) as span:
                     if span.is_recording() and args:
-                        span.set_attribute("guardrail.input", _redact(str(args[0])))
+                        span.set_attribute(
+                            SpanAttributes.INPUT_VALUE, _redact(str(args[0]))
+                        )
+                        span.set_attribute(SpanAttributes.INPUT_MIME_TYPE, "text/plain")
 
                     result = await f(*args, **kwargs)
 
                     if span.is_recording():
-                        span.set_attribute("guardrail.result", str(result))
+                        span.set_attribute(SpanAttributes.OUTPUT_VALUE, str(result))
+                        span.set_attribute(
+                            SpanAttributes.OUTPUT_MIME_TYPE, "text/plain"
+                        )
+
                     return result
 
             return async_wrapper
@@ -708,12 +864,19 @@ def guardrail(func=None, *, name: Optional[str] = None):
                     span_name, openinference_span_kind="guardrail"
                 ) as span:
                     if span.is_recording() and args:
-                        span.set_attribute("guardrail.input", _redact(str(args[0])))
+                        span.set_attribute(
+                            SpanAttributes.INPUT_VALUE, _redact(str(args[0]))
+                        )
+                        span.set_attribute(SpanAttributes.INPUT_MIME_TYPE, "text/plain")
 
                     result = f(*args, **kwargs)
 
                     if span.is_recording():
-                        span.set_attribute("guardrail.result", str(result))
+                        span.set_attribute(SpanAttributes.OUTPUT_VALUE, str(result))
+                        span.set_attribute(
+                            SpanAttributes.OUTPUT_MIME_TYPE, "text/plain"
+                        )
+
                     return result
 
             return sync_wrapper
@@ -732,7 +895,6 @@ def evaluator(func=None, *, name: Optional[str] = None):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
-
         if is_async:
 
             @wraps(f)
@@ -740,7 +902,10 @@ def evaluator(func=None, *, name: Optional[str] = None):
                 with tracer.start_as_current_span(
                     span_name, openinference_span_kind="evaluator"
                 ) as span:
-                    return await f(*args, **kwargs)
+                    result = await f(*args, **kwargs)
+                    if span.is_recording() and result is not None:
+                        span.set_attribute(SpanAttributes.OUTPUT_VALUE, str(result))
+                    return result
 
             return async_wrapper
         else:
@@ -750,7 +915,10 @@ def evaluator(func=None, *, name: Optional[str] = None):
                 with tracer.start_as_current_span(
                     span_name, openinference_span_kind="evaluator"
                 ) as span:
-                    return f(*args, **kwargs)
+                    result = f(*args, **kwargs)
+                    if span.is_recording() and result is not None:
+                        span.set_attribute(SpanAttributes.OUTPUT_VALUE, str(result))
+                    return result
 
             return sync_wrapper
 
@@ -768,7 +936,6 @@ def prompt(func=None, *, name: Optional[str] = None):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
-
         if is_async:
 
             @wraps(f)
@@ -776,7 +943,12 @@ def prompt(func=None, *, name: Optional[str] = None):
                 with tracer.start_as_current_span(
                     span_name, openinference_span_kind="prompt"
                 ) as span:
-                    return await f(*args, **kwargs)
+                    result = await f(*args, **kwargs)
+                    if span.is_recording() and result is not None:
+                        span.set_attribute(
+                            SpanAttributes.OUTPUT_VALUE, _redact(str(result))
+                        )
+                    return result
 
             return async_wrapper
         else:
@@ -786,7 +958,12 @@ def prompt(func=None, *, name: Optional[str] = None):
                 with tracer.start_as_current_span(
                     span_name, openinference_span_kind="prompt"
                 ) as span:
-                    return f(*args, **kwargs)
+                    result = f(*args, **kwargs)
+                    if span.is_recording() and result is not None:
+                        span.set_attribute(
+                            SpanAttributes.OUTPUT_VALUE, _redact(str(result))
+                        )
+                    return result
 
             return sync_wrapper
 
@@ -804,7 +981,6 @@ def trace(func=None, *, name: Optional[str] = None, kind: str = "CHAIN"):
         tracer = _get_tracer()
         span_name = name or f.__name__
         kind_upper = kind.upper()
-
         if kind_upper == "CHAIN":
             try:
                 return tracer.chain(name=span_name)(f)
