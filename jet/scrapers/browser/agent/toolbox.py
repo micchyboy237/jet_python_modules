@@ -13,15 +13,22 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from rich.console import Console
 
 console = Console()
-
 ACTION_TIMEOUT = 10000
 NAVIGATION_TIMEOUT = 15000
 
 
 class PlaywrightToolbox:
-    def __init__(self, headless: bool = False, output_dir: str | Path = None):
+    def __init__(
+        self,
+        headless: bool = False,
+        output_dir: str | Path = None,
+        auto_scroll: bool = True,
+        max_scrolls: int = 5,
+    ):
         self.headless = headless
         self.output_dir = Path(output_dir) if output_dir else Path.cwd()
+        self.auto_scroll = auto_scroll
+        self.max_scrolls = max_scrolls
         self.playwright = None
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
@@ -62,35 +69,57 @@ class PlaywrightToolbox:
         return self.page
 
     def _resolve_target(self, target: str) -> str:
-        if self.last_snapshot and re.match(r"^e\d+$", target):
+        # Updated regex to match refs like e39, f5e87, etc.
+        if self.last_snapshot and re.match(r"^[a-zA-Z0-9_]+$", target):
             pattern = rf"- (\w+) \"([^\"]+)\" \[ref={re.escape(target)}\]"
             match = re.search(pattern, self.last_snapshot)
             if match:
                 role, name = match.groups()
                 return f"internal:role={role}[name='{name}'i]"
-        if re.match(r"^e\d+$", target):
+        if re.match(r"^[a-zA-Z0-9_]+$", target):
             return f"aria-ref={target}"
         return target
 
-    # --- Navigation & Content ---
+    async def _scroll_to_bottom(self):
+        """Internal helper to scroll to bottom to trigger lazy loading."""
+        if not self.auto_scroll or not self.page:
+            return
+        console.print(
+            f"[dim]Auto-scrolling to bottom (max {self.max_scrolls} jumps)...[/dim]"
+        )
+        page = self.page
+        for i in range(self.max_scrolls):
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(800)  # Wait for lazy load
+            # Check if we reached bottom
+            reached_bottom = await page.evaluate("""
+                () => {
+                    return window.innerHeight + window.scrollY >= document.body.offsetHeight - 10;
+                }
+            """)
+            if reached_bottom:
+                break
+
     async def browser_navigate(self, url: str):
         page = await self._ensure_page()
         console.print(f"[bold blue]Navigating to:[/bold blue] {url}")
         await page.goto(url)
         self.last_snapshot = None
+        await self._scroll_to_bottom()
 
     async def browser_set_content(self, html: str):
         page = await self._ensure_page()
         console.print("[bold blue]Setting page content from HTML string...[/bold blue]")
         await page.set_content(html)
         self.last_snapshot = None
+        await self._scroll_to_bottom()
 
     async def browser_navigate_back(self):
         page = await self._ensure_page()
         await page.go_back()
         self.last_snapshot = None
+        await self._scroll_to_bottom()
 
-    # --- Snapshots ---
     async def browser_snapshot(
         self,
         filename: Optional[str] = None,
@@ -101,22 +130,17 @@ class PlaywrightToolbox:
         page = await self._ensure_page()
         snapshot = await page.aria_snapshot(mode="ai", depth=depth, boxes=boxes)
         self.last_snapshot = snapshot
-
         save_path = (step_dir or self.output_dir) / (filename or "snapshot.md")
         save_text(save_path, snapshot)
         console.print(f"[green]Snapshot saved:[/green] {save_path.name}")
-
-        # Optional HTML save
         try:
             html_content = await page.content()
             html_path = (step_dir or self.output_dir) / "snapshot.html"
             save_text(html_path, html_content)
         except Exception as e:
             console.print(f"[yellow]Failed to save HTML snapshot: {e}[/yellow]")
-
         return snapshot
 
-    # --- Interactions ---
     async def browser_click(
         self,
         target: str,
@@ -206,7 +230,6 @@ class PlaywrightToolbox:
         page.once("dialog", handle_dialog)
         console.print(f"[green]Set dialog handler: accept={accept}[/green]")
 
-    # --- Code Execution ---
     async def browser_evaluate(self, function: str, target: Optional[str] = None):
         page = await self._ensure_page()
         if target:
@@ -224,7 +247,6 @@ class PlaywrightToolbox:
         console.print(f"[green]Executed custom code. Result: {result}[/green]")
         return result
 
-    # --- Utilities ---
     async def browser_take_screenshot(
         self,
         filename: Optional[str] = None,
@@ -236,7 +258,6 @@ class PlaywrightToolbox:
         base_name = filename or "screenshot"
         if not base_name.endswith(f".{type}"):
             base_name = f"{Path(base_name).stem}.{type}"
-
         output_path = (step_dir or self.output_dir) / base_name
         await page.screenshot(path=str(output_path), full_page=fullPage, type=type)
         console.print(f"[green]Screenshot saved:[/green] {output_path.name}")
@@ -252,7 +273,6 @@ class PlaywrightToolbox:
             json.dumps(result, indent=2) if not isinstance(result, str) else result
         )
         console.print(save_content)
-
         answer_path = self.output_dir / f"final_answer.{file_ext}"
         save_text(answer_path, save_content)
         console.print(f"[green]Answer saved:[/green] {answer_path.name}")

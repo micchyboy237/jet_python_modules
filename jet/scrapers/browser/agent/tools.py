@@ -7,21 +7,9 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-# ============================================================================
-# Pydantic Models for Tool Arguments
-# ============================================================================
-
 
 class NavigateArgs(BaseModel):
     url: str = Field(description="The URL to navigate to")
-
-
-class SnapshotArgs(BaseModel):
-    filename: Optional[str] = Field(
-        None, description="Optional filename to save the snapshot"
-    )
-    depth: Optional[int] = Field(None, description="Depth of the snapshot tree")
-    boxes: Optional[bool] = Field(False, description="Include bounding boxes")
 
 
 class ClickArgs(BaseModel):
@@ -90,21 +78,10 @@ class RunCodeArgs(BaseModel):
     code: str = Field(description="JS code to execute")
 
 
-class ScreenshotArgs(BaseModel):
-    filename: Optional[str] = Field(None, description="Filename")
-    fullPage: Optional[bool] = Field(False, description="Full page screenshot")
-    type: Literal["png", "jpeg", "webp"] = Field("png", description="Image format")
-
-
 class FinalAnswerArgs(BaseModel):
     result: Any = Field(
         description="The final answer. Can be a string, JSON object, array, or number."
     )
-
-
-# ============================================================================
-# Agent Decision Model
-# ============================================================================
 
 
 class AgentDecision(BaseModel):
@@ -116,11 +93,6 @@ class AgentDecision(BaseModel):
     finished: bool = Field(False, description="Whether the goal has been achieved")
 
 
-# ============================================================================
-# Tool Registry Configuration
-# ============================================================================
-
-# Tools that return updated snapshots after execution (based on Playwright MCP docs)
 TOOLS_RETURNING_SNAPSHOTS = {
     "browser_navigate",
     "browser_navigate_back",
@@ -133,14 +105,10 @@ TOOLS_RETURNING_SNAPSHOTS = {
     "browser_handle_dialog",
     "browser_run_code_unsafe",
 }
-
-# Tools that do NOT return snapshots (return other data or just wait)
 TOOLS_NOT_RETURNING_SNAPSHOTS = {
     "browser_wait_for",
     "browser_find",
     "browser_evaluate",
-    "browser_snapshot",  # Explicit snapshot tool
-    "browser_take_screenshot",
     "browser_close",
     "final_answer",
 }
@@ -156,10 +124,6 @@ def get_tool_registry() -> Dict[str, Dict]:
         "browser_navigate_back": {
             "model": BaseModel,
             "desc": "Go back to the previous page in browser history. Use this if you clicked a link by mistake or need to return to search results.",
-        },
-        "browser_snapshot": {
-            "model": SnapshotArgs,
-            "desc": "Get a fresh accessibility snapshot of the current page. Use this when the page state has changed (e.g., after clicking or waiting) and you need to see updated elements and refs.",
         },
         "browser_click": {
             "model": ClickArgs,
@@ -204,10 +168,6 @@ def get_tool_registry() -> Dict[str, Dict]:
         "browser_run_code_unsafe": {
             "model": RunCodeArgs,
             "desc": "Execute arbitrary JavaScript code in the page. Use this as a last resort for advanced automation tasks.",
-        },
-        "browser_take_screenshot": {
-            "model": ScreenshotArgs,
-            "desc": "Take a visual screenshot of the page. Use this ONLY if the goal explicitly requires visual verification or saving an image. Do NOT use this for extracting text or data.",
         },
         "browser_close": {
             "model": BaseModel,
