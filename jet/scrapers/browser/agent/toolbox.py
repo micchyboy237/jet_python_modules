@@ -388,7 +388,7 @@ class PlaywrightToolbox:
     async def browser_take_screenshot(
         self,
         filename: Optional[str] = None,
-        fullPage: bool = False,
+        fullPage: bool = True,
         type: str = "png",
         step_dir: Optional[Path] = None,
     ):
