@@ -1,4 +1,6 @@
-"""LLM-based reranker using GBNF Grammar with Semantic Anchors & Token-Aware Truncation."""
+"""LLM-based reranker using GBNF Grammar with Semantic Anchors & Token-Aware Truncation.
+Refactored to use Fixed Semantic Tiers (High/Medium/Low) for robust scoring.
+"""
 
 from __future__ import annotations
 
@@ -17,25 +19,29 @@ from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
 from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.logger import logger
 
-COMPACT_GRAMMAR = r"""
+# Updated Grammars to enforce Tiered Classification
+COMPACT_TIERED_GRAMMAR = r"""
 root ::= rankings
 rankings ::= "[" item ("," item)* "]"
-item ::= "{" ws "\"index\"" ws ":" ws int ws "," ws "\"score\"" ws ":" ws number ws "}"
+item ::= "{" ws "\"index\"" ws ":" ws int ws "," ws "\"tier\"" ws ":" ws tier ws "}"
 ws ::= [ \t\n]*
 int ::= [0-9]+
-number ::= [0-9]+ "." [0-9]+
+tier ::= "\"high\"" | "\"medium\"" | "\"low\""
 """
 
-FULL_GRAMMAR = r"""
+FULL_TIERED_GRAMMAR = r"""
 root ::= rankings
 rankings ::= "[" item ("," item)* "]"
-item ::= "{" ws "\"index\"" ws ":" ws int ws "," ws "\"score\"" ws ":" ws number ws "," ws "\"reason\"" ws ":" ws string ws "}"
+item ::= "{" ws "\"index\"" ws ":" ws int ws "," ws "\"tier\"" ws ":" ws tier ws "," ws "\"reason\"" ws ":" ws string ws "}"
 ws ::= [ \t\n]*
 int ::= [0-9]+
-number ::= [0-9]+ "." [0-9]+
+tier ::= "\"high\"" | "\"medium\"" | "\"low\""
 string ::= "\"" char* "\""
 char ::= [^"\\] | "\\" ["\\/bfnrt]
 """
+
+# Mapping tiers to fixed numerical scores for downstream compatibility
+TIER_SCORES = {"high": 9.0, "medium": 6.0, "low": 3.0}
 
 
 class BatchedTokenProcessor:
@@ -76,6 +82,8 @@ class BatchedTokenProcessor:
 
         for i, doc in enumerate(documents):
             doc_tokens = count_tokens(doc, model=self.model)
+
+            # Handle oversized documents
             if doc_tokens > available_budget:
                 logger.warning(
                     f"Document[{i}] ({doc_tokens} tokens) exceeds batch budget "
@@ -91,10 +99,12 @@ class BatchedTokenProcessor:
                 batches.append(([doc], [i]))
                 continue
 
+            # Check if adding this doc exceeds budget
             if current_batch_tokens + doc_tokens > available_budget:
                 if current_batch_docs:
                     batches.append((current_batch_docs, current_batch_indices))
 
+                # Handle overlap
                 overlap_docs = []
                 overlap_indices = []
                 overlap_tokens = 0
@@ -114,14 +124,17 @@ class BatchedTokenProcessor:
                         logger.debug(
                             f"Carrying forward {len(overlap_docs)} overlap docs to next batch"
                         )
+                        current_batch_docs = overlap_docs
+                        current_batch_indices = overlap_indices
+                        current_batch_tokens = overlap_tokens
 
-                current_batch_docs = overlap_docs
-                current_batch_indices = overlap_indices
-                current_batch_tokens = overlap_tokens
-
-            current_batch_docs.append(doc)
-            current_batch_indices.append(i)
-            current_batch_tokens += doc_tokens
+                current_batch_docs.append(doc)
+                current_batch_indices.append(i)
+                current_batch_tokens += doc_tokens
+            else:
+                current_batch_docs.append(doc)
+                current_batch_indices.append(i)
+                current_batch_tokens += doc_tokens
 
         if current_batch_docs:
             batches.append((current_batch_docs, current_batch_indices))
@@ -141,6 +154,7 @@ class LLMReranker:
     3. Semantic anchor calibration across batches
     4. Optional batch overlap for cross-boundary comparison
     5. Metadata injection into ranking context
+    6. Fixed Semantic Tiers (High/Medium/Low) for robust scoring
     """
 
     def __init__(
@@ -249,7 +263,6 @@ class LLMReranker:
             except Exception as e:
                 logger.warning(f"Failed to format metadata for doc: {e}")
                 enhanced_docs.append(doc)
-
         return enhanced_docs
 
     def _truncate_semantically(self, texts: List[str], max_tokens: int) -> List[str]:
@@ -294,10 +307,19 @@ class LLMReranker:
             previous_results, key=lambda x: x["score"], reverse=True
         )
         indices_to_fetch = set()
-        indices_to_fetch.add(sorted_results[0]["index"])
-        mid_idx = len(sorted_results) // 2
-        indices_to_fetch.add(sorted_results[mid_idx]["index"])
-        indices_to_fetch.add(sorted_results[-1]["index"])
+
+        # Always include top
+        if sorted_results:
+            indices_to_fetch.add(sorted_results[0]["index"])
+
+        # Include median if enough results
+        if len(sorted_results) > 2:
+            mid_idx = len(sorted_results) // 2
+            indices_to_fetch.add(sorted_results[mid_idx]["index"])
+
+        # Include bottom
+        if sorted_results:
+            indices_to_fetch.add(sorted_results[-1]["index"])
 
         raw_anchors = []
         for idx in indices_to_fetch:
@@ -324,7 +346,7 @@ class LLMReranker:
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
         top_k: int | None = None,
-        min_score: float = 7.0,
+        min_score: float = 6.0,
         criteria: Optional[str] = None,
         max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
@@ -339,7 +361,7 @@ class LLMReranker:
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
         top_k: int | None = None,
-        min_score: float = 7.0,
+        min_score: float = 6.0,
         criteria: Optional[str] = None,
         max_doc_tokens: int | None = None,
         include_reasoning: bool = True,
@@ -353,7 +375,7 @@ class LLMReranker:
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
         top_k: int | None = None,
-        min_score: float = 7.0,
+        min_score: float = 6.0,
         criteria: Optional[str] = None,
         max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
@@ -382,7 +404,6 @@ class LLMReranker:
                 f"Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_docs)} docs)"
             )
 
-            # Handle optional max_doc_tokens
             if max_doc_tokens is not None:
                 truncated_docs = self._truncate_semantically(batch_docs, max_doc_tokens)
             else:
@@ -398,7 +419,9 @@ class LLMReranker:
                 anchor_docs=anchor_docs,
             )
 
-            grammar_str = FULL_GRAMMAR if include_reasoning else COMPACT_GRAMMAR
+            grammar_str = (
+                FULL_TIERED_GRAMMAR if include_reasoning else COMPACT_TIERED_GRAMMAR
+            )
             response_format = {"type": "grammar", "grammar": grammar_str}
 
             result = chat(
@@ -448,7 +471,6 @@ class LLMReranker:
 
         all_results.sort(key=lambda x: x["score"], reverse=True)
 
-        # Handle optional top_k
         if top_k is None:
             return all_results
         return all_results[:top_k]
@@ -461,7 +483,7 @@ class LLMReranker:
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
         top_k: int | None = None,
-        min_score: float = 7.0,
+        min_score: float = 6.0,
         criteria: Optional[str] = None,
         max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
@@ -476,7 +498,7 @@ class LLMReranker:
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
         top_k: int | None = None,
-        min_score: float = 7.0,
+        min_score: float = 6.0,
         criteria: Optional[str] = None,
         max_doc_tokens: int | None = None,
         include_reasoning: bool = True,
@@ -490,7 +512,7 @@ class LLMReranker:
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
         top_k: int | None = None,
-        min_score: float = 7.0,
+        min_score: float = 6.0,
         criteria: Optional[str] = None,
         max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
@@ -517,7 +539,6 @@ class LLMReranker:
         for batch_idx, (batch_docs, original_indices) in enumerate(batches):
             logger.info(f"Async processing batch {batch_idx + 1}/{len(batches)}")
 
-            # Handle optional max_doc_tokens
             if max_doc_tokens is not None:
                 truncated_docs = self._truncate_semantically(batch_docs, max_doc_tokens)
             else:
@@ -533,7 +554,9 @@ class LLMReranker:
                 anchor_docs=anchor_docs,
             )
 
-            grammar_str = FULL_GRAMMAR if include_reasoning else COMPACT_GRAMMAR
+            grammar_str = (
+                FULL_TIERED_GRAMMAR if include_reasoning else COMPACT_TIERED_GRAMMAR
+            )
             response_format = {"type": "grammar", "grammar": grammar_str}
 
             result = await achat(
@@ -579,7 +602,6 @@ class LLMReranker:
 
         all_results.sort(key=lambda x: x["score"], reverse=True)
 
-        # Handle optional top_k
         if top_k is None:
             return all_results
         return all_results[:top_k]
@@ -601,11 +623,11 @@ class LLMReranker:
         if anchor_docs:
             anchor_list = "\n".join(anchor_docs)
             anchor_text = f"""
-REFERENCE ANCHORS (Calibrate your scoring against these):
+REFERENCE ANCHORS (Calibrate your classification against these):
 {anchor_list}
-- Significantly better than Top Anchor → score 9-10
-- Similar quality to Median Anchor → score near its reference
-- Clearly worse than Low Anchor → score below its reference
+- Significantly better than Top Anchor → classify as "high"
+- Similar quality to Median Anchor → classify as "medium"
+- Clearly worse than Low Anchor → classify as "low"
 """
 
         criteria_text = f"\nCriteria: {criteria}" if criteria else ""
@@ -621,17 +643,25 @@ REFERENCE ANCHORS (Calibrate your scoring against these):
             else "Return ALL documents"
         )
 
+        # Define Fixed Thresholds Semantically
+        tier_definitions = """
+RELEVANCE TIERS:
+- "high": Directly answers the query or contains critical core information.
+- "medium": Related to the query, provides context, but doesn't directly answer it.
+- "low": Tangentially related or irrelevant.
+"""
+
         return f"""Query: {query}{criteria_text}
+{tier_definitions}
 {anchor_text}
 Documents to Rank:
 {docs_text}
 Instructions:
-1. Rank documents by relevance to the query.
-2. Use Reference Anchors to maintain consistent scoring across batches.
-3. {top_k_instr} with relevance score >= {min_score}.
-4. Output MUST be a valid JSON array.{reasoning_instr}
+1. Classify each document into one of the RELEVANCE TIERS.
+2. {top_k_instr}. Exclude "low" tier documents unless necessary to meet top_k.
+3. Output MUST be a valid JSON array.{reasoning_instr}
 Format:
-[{{"index": ID, "score": 0-10{', "reason": "text"' if include_reasoning else ""}}}, ...]"""
+[{{"index": ID, "tier": "high|medium|low"{', "reason": "text"' if include_reasoning else ""}}}, ...]"""
 
     def _parse_grammar_response(
         self,
@@ -639,22 +669,39 @@ Format:
         include_reasoning: bool,
         min_score: float,
     ) -> list[RankingResult | CompactRankingResult]:
-        """Parse the grammar-constrained JSON response."""
+        """Parse the grammar-constrained JSON response and map tiers to fixed scores."""
         try:
             data = json.loads(content)
             if not isinstance(data, list):
                 data = data.get("rankings", [])
 
+            # Determine allowed tiers based on min_score
+            # High (9.0), Medium (6.0), Low (3.0)
+            allowed_tiers = set()
+            if min_score <= 3.0:
+                allowed_tiers = {"high", "medium", "low"}
+            elif min_score <= 6.0:
+                allowed_tiers = {"high", "medium"}
+            else:
+                allowed_tiers = {"high"}
+
             results = []
             for item in data:
                 item["index"] = int(item["index"])
-                item["score"] = float(item["score"])
-                if item["score"] >= min_score:
+                tier = item.get("tier", "low").lower()
+
+                # Assign fixed score based on tier
+                score = TIER_SCORES.get(tier, 3.0)
+                item["score"] = score
+
+                # Filter by allowed tiers (which corresponds to min_score)
+                if tier in allowed_tiers:
                     if include_reasoning and "reason" not in item:
                         item["reason"] = ""
                     item["metadata"] = item.get("metadata", {})
                     item["text"] = item.get("text", "")
                     results.append(item)
+
             return results
         except Exception as e:
             logger.error(
@@ -681,7 +728,7 @@ if __name__ == "__main__":
     ]
 
     print("=" * 60)
-    print("GRAMMAR-BASED LLM RERANKING EVALUATION")
+    print("GRAMMAR-BASED LLM RERANKING EVALUATION (TIERED)")
     print("=" * 60)
     print(f"Query: {query}\n")
 
@@ -693,7 +740,7 @@ if __name__ == "__main__":
         documents=documents,
         metadata=meta,
         top_k=None,
-        min_score=7.0,
+        min_score=6.0,  # Should only allow "high" tier
         include_reasoning=False,
     )
     if not results_compact:
@@ -704,14 +751,13 @@ if __name__ == "__main__":
                 f"{i}. [score:{r['score']}/10] Index: {r['index']} Meta: {r['metadata']}"
             )
 
-    print()
-    print("--- TEST 2: include_reasoning=True ---")
+    print("\n--- TEST 2: include_reasoning=True ---")
     results_full = reranker.rerank(
         query=query,
         documents=documents,
         metadata=meta,
         top_k=None,
-        min_score=7.0,
+        min_score=3.0,  # Should allow "high" and "medium"
         criteria="Consider ecosystem maturity and library support",
         include_reasoning=True,
     )
@@ -725,7 +771,6 @@ if __name__ == "__main__":
             if "reason" in r and r["reason"]:
                 print(f"   Reason: {r['reason']}")
 
-    print()
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print("Evaluation Complete")
     print("=" * 60)

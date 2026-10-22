@@ -12,6 +12,7 @@ from typing import Any, TypedDict
 from jet.adapters.llama_cpp.chunking_utils import ChunkResult, chunk_texts_with_data
 from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.llm_reranker_utils import rerank
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from rich.console import Console
 
 console = Console()
@@ -91,15 +92,15 @@ Examples:
         "-cs",
         "--chunk-size",
         type=int,
-        default=200,
-        help="Maximum tokens per chunk (default: 200). This also sets the max tokens for reranking.",
+        default=500,
+        help="Maximum tokens per chunk (default: 500). This also sets the max tokens for reranking.",
     )
     parser.add_argument(
         "-co",
         "--chunk-overlap",
         type=int,
-        default=0,
-        help="Number of overlapping tokens between chunks (default: 0).",
+        default=100,
+        help="Number of overlapping tokens between chunks (default: 100).",
     )
     parser.add_argument(
         "--strict-sentences",
@@ -120,8 +121,8 @@ Examples:
         "-m",
         "--min-score",
         type=float,
-        default=0.0,
-        help="Minimum relevance score threshold 0-10 (default: 0.0).",
+        default=3.0,
+        help="Minimum relevance score threshold 0-10 (default: 3.0).",
     )
     parser.add_argument(
         "--criteria",
@@ -190,7 +191,7 @@ def find_snapshot(
     query: str,
     text: str | list[str],
     top_k: int | None = 10,
-    min_score: float = 0.0,
+    min_score: float = 3.0,
     model: str = LLM_MODEL,
     criteria: str | None = None,
     include_reasoning: bool = True,
@@ -198,8 +199,8 @@ def find_snapshot(
     api_key: str | None = "not-needed",
     max_tokens: int | None = 8000,
     batch_overlap: int = 0,
-    chunk_size: int = 200,
-    chunk_overlap: int = 0,
+    chunk_size: int = 500,
+    chunk_overlap: int = 100,
     strict_sentences: bool = True,
     show_progress: bool = True,
 ) -> tuple[str, list[RankedChunkResult], list[ChunkResult]]:
@@ -397,6 +398,8 @@ if __name__ == "__main__":
         if len(rag_context.split("\n")) > 20:
             console.print("  [dim]...[/dim]")
 
+    rag_context_tokens = count_tokens(rag_context)
+
     console.print(
         f"[bold green]✓ Generated {len(chunks)} chunks[/bold green] ([link=file://{chunks_path}]{chunks_path.name}[/link])"
     )
@@ -404,5 +407,5 @@ if __name__ == "__main__":
         f"[bold green]✓ Generated {len(ranked_results)} ranked results[/bold green] ([link=file://{ranked_results_path}]{ranked_results_path.name}[/link])"
     )
     console.print(
-        f"[bold green]✓ Generated RAG context ({len(rag_context)} chars)[/bold green] ([link=file://{rag_context_path}]{rag_context_path.name}[/link])"
+        f"[bold green]✓ Generated RAG context ({rag_context_tokens} tokens)[/bold green] ([link=file://{rag_context_path}]{rag_context_path.name}[/link])"
     )

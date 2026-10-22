@@ -22,7 +22,7 @@ def rerank(
     metadata: list[dict[str, Any]] | None = None,
     metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
     top_k: int | None = None,
-    min_score: float = 7.0,
+    min_score: float = 6.0,
     criteria: str | None = None,
     max_doc_tokens: int | None = None,
     include_reasoning: bool = False,
@@ -39,21 +39,21 @@ def rerank(
         query: Search query string.
         documents: List of document strings to rerank.
         metadata: Optional list of metadata dicts corresponding to each document.
-                  Must be same length as documents if provided.
         metadata_format_fn: Function to convert metadata dict to string for context injection.
-                            If None, uses a default formatter that injects common fields
-                            (Source, Date, Title, etc.) into the document text before ranking.
-                            Set to lambda _: "" to disable metadata injection while keeping it in results.
         top_k: Number of top results to return. If None, returns all results that meet min_score.
-        min_score: Minimum relevance score threshold (0-10).
+        min_score: Minimum relevance score threshold.
+                   With Tiered Scoring:
+                   - > 6.0: Only "High" relevance (Score 9.0)
+                   - <= 6.0: "High" and "Medium" relevance (Scores 9.0, 6.0)
+                   - <= 3.0: All tiers (Scores 9.0, 6.0, 3.0)
         criteria: Optional specific criteria for the LLM to focus on.
-        max_doc_tokens: Max tokens per document after truncation. If None, no truncation is applied.
+        max_doc_tokens: Max tokens per document after truncation.
         include_reasoning: If True, LLM provides a reason for each ranking.
         model: LLM model to use for ranking.
         base_url: Base URL for the LLM server.
         api_key: API key for the LLM server.
-        max_tokens: Max context window tokens. If None, auto-detected.
-        batch_overlap: Number of documents to overlap between batches for continuity.
+        max_tokens: Max context window tokens.
+        batch_overlap: Number of documents to overlap between batches.
 
     Returns:
         List of RankingResult (if include_reasoning=True) or CompactRankingResult.
@@ -84,7 +84,7 @@ async def arerank(
     metadata: list[dict[str, Any]] | None = None,
     metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
     top_k: int | None = None,
-    min_score: float = 7.0,
+    min_score: float = 6.0,
     criteria: str | None = None,
     max_doc_tokens: int | None = None,
     include_reasoning: bool = False,
@@ -102,17 +102,16 @@ async def arerank(
         documents: List of document strings to rerank.
         metadata: Optional list of metadata dicts corresponding to each document.
         metadata_format_fn: Function to convert metadata dict to string for context injection.
-                            If None, uses a default formatter.
         top_k: Number of top results to return. If None, returns all results that meet min_score.
-        min_score: Minimum relevance score threshold (0-10).
+        min_score: Minimum relevance score threshold.
         criteria: Optional specific criteria for the LLM to focus on.
-        max_doc_tokens: Max tokens per document after truncation. If None, no truncation is applied.
+        max_doc_tokens: Max tokens per document after truncation.
         include_reasoning: If True, LLM provides a reason for each ranking.
         model: LLM model to use for ranking.
         base_url: Base URL for the LLM server.
         api_key: API key for the LLM server.
-        max_tokens: Max context window tokens. If None, auto-detected.
-        batch_overlap: Number of documents to overlap between batches for continuity.
+        max_tokens: Max context window tokens.
+        batch_overlap: Number of documents to overlap between batches.
 
     Returns:
         List of RankingResult (if include_reasoning=True) or CompactRankingResult.
@@ -167,7 +166,7 @@ if __name__ == "__main__":
         documents=documents,
         metadata=meta,
         top_k=3,
-        min_score=7.0,
+        min_score=6.0,
         include_reasoning=False,
     )
     for i, r in enumerate(results_sync, 1):
@@ -181,7 +180,7 @@ if __name__ == "__main__":
             documents=documents,
             metadata=meta,
             top_k=3,
-            min_score=7.0,
+            min_score=6.0,
             criteria="Consider library maturity",
             include_reasoning=True,
         )
