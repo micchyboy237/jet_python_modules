@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 
 import openai
+
+# ADDED: Import count_tokens
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.scrapers.browser.agent.registry import PlaywrightToolRegistry
 from jet.scrapers.browser.agent.templates import (
     SYSTEM_PROMPT_TEMPLATE,
@@ -25,30 +28,89 @@ class LocalAgent:
         model: str,
         registry: PlaywrightToolRegistry,
         output_dir: Path,
-        max_snapshot_chars: int = 10000,
+        max_snapshot_tokens: int = 8000,  # UPDATED: Parameter name and default
     ):
         self.client = openai.AsyncOpenAI(base_url=api_base, api_key="local")
         self.model = model
         self.registry = registry
         self.output_dir = output_dir
-        self.max_snapshot_chars = max_snapshot_chars
+        self.max_snapshot_tokens = max_snapshot_tokens  # UPDATED: Store token limit
+
+        # Initialize token counter helper
+        self._count_tokens_fn = lambda text: count_tokens(
+            text, model=self.model, use_server=False
+        )
+
         self.prev_url = "Unknown"
+        # ADDED: Token tracking state
+        self.total_input_tokens = 0
+        self.step_token_counts = []
+
+    def _truncate_snapshot_by_tokens(self, snapshot: str) -> tuple[str, int]:
+        """
+        Truncate snapshot to fit within max_snapshot_tokens using binary search.
+        Returns truncated snapshot and actual token count.
+        """
+        if not snapshot:
+            return "", 0
+
+        # Quick check if no truncation needed
+        total_tokens = self._count_tokens_fn(snapshot)
+        if total_tokens <= self.max_snapshot_tokens:
+            return snapshot, total_tokens
+
+        # Binary search for the optimal cut point
+        left, right = 0, len(snapshot)
+        best_truncated = snapshot[: self.max_snapshot_tokens]  # Fallback
+        best_token_count = 0
+
+        while left <= right:
+            mid = (left + right) // 2
+            # Ensure we don't cut in the middle of a unicode char if possible,
+            # but for speed we just slice.
+            truncated = snapshot[:mid]
+
+            try:
+                token_count = self._count_tokens_fn(truncated)
+            except Exception:
+                token_count = mid  # Rough estimate if tokenizer fails
+
+            if token_count <= self.max_snapshot_tokens:
+                best_truncated = truncated
+                best_token_count = token_count
+                left = mid + 1
+            else:
+                right = mid - 1
+
+        # Add indication of truncation
+        if len(best_truncated) < len(snapshot):
+            suffix = "\n\n... [snapshot truncated due to token limit] ..."
+            # Check if adding suffix exceeds limit
+            if (
+                self._count_tokens_fn(best_truncated + suffix)
+                <= self.max_snapshot_tokens
+            ):
+                best_truncated += suffix
+                best_token_count = self._count_tokens_fn(best_truncated)
+
+        return best_truncated, best_token_count
 
     async def think_and_act(
         self, goal: str, initial_snapshot: str, max_steps: int = 15, **kwargs
     ) -> str:
-        # Generate tool descriptions for the prompt
         tool_registry = self.registry.get_tool_schema()
         tool_descriptions = json.dumps(tool_registry, indent=2)
-
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             tool_descriptions=tool_descriptions
         )
 
+        # Reset tracking for this run
+        self.total_input_tokens = 0
+        self.step_token_counts = []
+
         last_result = "None"
         current_state = initial_snapshot
         self.prev_url = await self.registry.toolbox._get_current_url()
-
         decision_schema = get_decision_schema()
         response_format = {"type": "json_schema", "json_schema": decision_schema}
 
@@ -76,8 +138,16 @@ class LocalAgent:
                 except:
                     pass
 
-            input_link = save_text(step_dir / "input_snapshot.md", current_state)
+            # UPDATED: Use token-based truncation
+            truncated_snapshot, snapshot_tokens = self._truncate_snapshot_by_tokens(
+                current_state
+            )
+
+            input_link = save_text(step_dir / "input_snapshot.md", truncated_snapshot)
             console.print(f"[dim]Input snapshot saved: {input_link}[/dim]")
+            console.print(
+                f"[dim]Snapshot tokens: {snapshot_tokens}/{self.max_snapshot_tokens}[/dim]"
+            )
 
             try:
                 await self.registry.toolbox.browser_take_screenshot(
@@ -88,12 +158,11 @@ class LocalAgent:
                     f"[yellow]Failed to capture start screenshot: {e}[/yellow]"
                 )
 
-            # Pass Goal in User Prompt for direct reference
             user_prompt_content = USER_PROMPT_TEMPLATE.format(
                 goal=goal,
                 url=current_url,
                 prev_url=self.prev_url,
-                snapshot=current_state[: self.max_snapshot_chars],
+                snapshot=truncated_snapshot,  # Use truncated version
                 last_result=last_result,
             )
 
@@ -102,25 +171,55 @@ class LocalAgent:
                 {"role": "user", "content": user_prompt_content},
             ]
 
+            # ADDED: Count tokens for this step
+            step_tokens = count_tokens(
+                content=messages,
+                model=self.model,
+                tools=tool_registry,
+                use_server=False,
+            )
+
+            self.total_input_tokens += step_tokens
+            self.step_token_counts.append(step_tokens)
+
+            console.print(
+                f"[dim]Step {step_index} input tokens: {step_tokens} (Total: {self.total_input_tokens})[/dim]"
+            )
+
             self._save_step_input(
-                step_dir, system_prompt, user_prompt_content, messages, current_state
+                step_dir,
+                system_prompt,
+                user_prompt_content,
+                messages,
+                truncated_snapshot,
+            )
+
+            # Save step token metrics
+            save_json(
+                step_dir / "token_metrics.json",
+                {
+                    "step": step_index,
+                    "input_tokens": step_tokens,
+                    "cumulative_tokens": self.total_input_tokens,
+                    "snapshot_tokens": snapshot_tokens,
+                },
             )
 
             try:
                 decision = await self._call_llm(
                     messages, response_format, step_dir, **kwargs
                 )
-
                 if decision.tool == "final_answer":
                     decision.finished = True
-
                 if decision.finished:
                     console.print("[bold green]Goal achieved.[/bold green]")
+
+                    # ADDED: Save final summary
+                    self._save_token_summary(step_index)
                     return "Goal achieved."
 
                 console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
                 console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
-
                 last_result = await self._execute_tool(decision, step_dir)
                 self.prev_url = current_url
 
@@ -152,6 +251,7 @@ class LocalAgent:
                         )
 
                 if self.registry.toolbox.is_closed:
+                    self._save_token_summary(step_index)
                     return "Browser closed."
 
             except Exception as e:
@@ -160,7 +260,28 @@ class LocalAgent:
                 save_text(step_dir / "error.log", str(e))
 
         console.print("[bold yellow]Max steps reached.[/bold yellow]")
+        self._save_token_summary(max_steps)
         return "Max steps reached."
+
+    def _save_token_summary(self, final_step: int):
+        """Save final token usage summary."""
+        if not self.step_token_counts:
+            return
+
+        summary = {
+            "total_steps": final_step,
+            "total_input_tokens": self.total_input_tokens,
+            "average_tokens_per_step": self.total_input_tokens / final_step
+            if final_step > 0
+            else 0,
+            "model": self.model,
+            "max_snapshot_tokens_limit": self.max_snapshot_tokens,
+            "step_breakdown": self.step_token_counts,
+        }
+        save_json(self.output_dir / "token_usage_summary.json", summary)
+        console.print(
+            f"[bold cyan]Total tokens used: {self.total_input_tokens}[/bold cyan]"
+        )
 
     async def _execute_tool(self, decision, step_dir):
         """Execute tool without managing snapshot state."""
@@ -201,17 +322,14 @@ class LocalAgent:
             response_format=response_format,
             **kwargs,
         )
-
         stream = await self.client.chat.completions.create(**create_kwargs)
         content = ""
         async for part in stream:
             if part.choices and part.choices[0].delta.content:
                 content += part.choices[0].delta.content
                 print(part.choices[0].delta.content, end="", flush=True)
-
         content = self._clean_json_content(content)
         save_text(step_dir / "llm_raw_response.txt", content)
-
         decision = AgentDecision.model_validate_json(content)
         save_json(step_dir / "llm_decision.json", decision.model_dump())
         return decision
