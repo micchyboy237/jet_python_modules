@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from jet.scrapers.browser.agent.toolbox import PlaywrightToolbox
 from jet.scrapers.browser.agent.tools import (
-    TOOLS_RETURNING_SNAPSHOTS,
+    TOOLS_TRIGGERING_STATE_CHANGE,
     get_tool_registry,
 )
 from pydantic import BaseModel
@@ -26,9 +26,7 @@ class PlaywrightToolRegistry:
         schemas = []
         for name, info in self.tool_map.items():
             model = info["model"]
-            # Extract description from the model class itself
             description = info["desc"]
-
             schema = (
                 {"type": "object", "properties": {}}
                 if model == BaseModel
@@ -61,6 +59,6 @@ class PlaywrightToolRegistry:
 
         return await method(**validated_args)
 
-    def should_refresh_snapshot(self, tool_name: str) -> bool:
+    def requires_state_refresh(self, tool_name: str) -> bool:
         """Determine if a snapshot should be refreshed after executing a tool."""
-        return tool_name in TOOLS_RETURNING_SNAPSHOTS
+        return tool_name in TOOLS_TRIGGERING_STATE_CHANGE

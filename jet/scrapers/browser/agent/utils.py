@@ -6,6 +6,7 @@ Common helpers for file I/O and path management.
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 
 def get_step_dir(step_index: int, output_dir: Path) -> Path:
@@ -15,13 +16,24 @@ def get_step_dir(step_index: int, output_dir: Path) -> Path:
     return step_dir
 
 
-def save_json(path: Path, data: Any):
-    """Save data as JSON."""
+def save_json(path: Path, data: Any) -> str:
+    """Save data as JSON and return rich-formatted link."""
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+    return _format_rich_link(path)
 
 
-def save_text(path: Path, content: str):
-    """Save text content to a file."""
+def save_text(path: Path, content: str) -> str:
+    """Save text content to a file and return rich-formatted link."""
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+    return _format_rich_link(path)
+
+
+def _format_rich_link(path: Path) -> str:
+    """Format a path as a Rich console link."""
+    # Convert to absolute path and format as file:// URL
+    abs_path = path.resolve()
+    # Quote special characters in the path for URL compatibility
+    quoted_path = quote(str(abs_path))
+    return f"link file://{quoted_path} {path.name}"

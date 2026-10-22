@@ -1,6 +1,5 @@
 """
 Playwright Tool Definitions and Registry
-Contains all Pydantic models, tool descriptions, and execution logic.
 """
 
 from typing import Any, Dict, List, Literal, Optional
@@ -9,128 +8,133 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class BaseToolModel(BaseModel):
-    """Base class for all tool models to enforce consistent configuration."""
-
     model_config = ConfigDict(extra="forbid")
 
     @classmethod
     def get_tool_description(cls) -> str:
-        """Returns the description of the tool. Override in subclasses."""
         return cls.__doc__ or "No description provided."
 
 
 class NavigateArgs(BaseToolModel):
-    """Navigate to a new URL. Use this only when you need to go to a completely different page or start over."""
+    """Navigate to a new URL. Use only for starting a new site."""
 
-    url: str = Field(description="The URL to navigate to")
+    url: str = Field(description="Absolute URL")
 
 
 class ClickArgs(BaseToolModel):
-    """Click an element like a button, link, or checkbox. Use the 'target' ref from the snapshot. Do NOT use this for text inputs; use browser_type instead."""
+    """
+    Click an interactive element.
+    RULE: Only use for buttons/links that advance the task.
+    CAUTION: Do not use to clear inputs. If click fails, element may be off-screen.
+    """
 
-    target: str = Field(description="Target element ref (e.g., e39) or selector")
-    doubleClick: Optional[bool] = Field(False, description="Whether to double click")
-    button: Literal["left", "right", "middle"] = Field(
-        "left", description="Mouse button to use"
-    )
+    target: str = Field(description="Element ref from snapshot (e.g., 'e39')")
+    doubleClick: Optional[bool] = Field(False)
+    button: Literal["left", "right", "middle"] = Field("left")
 
 
 class TypeArgs(BaseToolModel):
-    """Type text into a single input field (textbox, textarea, or combobox). Use this for filling one field at a time. Set 'submit' to true if you need to press Enter after typing."""
+    """
+    Type into a SINGLE input field.
+    RULE: If multiple fields need filling, use browser_fill_form instead.
+    """
 
-    target: str = Field(description="Target element ref (e.g., e39) or selector")
+    target: str = Field(description="Element ref from snapshot")
     text: str = Field(description="Text to type")
     submit: Optional[bool] = Field(
-        False, description="Whether to press Enter after typing"
+        False, description="Press Enter after typing? Only if no Submit button exists."
     )
 
 
 class FillFormArgs(BaseToolModel):
-    """Efficiently fill multiple input fields at once. Use this when you need to type into several fields (e.g., username and password) in one step. Provide a list of {'target': ref, 'value': text} objects."""
+    """
+    Fill MULTIPLE input fields at once.
+    RULE: MANDATORY if 2 or more fields need updating in the current view.
+    This is faster and more reliable than multiple browser_type calls.
+    """
 
     class FormField(BaseModel):
-        target: str = Field(
-            description="Target element ref (e.g., e39) or selector for the input field"
-        )
-        value: str = Field(description="Value to fill into the field")
+        target: str = Field(description="Element ref from snapshot")
+        value: str = Field(description="Exact value from User Goal")
 
-    fields: List[FormField] = Field(
-        description="List of fields to fill in the form. Each field must have a 'target' and a 'value'."
-    )
+    fields: List[FormField] = Field(description="List of targets and values to fill")
 
 
 class WaitForArgs(BaseToolModel):
-    """Wait for a specific amount of time or for specific text to appear on the page. Use this after clicking a search button or loading content to ensure elements are visible before interacting."""
+    """Wait for time or text visibility. Use after clicks that trigger loading."""
 
-    time: Optional[float] = Field(None, description="Time to wait in seconds")
+    time: Optional[float] = Field(None, description="Seconds to wait")
     text: Optional[str] = Field(None, description="Text to wait for")
 
 
 class PressKeyArgs(BaseToolModel):
-    """Press a specific key (e.g., 'Enter', 'ArrowDown', 'Escape'). Use this for keyboard navigation or submitting forms without a visible button."""
+    """Press a key (Enter, ArrowDown). Use for navigation or submitting forms without buttons."""
 
-    key: str = Field(description="Name of the key to press")
+    key: str = Field(description="Key name (e.g., 'Enter')")
 
 
 class HoverArgs(BaseToolModel):
-    """Hover the mouse over an element. Use this to reveal hidden menus, tooltips, or dropdowns that only appear on hover."""
+    """Hover to reveal hidden menus or tooltips."""
 
-    target: str = Field(description="Target element ref (e.g., e39) or selector")
+    target: str = Field(description="Element ref from snapshot")
 
 
 class FindArgs(BaseToolModel):
-    """Search for specific text within the current snapshot. Use this to quickly locate information without scanning the entire snapshot manually."""
+    """Search text within the current snapshot. Does not interact with the page."""
 
-    text: Optional[str] = Field(None, description="Plain text to search for")
-    regex: Optional[str] = Field(None, description="Regular expression to search for")
-    maxResults: Optional[int] = Field(None, description="Max results")
+    text: Optional[str] = Field(None)
+    regex: Optional[str] = Field(None)
+    maxResults: Optional[int] = Field(None)
 
 
 class SelectOptionArgs(BaseToolModel):
-    """Select one or more options from a <select> dropdown menu. Use this when the target is a native dropdown, not a custom combobox."""
+    """Select from a native <select> dropdown. Do not use for custom comboboxes."""
 
-    target: str = Field(description="Target element ref")
-    values: List[str] = Field(description="Values to select")
+    target: str = Field(description="Element ref of <select>")
+    values: List[str] = Field(description="Option values to select")
 
 
 class HandleDialogArgs(BaseToolModel):
-    """Handle JavaScript dialogs like alerts, confirms, or prompts. Use this immediately if a dialog blocks interaction with the page."""
+    """Handle JS alerts/prompts. Must accept or dismiss to proceed."""
 
-    accept: bool = Field(description="Whether to accept the dialog")
-    promptText: Optional[str] = Field(None, description="Prompt text")
+    accept: bool = Field(description="True to accept, False to dismiss")
+    promptText: Optional[str] = Field(None)
 
 
 class EvaluateArgs(BaseToolModel):
-    """Execute JavaScript in the page context and return the result. Use this for complex data extraction or interactions that standard tools cannot handle."""
+    """
+    Execute JavaScript.
+    RULE: LAST RESORT. Only use if data is hidden or not in snapshot.
+    If data is visible in snapshot, extract it manually and use final_answer.
+    """
 
-    function: str = Field(description="JS function to evaluate")
-    target: Optional[str] = Field(None, description="Target element ref")
+    function: str = Field(description="JS function string")
+    target: Optional[str] = Field(None)
 
 
 class RunCodeArgs(BaseToolModel):
-    """Execute arbitrary JavaScript code in the page. Use this as a last resort for advanced automation tasks."""
+    """Execute arbitrary JS. Last resort for complex automation."""
 
-    code: str = Field(description="JS code to execute")
+    code: str = Field(description="JS code")
 
 
 class FinalAnswerArgs(BaseToolModel):
-    """Provide the final result of the task. Call this IMMEDIATELY once you have the required information. The 'result' can be a string, JSON object, or array depending on the goal."""
+    """
+    Provide the final result.
+    RULE: Call IMMEDIATELY when goal is met. Extract data from snapshot if present.
+    """
 
-    result: Any = Field(
-        description="The final answer. Can be a string, JSON object, array, or number."
-    )
+    result: Any = Field(description="Final answer (string, list, or object)")
 
 
 class AgentDecision(BaseModel):
-    thought: str = Field(description="Brief reasoning")
-    tool: str = Field(description="Name of the tool to execute")
-    arguments: Optional[Dict[str, Any]] = Field(
-        None, description="Arguments for the tool"
-    )
-    finished: bool = Field(False, description="Whether the goal has been achieved")
+    thought: str = Field(description="Brief reasoning based on Snapshot vs Goal")
+    tool: str = Field(description="Tool name")
+    arguments: Optional[Dict[str, Any]] = Field(None)
+    finished: bool = Field(False)
 
 
-TOOLS_RETURNING_SNAPSHOTS = {
+TOOLS_TRIGGERING_STATE_CHANGE = {
     "browser_navigate",
     "browser_navigate_back",
     "browser_click",
@@ -141,20 +145,13 @@ TOOLS_RETURNING_SNAPSHOTS = {
     "browser_select_option",
     "browser_handle_dialog",
     "browser_run_code_unsafe",
-}
-
-TOOLS_NOT_RETURNING_SNAPSHOTS = {
-    "browser_wait_for",
-    "browser_find",
     "browser_evaluate",
-    "browser_close",
-    "final_answer",
+    "browser_wait_for",
 }
 
-# Mapping of tool names to their models
 TOOL_MODEL_MAP = {
     "browser_navigate": NavigateArgs,
-    "browser_navigate_back": BaseToolModel,  # No args
+    "browser_navigate_back": BaseToolModel,
     "browser_click": ClickArgs,
     "browser_type": TypeArgs,
     "browser_fill_form": FillFormArgs,
@@ -166,13 +163,12 @@ TOOL_MODEL_MAP = {
     "browser_handle_dialog": HandleDialogArgs,
     "browser_evaluate": EvaluateArgs,
     "browser_run_code_unsafe": RunCodeArgs,
-    "browser_close": BaseToolModel,  # No args
+    "browser_close": BaseToolModel,
     "final_answer": FinalAnswerArgs,
 }
 
 
 def get_tool_registry() -> Dict[str, Dict]:
-    """Returns the complete tool registry with models and descriptions extracted from models."""
     registry = {}
     for name, model_class in TOOL_MODEL_MAP.items():
         registry[name] = {
@@ -183,10 +179,5 @@ def get_tool_registry() -> Dict[str, Dict]:
 
 
 def get_decision_schema() -> Dict[str, Any]:
-    """Returns the JSON schema for agent decisions."""
     schema = AgentDecision.model_json_schema()
-    return {
-        "name": "AgentDecision",
-        "strict": True,
-        "schema": schema,
-    }
+    return {"name": "AgentDecision", "strict": True, "schema": schema}

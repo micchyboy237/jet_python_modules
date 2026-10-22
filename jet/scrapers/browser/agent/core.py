@@ -1,6 +1,5 @@
 """
 Agent Core Logic
-Handles the LLM interaction loop, decision parsing, and tool execution orchestration.
 """
 
 import json
@@ -33,23 +32,31 @@ class LocalAgent:
         self.registry = registry
         self.output_dir = output_dir
         self.max_snapshot_chars = max_snapshot_chars
-        self.prev_url = "Unknown"  # Track previous URL across steps
+        self.prev_url = "Unknown"
 
     async def think_and_act(
         self, goal: str, initial_snapshot: str, max_steps: int = 15, **kwargs
     ) -> str:
-        tools_json = json.dumps(self.registry.get_tool_schema(), indent=2)
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(goal=goal, tools_json=tools_json)
+        # Generate tool descriptions for the prompt
+        tool_registry = self.registry.get_tool_schema()
+        tool_descriptions = json.dumps(tool_registry, indent=2)
+
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            tool_descriptions=tool_descriptions
+        )
+
         last_result = "None"
         current_state = initial_snapshot
-        # Initialize prev_url from toolbox
         self.prev_url = await self.registry.toolbox._get_current_url()
+
         decision_schema = get_decision_schema()
         response_format = {"type": "json_schema", "json_schema": decision_schema}
+
         for i in range(max_steps):
             step_index = i + 1
             step_dir = get_step_dir(step_index, self.output_dir)
             console.print(f"[bold cyan]Step {step_index}:[/bold cyan] Thinking...")
+
             if i > 0 and not self.registry.toolbox.is_closed:
                 console.print("[dim]Refreshing snapshot before LLM decision...[/dim]")
                 try:
@@ -58,6 +65,7 @@ class LocalAgent:
                     )
                 except Exception as e:
                     console.print(f"[yellow]Failed to refresh snapshot: {e}[/yellow]")
+
             current_url = "Unknown"
             if (
                 self.registry.toolbox.page
@@ -67,7 +75,10 @@ class LocalAgent:
                     current_url = self.registry.toolbox.page.url
                 except:
                     pass
-            save_text(step_dir / "input_snapshot.md", current_state)
+
+            input_link = save_text(step_dir / "input_snapshot.md", current_state)
+            console.print(f"[dim]Input snapshot saved: {input_link}[/dim]")
+
             try:
                 await self.registry.toolbox.browser_take_screenshot(
                     filename=f"step_{step_index}_start.png", step_dir=step_dir
@@ -76,52 +87,78 @@ class LocalAgent:
                 console.print(
                     f"[yellow]Failed to capture start screenshot: {e}[/yellow]"
                 )
+
+            # Pass Goal in User Prompt for direct reference
             user_prompt_content = USER_PROMPT_TEMPLATE.format(
+                goal=goal,
                 url=current_url,
                 prev_url=self.prev_url,
                 snapshot=current_state[: self.max_snapshot_chars],
                 last_result=last_result,
             )
+
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt_content},
             ]
+
             self._save_step_input(
                 step_dir, system_prompt, user_prompt_content, messages, current_state
             )
+
             try:
                 decision = await self._call_llm(
                     messages, response_format, step_dir, **kwargs
                 )
+
                 if decision.tool == "final_answer":
                     decision.finished = True
+
                 if decision.finished:
                     console.print("[bold green]Goal achieved.[/bold green]")
                     return "Goal achieved."
+
                 console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
                 console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
+
                 last_result = await self._execute_tool(decision, step_dir)
-                # Update prev_url after executing tool
                 self.prev_url = current_url
+
                 if not self.registry.toolbox.is_closed:
-                    try:
-                        output_state = await self.registry.toolbox.browser_snapshot(
-                            step_dir=step_dir
-                        )
-                        save_text(step_dir / "output_snapshot.md", output_state)
-                        await self.registry.toolbox.browser_take_screenshot(
-                            filename=f"step_{step_index}_end.png", step_dir=step_dir
-                        )
-                    except Exception as e:
+                    if self.registry.requires_state_refresh(decision.tool):
                         console.print(
-                            f"[yellow]Failed to capture end state: {e}[/yellow]"
+                            "[dim]State changed. Capturing output state...[/dim]"
                         )
+                        try:
+                            output_state = await self.registry.toolbox.browser_snapshot(
+                                step_dir=step_dir
+                            )
+                            output_link = save_text(
+                                step_dir / "output_snapshot.md", output_state
+                            )
+                            console.print(
+                                f"[dim]Output snapshot saved: {output_link}[/dim]"
+                            )
+                            await self.registry.toolbox.browser_take_screenshot(
+                                filename=f"step_{step_index}_end.png", step_dir=step_dir
+                            )
+                        except Exception as e:
+                            console.print(
+                                f"[yellow]Failed to capture end state: {e}[/yellow]"
+                            )
+                    else:
+                        console.print(
+                            "[dim]Tool passive/terminal. Skipping output snapshot refresh.[/dim]"
+                        )
+
                 if self.registry.toolbox.is_closed:
                     return "Browser closed."
+
             except Exception as e:
                 console.print(f"[bold red]Error in step {step_index}:[/bold red] {e}")
                 last_result = f"Error: {str(e)}"
                 save_text(step_dir / "error.log", str(e))
+
         console.print("[bold yellow]Max steps reached.[/bold yellow]")
         return "Max steps reached."
 
@@ -164,14 +201,17 @@ class LocalAgent:
             response_format=response_format,
             **kwargs,
         )
+
         stream = await self.client.chat.completions.create(**create_kwargs)
         content = ""
         async for part in stream:
             if part.choices and part.choices[0].delta.content:
                 content += part.choices[0].delta.content
                 print(part.choices[0].delta.content, end="", flush=True)
+
         content = self._clean_json_content(content)
         save_text(step_dir / "llm_raw_response.txt", content)
+
         decision = AgentDecision.model_validate_json(content)
         save_json(step_dir / "llm_decision.json", decision.model_dump())
         return decision
