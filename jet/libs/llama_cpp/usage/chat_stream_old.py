@@ -45,6 +45,7 @@ def run_chat_stream(
     create_kwargs = dict(
         model=os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed"),
         messages=messages,
+        seed=42,
         max_tokens=1024,
         temperature=0.7,
         top_p=0.95,
