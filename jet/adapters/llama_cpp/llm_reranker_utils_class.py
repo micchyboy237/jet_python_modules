@@ -60,7 +60,6 @@ class BatchedTokenProcessor:
             return []
 
         query_tokens = count_tokens(query, model=self.model) if query else 0
-        # Reserve space for system prompt, grammar instructions, and anchors
         overhead = 200 + anchor_reserve
         available_budget = max_tokens - query_tokens - overhead
 
@@ -77,8 +76,6 @@ class BatchedTokenProcessor:
 
         for i, doc in enumerate(documents):
             doc_tokens = count_tokens(doc, model=self.model)
-
-            # Handle oversized documents gracefully
             if doc_tokens > available_budget:
                 logger.warning(
                     f"Document[{i}] ({doc_tokens} tokens) exceeds batch budget "
@@ -98,22 +95,21 @@ class BatchedTokenProcessor:
                 if current_batch_docs:
                     batches.append((current_batch_docs, current_batch_indices))
 
-                # Implement batch overlap: carry forward last N docs from previous batch
                 overlap_docs = []
                 overlap_indices = []
                 overlap_tokens = 0
+
                 if batch_overlap > 0 and current_batch_docs:
                     for od, oi in zip(
                         reversed(current_batch_docs), reversed(current_batch_indices)
                     ):
                         ot = count_tokens(od, model=self.model)
-                        if (
-                            overlap_tokens + ot > available_budget // 4
-                        ):  # Cap overlap at 25% of budget
+                        if overlap_tokens + ot > available_budget // 4:
                             break
                         overlap_docs.insert(0, od)
                         overlap_indices.insert(0, oi)
                         overlap_tokens += ot
+
                     if overlap_docs:
                         logger.debug(
                             f"Carrying forward {len(overlap_docs)} overlap docs to next batch"
@@ -139,7 +135,6 @@ class BatchedTokenProcessor:
 class LLMReranker:
     """
     Use LLM to rerank documents using GBNF Grammar with Semantic Anchors.
-
     Enhancements over baseline:
     1. Token-aware sentence truncation (no mid-sentence cuts)
     2. Dynamic context window detection
@@ -161,11 +156,9 @@ class LLMReranker:
         self._api_key = api_key
         self.batch_overlap = batch_overlap
 
-        # Auto-detect optimal token limit from model metadata
         if max_tokens is None:
             try:
                 ctx_info = get_model_ctx_embd_size(model)
-                # Use 75% of context to leave room for output generation
                 self.max_tokens = int(ctx_info.get("ctx", 4096) * 0.75)
                 logger.info(
                     f"Auto-detected context for {model}: {ctx_info.get('ctx')} → using {self.max_tokens} for reranking"
@@ -210,9 +203,7 @@ class LLMReranker:
         """
         if not meta:
             return ""
-
         parts = []
-        # Common keys to look for
         key_map = {
             "source": "Source",
             "title": "Title",
@@ -221,17 +212,14 @@ class LLMReranker:
             "author": "Author",
             "url": "URL",
         }
-
         for key, label in key_map.items():
             if key in meta and meta[key]:
                 val = str(meta[key])
-                # Truncate long values to keep context window clean
                 if len(val) > 50:
                     val = val[:47] + "..."
                 parts.append(f"{label}: {val}")
 
         if not parts:
-            # Fallback: dump all items if no standard keys found
             parts = [f"{k}: {v}" for k, v in meta.items() if v]
 
         return f"[{' | '.join(parts)}]" if parts else ""
@@ -249,9 +237,7 @@ class LLMReranker:
         if not metadata:
             return documents
 
-        # Use default formatter if none provided
         active_fn = format_fn or LLMReranker._default_metadata_format
-
         enhanced_docs = []
         for doc, meta in zip(documents, metadata):
             try:
@@ -263,6 +249,7 @@ class LLMReranker:
             except Exception as e:
                 logger.warning(f"Failed to format metadata for doc: {e}")
                 enhanced_docs.append(doc)
+
         return enhanced_docs
 
     def _truncate_semantically(self, texts: List[str], max_tokens: int) -> List[str]:
@@ -284,7 +271,6 @@ class LLMReranker:
             logger.warning(
                 f"Semantic truncation failed ({e}), falling back to character truncation"
             )
-            # Fallback: approximate chars-per-token ratio
             approx_chars = max_tokens * 4
             return [
                 t[:approx_chars] + "..." if len(t) > approx_chars else t for t in texts
@@ -308,13 +294,9 @@ class LLMReranker:
             previous_results, key=lambda x: x["score"], reverse=True
         )
         indices_to_fetch = set()
-
-        # Top scorer
         indices_to_fetch.add(sorted_results[0]["index"])
-        # Median scorer
         mid_idx = len(sorted_results) // 2
         indices_to_fetch.add(sorted_results[mid_idx]["index"])
-        # Lowest scorer
         indices_to_fetch.add(sorted_results[-1]["index"])
 
         raw_anchors = []
@@ -325,7 +307,6 @@ class LLMReranker:
                 )
                 raw_anchors.append((idx, original_documents[idx], score))
 
-        # Batch truncate all anchors together for efficiency
         anchor_texts = [a[1] for a in raw_anchors]
         truncated = self._truncate_semantically(anchor_texts, max_anchor_tokens)
 
@@ -342,10 +323,10 @@ class LLMReranker:
         documents: list[str],
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
-        top_k: int = 5,
+        top_k: int | None = None,
         min_score: float = 7.0,
         criteria: Optional[str] = None,
-        max_doc_tokens: int = 150,
+        max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
         max_tokens: Optional[int] = None,
     ) -> list[CompactRankingResult]: ...
@@ -357,10 +338,10 @@ class LLMReranker:
         documents: list[str],
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
-        top_k: int = 5,
+        top_k: int | None = None,
         min_score: float = 7.0,
         criteria: Optional[str] = None,
-        max_doc_tokens: int = 150,
+        max_doc_tokens: int | None = None,
         include_reasoning: bool = True,
         max_tokens: Optional[int] = None,
     ) -> list[RankingResult]: ...
@@ -371,28 +352,25 @@ class LLMReranker:
         documents: list[str],
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
-        top_k: int = 5,
+        top_k: int | None = None,
         min_score: float = 7.0,
         criteria: Optional[str] = None,
-        max_doc_tokens: int = 150,
+        max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
         max_tokens: Optional[int] = None,
     ) -> list[RankingResult | CompactRankingResult]:
         """Synchronous rerank with semantic truncation and anchor calibration."""
         valid_metadata = self._validate_metadata(documents, metadata)
-
-        # Inject metadata into text for ranking context
         docs_for_ranking = self._inject_metadata_context(
             documents, valid_metadata, metadata_format_fn
         )
 
         limit = max_tokens if max_tokens is not None else self.max_tokens
-
         batches = self._processor.create_batches(
             documents=docs_for_ranking,
             max_tokens=limit,
             query=query,
-            anchor_reserve=max_doc_tokens * 3 + 100,
+            anchor_reserve=(max_doc_tokens * 3 + 100) if max_doc_tokens else 300,
             batch_overlap=self.batch_overlap,
         )
 
@@ -404,8 +382,11 @@ class LLMReranker:
                 f"Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_docs)} docs)"
             )
 
-            # Semantic truncation preserves sentence boundaries
-            truncated_docs = self._truncate_semantically(batch_docs, max_doc_tokens)
+            # Handle optional max_doc_tokens
+            if max_doc_tokens is not None:
+                truncated_docs = self._truncate_semantically(batch_docs, max_doc_tokens)
+            else:
+                truncated_docs = batch_docs
 
             prompt = self._build_grammar_prompt(
                 query,
@@ -439,7 +420,6 @@ class LLMReranker:
                 result.content, include_reasoning, min_score
             )
 
-            # Map local indices back to global, filtering out overlap duplicates
             seen_global_indices = {r["index"] for r in all_results}
             for res in batch_results:
                 local_idx = res["index"]
@@ -448,7 +428,6 @@ class LLMReranker:
                     if global_idx not in seen_global_indices:
                         res_copy = dict(res)
                         res_copy["index"] = global_idx
-                        # Attach original metadata and text
                         res_copy["metadata"] = (
                             valid_metadata[global_idx] if valid_metadata else {}
                         )
@@ -456,10 +435,11 @@ class LLMReranker:
                         all_results.append(res_copy)
                         seen_global_indices.add(global_idx)
 
-            # Generate anchors for next batch
             if batch_idx < len(batches) - 1:
                 anchor_docs = self._get_anchors(
-                    all_results, docs_for_ranking, max_anchor_tokens=max_doc_tokens
+                    all_results,
+                    docs_for_ranking,
+                    max_anchor_tokens=max_doc_tokens if max_doc_tokens else 80,
                 )
                 if anchor_docs:
                     logger.debug(
@@ -467,6 +447,10 @@ class LLMReranker:
                     )
 
         all_results.sort(key=lambda x: x["score"], reverse=True)
+
+        # Handle optional top_k
+        if top_k is None:
+            return all_results
         return all_results[:top_k]
 
     @overload
@@ -476,10 +460,10 @@ class LLMReranker:
         documents: list[str],
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
-        top_k: int = 5,
+        top_k: int | None = None,
         min_score: float = 7.0,
         criteria: Optional[str] = None,
-        max_doc_tokens: int = 150,
+        max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
         max_tokens: Optional[int] = None,
     ) -> list[CompactRankingResult]: ...
@@ -491,10 +475,10 @@ class LLMReranker:
         documents: list[str],
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
-        top_k: int = 5,
+        top_k: int | None = None,
         min_score: float = 7.0,
         criteria: Optional[str] = None,
-        max_doc_tokens: int = 150,
+        max_doc_tokens: int | None = None,
         include_reasoning: bool = True,
         max_tokens: Optional[int] = None,
     ) -> list[RankingResult]: ...
@@ -505,28 +489,25 @@ class LLMReranker:
         documents: list[str],
         metadata: list[dict[str, Any]] | None = None,
         metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
-        top_k: int = 5,
+        top_k: int | None = None,
         min_score: float = 7.0,
         criteria: Optional[str] = None,
-        max_doc_tokens: int = 150,
+        max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
         max_tokens: Optional[int] = None,
     ) -> list[RankingResult | CompactRankingResult]:
         """Async rerank with semantic truncation and anchor calibration."""
         valid_metadata = self._validate_metadata(documents, metadata)
-
-        # Inject metadata into text for ranking context
         docs_for_ranking = self._inject_metadata_context(
             documents, valid_metadata, metadata_format_fn
         )
 
         limit = max_tokens if max_tokens is not None else self.max_tokens
-
         batches = self._processor.create_batches(
             documents=docs_for_ranking,
             max_tokens=limit,
             query=query,
-            anchor_reserve=max_doc_tokens * 3 + 100,
+            anchor_reserve=(max_doc_tokens * 3 + 100) if max_doc_tokens else 300,
             batch_overlap=self.batch_overlap,
         )
 
@@ -536,7 +517,11 @@ class LLMReranker:
         for batch_idx, (batch_docs, original_indices) in enumerate(batches):
             logger.info(f"Async processing batch {batch_idx + 1}/{len(batches)}")
 
-            truncated_docs = self._truncate_semantically(batch_docs, max_doc_tokens)
+            # Handle optional max_doc_tokens
+            if max_doc_tokens is not None:
+                truncated_docs = self._truncate_semantically(batch_docs, max_doc_tokens)
+            else:
+                truncated_docs = batch_docs
 
             prompt = self._build_grammar_prompt(
                 query,
@@ -578,7 +563,6 @@ class LLMReranker:
                     if global_idx not in seen_global_indices:
                         res_copy = dict(res)
                         res_copy["index"] = global_idx
-                        # Attach original metadata and text
                         res_copy["metadata"] = (
                             valid_metadata[global_idx] if valid_metadata else {}
                         )
@@ -588,10 +572,16 @@ class LLMReranker:
 
             if batch_idx < len(batches) - 1:
                 anchor_docs = self._get_anchors(
-                    all_results, docs_for_ranking, max_anchor_tokens=max_doc_tokens
+                    all_results,
+                    docs_for_ranking,
+                    max_anchor_tokens=max_doc_tokens if max_doc_tokens else 80,
                 )
 
         all_results.sort(key=lambda x: x["score"], reverse=True)
+
+        # Handle optional top_k
+        if top_k is None:
+            return all_results
         return all_results[:top_k]
 
     def _build_grammar_prompt(
@@ -599,7 +589,7 @@ class LLMReranker:
         query: str,
         documents: list[str],
         criteria: Optional[str],
-        top_k: int,
+        top_k: int | None,
         min_score: float,
         include_reasoning: bool,
         anchor_docs: Optional[List[str]] = None,
@@ -625,6 +615,12 @@ REFERENCE ANCHORS (Calibrate your scoring against these):
             else ""
         )
 
+        top_k_instr = (
+            f"Return ONLY the top {top_k} documents"
+            if top_k is not None
+            else "Return ALL documents"
+        )
+
         return f"""Query: {query}{criteria_text}
 {anchor_text}
 Documents to Rank:
@@ -632,7 +628,7 @@ Documents to Rank:
 Instructions:
 1. Rank documents by relevance to the query.
 2. Use Reference Anchors to maintain consistent scoring across batches.
-3. Return ONLY the top {top_k} documents with relevance score >= {min_score}.
+3. {top_k_instr} with relevance score >= {min_score}.
 4. Output MUST be a valid JSON array.{reasoning_instr}
 Format:
 [{{"index": ID, "score": 0-10{', "reason": "text"' if include_reasoning else ""}}}, ...]"""
@@ -648,6 +644,7 @@ Format:
             data = json.loads(content)
             if not isinstance(data, list):
                 data = data.get("rankings", [])
+
             results = []
             for item in data:
                 item["index"] = int(item["index"])
@@ -655,7 +652,6 @@ Format:
                 if item["score"] >= min_score:
                     if include_reasoning and "reason" not in item:
                         item["reason"] = ""
-                    # Initialize empty metadata/text here; they will be populated by the caller
                     item["metadata"] = item.get("metadata", {})
                     item["text"] = item.get("text", "")
                     results.append(item)
@@ -676,8 +672,6 @@ if __name__ == "__main__":
         "Java is used in enterprise applications and Android development.",
         "Python's machine learning ecosystem includes TensorFlow, PyTorch, and scikit-learn.",
     ]
-
-    # Example metadata
     meta = [
         {"source": "blog", "year": 2023},
         {"source": "docs", "year": 2024},
@@ -698,7 +692,7 @@ if __name__ == "__main__":
         query=query,
         documents=documents,
         metadata=meta,
-        top_k=5,
+        top_k=None,
         min_score=7.0,
         include_reasoning=False,
     )
@@ -716,7 +710,7 @@ if __name__ == "__main__":
         query=query,
         documents=documents,
         metadata=meta,
-        top_k=5,
+        top_k=None,
         min_score=7.0,
         criteria="Consider ecosystem maturity and library support",
         include_reasoning=True,

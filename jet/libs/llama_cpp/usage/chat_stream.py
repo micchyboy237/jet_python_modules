@@ -15,6 +15,7 @@ import time
 from typing import Any, Callable
 
 from jet.adapters.llama_cpp.factory import get_async_llm_client, get_llm_client
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from jet.libs.llama_cpp.usage.chat_stream_utils import (
     MODEL,
@@ -40,7 +41,9 @@ from jet.libs.llama_cpp.usage.structured_output import (
 )
 from openai import AsyncOpenAI, AsyncStream, OpenAI, Stream
 from openai.types.chat import ChatCompletionChunk
+from rich.console import Console
 
+console = Console()
 logger = logging.getLogger(__name__)
 
 
@@ -70,15 +73,15 @@ def make_console_chat_printer() -> tuple[
 
         if hasattr(delta, "reasoning_content") and delta.reasoning_content:
             if not state["in_think_block"]:
-                print("", end="", flush=True)
+                console.print("", end="")
                 state["in_think_block"] = True
-            print(delta.reasoning_content, end="", flush=True)
+            console.print(delta.reasoning_content, end="")
         elif state["in_think_block"]:
-            print("</think>", end="", flush=True)
+            console.print("</think>", end="")
             state["in_think_block"] = False
 
         if hasattr(delta, "content") and delta.content:
-            print(delta.content, end="", flush=True)
+            console.print(delta.content, end="")
 
     return on_chunk, state
 
@@ -97,7 +100,7 @@ def make_console_generate_printer() -> tuple[Callable[[Any], None], dict[str, An
         if delta:
             if state["first_token_at"] is None:
                 state["first_token_at"] = time.perf_counter()
-            print(delta, end="", flush=True)
+            console.print(delta, end="")
 
     return on_chunk, state
 
@@ -108,36 +111,36 @@ def print_stream_summary(
     first_token_at: float | None,
     t_start: float,
 ) -> None:
-    """Print a 📊 Summary block via plain print() — no rich/OTel dependency."""
+    """Print a 📊 Summary block via rich console."""
     ttft = (first_token_at - t_start) if first_token_at is not None else None
-    print("─" * 60)
-    print("📊 Summary")
+    console.print("─" * 60)
+    console.print("📊 Summary")
     if result.usage:
         tok_per_sec = (
             result.usage.get("completion_tokens", 0) / total_secs
             if total_secs > 0
             else 0.0
         )
-        print(
+        console.print(
             f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / "
             f"{result.usage.get('completion_tokens', 0)}c / "
             f"{result.usage.get('total_tokens', 0)}t"
         )
-        print(f"   Throughput       : {tok_per_sec:.1f} tok/s")
-        print(f"   Duration         : {total_secs:.2f}s")
+        console.print(f"   Throughput       : {tok_per_sec:.1f} tok/s")
+        console.print(f"   Duration         : {total_secs:.2f}s")
         if ttft is not None:
-            print(f"   Time to first token: {ttft:.2f}s")
-        print(f"   Response length  : {len(result.content)} chars")
+            console.print(f"   Time to first token: {ttft:.2f}s")
+        console.print(f"   Response length  : {len(result.content)} chars")
         if result.finish_reason:
-            print(f"   Finish reason    : {result.finish_reason}")
+            console.print(f"   Finish reason    : {result.finish_reason}")
         if result.has_tool_calls:
-            print(f"   Tool calls       : {len(result.tool_calls)}")
+            console.print(f"   Tool calls       : {len(result.tool_calls)}")
         if result.structured:
             status = "✅" if result.structured.success else "⚠️"
-            print(
+            console.print(
                 f"   Structured       : {status} {result.structured.format_used.value}"
             )
-    print("─" * 60)
+    console.print("─" * 60)
 
 
 def run_chat_stream(
@@ -208,6 +211,25 @@ def run_chat_stream(
 
     while round_num < max_tool_rounds:
         round_num += 1
+
+        # Log token counts for messages before .create call
+        try:
+            total_msg_tokens = 0
+            console.print(
+                f"[dim]🔢 Counting tokens for {len(current_messages)} messages...[/dim]"
+            )
+            for i, msg in enumerate(current_messages):
+                # count_tokens handles both string content and list[dict] messages
+                msg_tokens = count_tokens(msg)
+                role = msg.get("role", "unknown")
+                console.print(
+                    f"   [dim]Message {i + 1} ({role}): {msg_tokens} tokens[/dim]"
+                )
+                total_msg_tokens += msg_tokens
+            console.print(f"   [bold]Total Message Tokens: {total_msg_tokens}[/bold]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️ Could not count message tokens: {e}[/yellow]")
+
         extra_body = build_chat_extra_body(
             top_k=top_k,
             enable_thinking=enable_thinking,
@@ -253,7 +275,6 @@ def run_chat_stream(
 
         full_response = "".join(collected_content)
         parsed_tool_calls = parse_tool_calls_from_accumulator(tool_calls_acc)
-
         last_result = StreamCompletionResult(
             content=full_response,
             tool_calls=parsed_tool_calls,
@@ -294,16 +315,14 @@ def run_chat_stream(
     result = last_result or StreamCompletionResult(
         content="", finish_reason="no_response"
     )
-
     if _using_default_printer:
         if chunk_state.get("in_think_block"):
-            print("</think>", end="", flush=True)
-        print()
+            console.print("</think>", end="")
+        console.print()
         total_secs = time.perf_counter() - t_start
         print_stream_summary(
             result, total_secs, chunk_state.get("first_token_at"), t_start
         )
-
     return result
 
 
@@ -364,7 +383,6 @@ async def run_chat_stream_async(
     encoded_image = None
     if image_source:
         encoded_image = await encode_image_to_base64_async(image_source)
-
     current_messages = build_messages(
         prompt,
         messages,
@@ -380,6 +398,25 @@ async def run_chat_stream_async(
 
     while round_num < max_tool_rounds:
         round_num += 1
+
+        # Log token counts for messages before .create call
+        try:
+            total_msg_tokens = 0
+            console.print(
+                f"[dim]🔢 Counting tokens for {len(current_messages)} messages...[/dim]"
+            )
+            for i, msg in enumerate(current_messages):
+                # count_tokens handles both string content and list[dict] messages
+                msg_tokens = count_tokens(msg)
+                role = msg.get("role", "unknown")
+                console.print(
+                    f"   [dim]Message {i + 1} ({role}): {msg_tokens} tokens[/dim]"
+                )
+                total_msg_tokens += msg_tokens
+            console.print(f"   [bold]Total Message Tokens: {total_msg_tokens}[/bold]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️ Could not count message tokens: {e}[/yellow]")
+
         extra_body = build_chat_extra_body(
             top_k=top_k,
             enable_thinking=enable_thinking,
@@ -425,7 +462,6 @@ async def run_chat_stream_async(
 
         full_response = "".join(collected_content)
         parsed_tool_calls = parse_tool_calls_from_accumulator(tool_calls_acc)
-
         last_result = StreamCompletionResult(
             content=full_response,
             tool_calls=parsed_tool_calls,
@@ -466,16 +502,14 @@ async def run_chat_stream_async(
     result = last_result or StreamCompletionResult(
         content="", finish_reason="no_response"
     )
-
     if _using_default_printer:
         if chunk_state.get("in_think_block"):
-            print("</think>", end="", flush=True)
-        print()
+            console.print("</think>", end="")
+        console.print()
         total_secs = time.perf_counter() - t_start
         print_stream_summary(
             result, total_secs, chunk_state.get("first_token_at"), t_start
         )
-
     return result
 
 
@@ -509,6 +543,13 @@ def run_generate_stream(
 
     if client is None:
         client = get_llm_client()
+
+    # Log prompt token count before .create call
+    try:
+        prompt_tokens = count_tokens(prompt)
+        console.print(f"[dim]🔢 Prompt Tokens: {prompt_tokens}[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ Could not count prompt tokens: {e}[/yellow]")
 
     extra_body = build_generate_extra_body(
         top_k=top_k,
@@ -557,14 +598,12 @@ def run_generate_stream(
         else None,
         finish_reason=finish_reason,
     )
-
     if _using_default_printer:
-        print()
+        console.print()
         total_secs = time.perf_counter() - t_start
         print_stream_summary(
             result, total_secs, chunk_state.get("first_token_at"), t_start
         )
-
     return result
 
 
@@ -601,6 +640,13 @@ async def run_generate_stream_async(
 
     if client is None:
         client = get_async_llm_client()
+
+    # Log prompt token count before .create call
+    try:
+        prompt_tokens = count_tokens(prompt)
+        console.print(f"[dim]🔢 Prompt Tokens: {prompt_tokens}[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]⚠️ Could not count prompt tokens: {e}[/yellow]")
 
     extra_body = build_generate_extra_body(
         top_k=top_k,
@@ -649,14 +695,12 @@ async def run_generate_stream_async(
         else None,
         finish_reason=finish_reason,
     )
-
     if _using_default_printer:
-        print()
+        console.print()
         total_secs = time.perf_counter() - t_start
         print_stream_summary(
             result, total_secs, chunk_state.get("first_token_at"), t_start
         )
-
     return result
 
 
@@ -701,8 +745,6 @@ def get_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    import sys
-
     from jet.libs.llama_cpp.usage.chat_stream_utils import LLAMA_CPP_BASE_URL
 
     args = get_args()
@@ -711,13 +753,13 @@ if __name__ == "__main__":
         try:
             parsed_logit_bias = json.loads(args.logit_bias)
         except json.JSONDecodeError as e:
-            print(f"❌ Invalid logit_bias JSON: {e}", file=sys.stderr)
+            console.print(f"❌ Invalid logit_bias JSON: {e}", style="red")
             raise SystemExit(1)
 
     client = get_llm_client(base_url=args.base_url, timeout=args.timeout)
-    print("─" * 60)
-    print(f"🤖 Model        : {args.model}")
-    print(
+    console.print("─" * 60)
+    console.print(f"🤖 Model        : {args.model}")
+    console.print(
         f"🎛️  Sampling     : temp={args.temperature} top_p={args.top_p} top_k={args.top_k}"
     )
 
@@ -744,7 +786,7 @@ if __name__ == "__main__":
             try:
                 parsed_tools = json.loads(args.tools_json)
             except json.JSONDecodeError as e:
-                print(f"❌ Invalid tools JSON: {e}", file=sys.stderr)
+                console.print(f"❌ Invalid tools JSON: {e}", style="red")
                 raise SystemExit(1)
 
         parsed_tool_choice: str | dict[str, Any] | None = args.tool_choice
@@ -759,7 +801,7 @@ if __name__ == "__main__":
             try:
                 parsed_response_format = json.loads(args.response_format)
             except json.JSONDecodeError as e:
-                print(f"❌ Invalid response_format JSON: {e}", file=sys.stderr)
+                console.print(f"❌ Invalid response_format JSON: {e}", style="red")
                 raise SystemExit(1)
 
         result = run_chat_stream(
@@ -787,10 +829,10 @@ if __name__ == "__main__":
         )
 
     if result.has_tool_calls:
-        print(
+        console.print(
             f"📋 Result: {len(result.tool_calls)} tool call(s), finish_reason={result.finish_reason}"
         )
     else:
-        print(
+        console.print(
             f"📋 Result: {len(result.content)} chars, finish_reason={result.finish_reason}"
         )

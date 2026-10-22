@@ -1,3 +1,4 @@
+# jet_python_modules/jet/adapters/llama_cpp/token_utils/token_counting.py
 from typing import Any, Dict, List, Literal, TypedDict, Union, overload
 
 from jet.adapters.llama_cpp.config import LLM_MODEL
@@ -47,7 +48,7 @@ def count_tokens(
     tools: List[Dict[str, Any]] | None = None,
     use_server: bool = False,
     prevent_total: Literal[False] = False,
-    auto_fallback: bool = True,  # NEW: auto-fallback to local
+    auto_fallback: bool = True,
     **kwargs,
 ) -> Union[int, List[int]]:
     """
@@ -58,7 +59,6 @@ def count_tokens(
         model = LLM_MODEL
 
     if use_server:
-        # Check if server is available
         from .server_health import is_server_available
 
         if is_server_available(base_url):
@@ -73,14 +73,36 @@ def count_tokens(
                 raise ConnectionError(
                     f"Server not available and auto_fallback disabled"
                 )
-            # Fall through to local processing
 
     tokenizer = get_tokenizer(model)
+
     if isinstance(content, str):
         return len(tokenizer.encode(content, add_special_tokens=add_special))
+
+    if isinstance(content, dict):
+        # Handle single message dict: {"role": "...", "content": "..."}
+        # We tokenize the content directly to avoid chat template structural errors
+        # when counting individual messages in a loop.
+        msg_content = content.get("content", "")
+        if isinstance(msg_content, str):
+            return len(tokenizer.encode(msg_content, add_special_tokens=add_special))
+        elif isinstance(msg_content, list):
+            # Handle multimodal content lists roughly by summing text parts
+            total = 0
+            for item in msg_content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    total += len(
+                        tokenizer.encode(
+                            item.get("text", ""), add_special_tokens=add_special
+                        )
+                    )
+            return total
+        return 0
+
     if isinstance(content, list):
         if not content:
             return [] if prevent_total else 0
+
         if content and all(
             isinstance(item, dict) and "role" in item and "content" in item
             for item in content
@@ -97,16 +119,24 @@ def count_tokens(
                 logger.warning(
                     f"Chat template failed, falling back to concatenation: {e}"
                 )
-                combined = " ".join(msg.get("content", "") for msg in content)
+                combined = " ".join(
+                    msg.get("content", "")
+                    for msg in content
+                    if isinstance(msg.get("content"), str)
+                )
                 return len(tokenizer.encode(combined, add_special_tokens=add_special))
+
         elif content and all(isinstance(item, str) for item in content):
             token_counts = [
                 len(tokenizer.encode(text, add_special_tokens=add_special))
                 for text in content
             ]
             return token_counts if prevent_total else sum(token_counts)
+
         else:
+            # Fallback for mixed lists or other types
             return len(content)
+
     logger.warning(f"Unsupported content type: {type(content)}")
     return 0
 
@@ -124,10 +154,12 @@ def count_chat_tokens(
     """
     if model is None:
         model = LLM_MODEL
+
     if use_server:
         from .server_interaction import count_chat_tokens as server_count_chat_tokens
 
         return server_count_chat_tokens(messages, model, base_url, tools, **kwargs)
+
     tokenizer = get_tokenizer(model)
     try:
         token_ids = tokenizer.apply_chat_template(
@@ -157,6 +189,7 @@ def count_raw_tokens(
     """
     if model is None:
         model = LLM_MODEL
+
     if use_server:
         from .server_interaction import count_tokens_raw as server_count_tokens_raw
 
@@ -164,6 +197,7 @@ def count_raw_tokens(
             input_tokens=server_count_tokens_raw(input_text, model, base_url, **kwargs),
             object="input_tokens",
         )
+
     tokenizer = get_tokenizer(model)
     return InputTokensResponse(
         input_tokens=len(tokenizer.encode(input_text)),

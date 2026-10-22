@@ -21,10 +21,10 @@ def rerank(
     documents: list[str],
     metadata: list[dict[str, Any]] | None = None,
     metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
-    top_k: int = 5,
+    top_k: int | None = None,
     min_score: float = 7.0,
     criteria: str | None = None,
-    max_doc_tokens: int = 150,
+    max_doc_tokens: int | None = None,
     include_reasoning: bool = False,
     model: str = LLM_MODEL,
     base_url: str | None = None,
@@ -44,10 +44,10 @@ def rerank(
                             If None, uses a default formatter that injects common fields
                             (Source, Date, Title, etc.) into the document text before ranking.
                             Set to lambda _: "" to disable metadata injection while keeping it in results.
-        top_k: Number of top results to return.
+        top_k: Number of top results to return. If None, returns all results that meet min_score.
         min_score: Minimum relevance score threshold (0-10).
         criteria: Optional specific criteria for the LLM to focus on.
-        max_doc_tokens: Max tokens per document after truncation.
+        max_doc_tokens: Max tokens per document after truncation. If None, no truncation is applied.
         include_reasoning: If True, LLM provides a reason for each ranking.
         model: LLM model to use for ranking.
         base_url: Base URL for the LLM server.
@@ -65,7 +65,6 @@ def rerank(
         max_tokens=max_tokens,
         batch_overlap=batch_overlap,
     )
-
     return reranker.rerank(
         query=query,
         documents=documents,
@@ -84,10 +83,10 @@ async def arerank(
     documents: list[str],
     metadata: list[dict[str, Any]] | None = None,
     metadata_format_fn: Callable[[dict[str, Any]], str] | None = None,
-    top_k: int = 5,
+    top_k: int | None = None,
     min_score: float = 7.0,
     criteria: str | None = None,
-    max_doc_tokens: int = 150,
+    max_doc_tokens: int | None = None,
     include_reasoning: bool = False,
     model: str = LLM_MODEL,
     base_url: str | None = None,
@@ -104,10 +103,10 @@ async def arerank(
         metadata: Optional list of metadata dicts corresponding to each document.
         metadata_format_fn: Function to convert metadata dict to string for context injection.
                             If None, uses a default formatter.
-        top_k: Number of top results to return.
+        top_k: Number of top results to return. If None, returns all results that meet min_score.
         min_score: Minimum relevance score threshold (0-10).
         criteria: Optional specific criteria for the LLM to focus on.
-        max_doc_tokens: Max tokens per document after truncation.
+        max_doc_tokens: Max tokens per document after truncation. If None, no truncation is applied.
         include_reasoning: If True, LLM provides a reason for each ranking.
         model: LLM model to use for ranking.
         base_url: Base URL for the LLM server.
@@ -125,7 +124,6 @@ async def arerank(
         max_tokens=max_tokens,
         batch_overlap=batch_overlap,
     )
-
     return await reranker.arerank(
         query=query,
         documents=documents,
@@ -150,8 +148,6 @@ if __name__ == "__main__":
         "Java is used in enterprise applications and Android development.",
         "Python's machine learning ecosystem includes TensorFlow, PyTorch, and scikit-learn.",
     ]
-
-    # Example metadata
     meta = [
         {"source": "blog", "year": 2023},
         {"source": "docs", "year": 2024},
