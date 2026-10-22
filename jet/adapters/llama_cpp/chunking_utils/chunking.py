@@ -293,7 +293,6 @@ def chunk_texts_with_data(
         doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
         chunk_index = 0
 
-        # Non-strict mode
         if not strict_sentences:
             tokens = batch_tokens[i]
             if not tokens:
@@ -369,25 +368,77 @@ def chunk_texts_with_data(
                     prev["end_idx"] = last["end_idx"]
 
             continue
+        else:
+            sentences = split_sentences(text)
+            if not sentences:
+                continue
 
-        # Strict mode
-        sentences = split_sentences(text)
-        if not sentences:
-            continue
+            # 1. Calculate character offsets for each sentence in the original text
+            sent_char_starts = []
+            current_pos = 0
+            for s in sentences:
+                idx = text.find(s, current_pos)
+                if idx == -1:
+                    # Fallback if exact match fails (e.g. whitespace differences)
+                    idx = current_pos
+                sent_char_starts.append(idx)
+                current_pos = idx + len(s)
 
-        sent_tokens = size_fn(sentences)
-        sent_sizes = [len(t) for t in sent_tokens]
-        current_chunk: list[str] = []
-        current_size = 0
+            sent_tokens = size_fn(sentences)
+            sent_sizes = [len(t) for t in sent_tokens]
 
-        for s, s_size in zip(sentences, sent_sizes):
-            if s_size > effective_chunk_size:
-                sub_sents = split_large_sentence(s, effective_chunk_size, size_fn)
-                for sub in sub_sents:
-                    sub_size = len(size_fn(sub))
-                    if current_size + sub_size > effective_chunk_size and current_chunk:
+            current_chunk: list[str] = []
+            current_size = 0
+            chunk_start_char_idx = 0  # Track where the current chunk starts in the doc
+
+            for i, (s, s_size) in enumerate(zip(sentences, sent_sizes)):
+                if s_size > effective_chunk_size:
+                    sub_sents = split_large_sentence(s, effective_chunk_size, size_fn)
+                    for sub in sub_sents:
+                        sub_size = len(size_fn(sub))
+                        if (
+                            current_size + sub_size > effective_chunk_size
+                            and current_chunk
+                        ):
+                            chunk_content = " ".join(current_chunk)
+                            num_tokens = len(size_fn(chunk_content))
+
+                            chunk_end_char_idx = chunk_start_char_idx + len(
+                                chunk_content
+                            )
+
+                            if num_tokens >= min_chunk_size or not chunks:
+                                chunks.append(
+                                    {
+                                        "id": str(uuid.uuid4()),
+                                        "doc_id": doc_id,
+                                        "doc_index": doc_index,
+                                        "chunk_index": chunk_index,
+                                        "num_tokens": num_tokens,
+                                        "content": chunk_content,
+                                        "start_idx": chunk_start_char_idx,
+                                        "end_idx": chunk_end_char_idx,
+                                        "line_idx": 0,
+                                        "overlap_start_idx": None,
+                                        "overlap_end_idx": None,
+                                    }
+                                )
+                                chunk_index += 1
+
+                            current_chunk, current_size = [], 0
+                            # Reset start tracker for next chunk
+                            chunk_start_char_idx = sent_char_starts[
+                                i
+                            ]  # Approximate for sub-splits
+
+                        current_chunk.append(sub)
+                        current_size += sub_size
+                else:
+                    if current_size + s_size > effective_chunk_size and current_chunk:
                         chunk_content = " ".join(current_chunk)
                         num_tokens = len(size_fn(chunk_content))
+
+                        chunk_end_char_idx = chunk_start_char_idx + len(chunk_content)
 
                         if num_tokens >= min_chunk_size or not chunks:
                             chunks.append(
@@ -398,8 +449,8 @@ def chunk_texts_with_data(
                                     "chunk_index": chunk_index,
                                     "num_tokens": num_tokens,
                                     "content": chunk_content,
-                                    "start_idx": 0,
-                                    "end_idx": len(chunk_content),
+                                    "start_idx": chunk_start_char_idx,
+                                    "end_idx": chunk_end_char_idx,
                                     "line_idx": 0,
                                     "overlap_start_idx": None,
                                     "overlap_end_idx": None,
@@ -407,62 +458,44 @@ def chunk_texts_with_data(
                             )
                             chunk_index += 1
 
-                        current_chunk, current_size = [], 0
+                        # Start new chunk
+                        current_chunk = []
+                        current_size = 0
+                        chunk_start_char_idx = sent_char_starts[i]
 
-                    current_chunk.append(sub)
-                    current_size += sub_size
-            else:
-                if current_size + s_size > effective_chunk_size and current_chunk:
-                    chunk_content = " ".join(current_chunk)
-                    num_tokens = len(size_fn(chunk_content))
+                    current_chunk.append(s)
+                    current_size += s_size
 
-                    if num_tokens >= min_chunk_size or not chunks:
-                        chunks.append(
-                            {
-                                "id": str(uuid.uuid4()),
-                                "doc_id": doc_id,
-                                "doc_index": doc_index,
-                                "chunk_index": chunk_index,
-                                "num_tokens": num_tokens,
-                                "content": chunk_content,
-                                "start_idx": 0,
-                                "end_idx": len(chunk_content),
-                                "line_idx": 0,
-                                "overlap_start_idx": None,
-                                "overlap_end_idx": None,
-                            }
-                        )
-                        chunk_index += 1
+            # Handle final chunk
+            if current_chunk:
+                chunk_content = " ".join(current_chunk)
+                num_tokens = len(size_fn(chunk_content))
 
-                    current_chunk, current_size = [], 0
+                chunk_end_char_idx = chunk_start_char_idx + len(chunk_content)
 
-                current_chunk.append(s)
-                current_size += s_size
-
-        # Finalize remaining chunk
-        if current_chunk:
-            chunk_content = " ".join(current_chunk)
-            num_tokens = len(size_fn(chunk_content))
-
-            if num_tokens < min_chunk_size and chunks:
-                chunks[-1]["content"] += " " + chunk_content
-                chunks[-1]["num_tokens"] = len(size_fn(chunks[-1]["content"]))
-                chunks[-1]["end_idx"] = len(chunks[-1]["content"])
-            else:
-                chunks.append(
-                    {
-                        "id": str(uuid.uuid4()),
-                        "doc_id": doc_id,
-                        "doc_index": doc_index,
-                        "chunk_index": chunk_index,
-                        "num_tokens": num_tokens,
-                        "content": chunk_content,
-                        "start_idx": 0,
-                        "end_idx": len(chunk_content),
-                        "line_idx": 0,
-                        "overlap_start_idx": None,
-                        "overlap_end_idx": None,
-                    }
-                )
+                if num_tokens < min_chunk_size and chunks:
+                    chunks[-1]["content"] += " " + chunk_content
+                    chunks[-1]["num_tokens"] = len(size_fn(chunks[-1]["content"]))
+                    # This also needs fixing if merging:
+                    # Ideally: chunks[-1]["end_idx"] = chunks[-1]["start_idx"] + len(chunks[-1]["content"])
+                    chunks[-1]["end_idx"] = chunks[-1]["start_idx"] + len(
+                        chunks[-1]["content"]
+                    )
+                else:
+                    chunks.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "doc_id": doc_id,
+                            "doc_index": doc_index,
+                            "chunk_index": chunk_index,
+                            "num_tokens": num_tokens,
+                            "content": chunk_content,
+                            "start_idx": chunk_start_char_idx,
+                            "end_idx": chunk_end_char_idx,
+                            "line_idx": 0,
+                            "overlap_start_idx": None,
+                            "overlap_end_idx": None,
+                        }
+                    )
 
     return chunks

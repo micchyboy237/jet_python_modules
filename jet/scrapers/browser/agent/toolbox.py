@@ -390,14 +390,36 @@ class PlaywrightToolbox:
 
     async def browser_evaluate(self, function: str, target: Optional[str] = None):
         page = await self._ensure_page()
-        if target:
-            resolved = self._resolve_target(target)
-            result = await page.locator(resolved).first.evaluate(function)
-        else:
-            result = await page.evaluate(function)
-        console.print(f"[green]Evaluated JS. Result: {result}[/green]")
-        await self._maybe_scroll_if_url_changed()
-        return result
+
+        # Sanitize and wrap the function string if necessary
+        # Playwright's evaluate expects a function or an expression.
+        # If the LLM returns "return document.title", it fails.
+        # We wrap it in an arrow function if it starts with 'return' or contains top-level returns.
+        js_code = function.strip()
+        if js_code.startswith("return ") or (
+            js_code.startswith("{") and "return " in js_code
+        ):
+            # If it looks like a function body, wrap it
+            js_code = f"() => {{ {js_code} }}"
+        elif not js_code.startswith("(") and not js_code.startswith("function"):
+            # If it's just an expression like "document.title", wrap it
+            js_code = f"() => {{ return {js_code}; }}"
+
+        try:
+            if target:
+                resolved = self._resolve_target(target)
+                locator = page.locator(resolved).first
+                await locator.wait_for(state="visible", timeout=5000)
+                result = await locator.evaluate(js_code)
+            else:
+                result = await page.evaluate(js_code)
+
+            console.print(f"[green]Evaluated JS. Result: {result}[/green]")
+            await self._maybe_scroll_if_url_changed()
+            return result
+        except Exception as e:
+            console.print(f"[bold red]JS Evaluation Error:[/bold red] {e}")
+            raise
 
     async def browser_run_code_unsafe(self, code: str):
         page = await self._ensure_page()
@@ -420,7 +442,10 @@ class PlaywrightToolbox:
             base_name = f"{Path(base_name).stem}.{type}"
         output_path = (step_dir or self.output_dir) / base_name
         await page.screenshot(path=str(output_path), full_page=fullPage, type=type)
-        link = f"link file://{output_path.resolve()} {output_path.name}"
+
+        # Use the standard Rich link format
+        abs_path = output_path.resolve()
+        link = f"[link=file://{abs_path}]{output_path.name}[/link]"
         console.print(f"[green]Screenshot saved:[/green] {link}")
         return str(output_path)
 

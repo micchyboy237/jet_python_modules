@@ -87,7 +87,7 @@ include_files = [
     r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/chunking.py",
     r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/tokenization.py",
     r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/types.py",
-    # r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/truncation.py",
+    r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/truncation.py",
     # r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunking_utils/markdown.py",
     r"",
     r"/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/__init__.py",

@@ -1,21 +1,24 @@
 """
-Agent Core Logic
+Agent Core Logic with Step-Level Retry
 """
 
+import asyncio
 import json
+import uuid
 from pathlib import Path
 
-import openai
-
-# ADDED: Import count_tokens
+from jet.adapters.llama_cpp.llm_utils_observed import achat
+from jet.adapters.llama_cpp.rag_utils import RankedChunkResult, find_snapshot
 from jet.adapters.llama_cpp.token_utils import count_tokens
+from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from jet.scrapers.browser.agent.registry import PlaywrightToolRegistry
 from jet.scrapers.browser.agent.templates import (
     SYSTEM_PROMPT_TEMPLATE,
     USER_PROMPT_TEMPLATE,
 )
-from jet.scrapers.browser.agent.tools import AgentDecision, get_decision_schema
+from jet.scrapers.browser.agent.tools import AgentDecision
 from jet.scrapers.browser.agent.utils import get_step_dir, save_json, save_text
+from jet_telemetry import agent, chain, llm, performance_monitor, tool
 from rich.console import Console
 
 console = Console()
@@ -28,73 +31,171 @@ class LocalAgent:
         model: str,
         registry: PlaywrightToolRegistry,
         output_dir: Path,
-        max_snapshot_tokens: int = 8000,  # UPDATED: Parameter name and default
+        max_message_tokens: int = 12000,
+        max_snapshot_tokens: int = 3000,
+        max_retries_per_step: int = 3,
     ):
-        self.client = openai.AsyncOpenAI(base_url=api_base, api_key="local")
+        # Note: We no longer initialize self.client here as achat handles client creation internally
         self.model = model
         self.registry = registry
         self.output_dir = output_dir
-        self.max_snapshot_tokens = max_snapshot_tokens  # UPDATED: Store token limit
-
-        # Initialize token counter helper
+        self.max_message_tokens = max_message_tokens
+        self.max_snapshot_tokens = max_snapshot_tokens
+        self.max_retries_per_step = max_retries_per_step
         self._count_tokens_fn = lambda text: count_tokens(
             text, model=self.model, use_server=False
         )
-
         self.prev_url = "Unknown"
-        # ADDED: Token tracking state
         self.total_input_tokens = 0
         self.step_token_counts = []
+        self.session_id = str(uuid.uuid4())[:8]
+        self.history = []
 
-    def _truncate_snapshot_by_tokens(self, snapshot: str) -> tuple[str, int]:
+    @chain(name="refresh-browser-snapshot")
+    async def _refresh_snapshot(self, step_dir: Path) -> str:
+        """Refreshes the browser snapshot if the page is still open."""
+        if self.registry.toolbox.is_closed:
+            return ""
+        try:
+            await asyncio.sleep(1)
+            return await self.registry.toolbox.browser_snapshot(step_dir=step_dir)
+        except Exception as e:
+            console.print(f"[yellow]Failed to refresh snapshot: {e}[/yellow]")
+            return ""
+
+    @chain(name="extract-snapshot-context")
+    async def _ensure_snapshots_token_limit(
+        self, goal: str, current_snapshot: str
+    ) -> tuple[str, list[RankedChunkResult], int]:
+        """Extracts relevant context using RAG and ensures it fits within snapshot token limits."""
+        rag_context, ranked_results, _ = find_snapshot(
+            query=goal,
+            text=current_snapshot,
+            top_k=10,
+            min_score=3.0,
+            model=self.model,
+            criteria="Focus on interactive elements, text content, and layout structure relevant to the goal.",
+            include_reasoning=True,
+            max_tokens=self.max_snapshot_tokens,
+            chunk_size=500,
+            chunk_overlap=100,
+            embed_chunk_size=300,
+            embed_chunk_overlap=100,
+            show_progress=True,
+            min_high_results=3,
+            min_results=5,
+            candidate_k=10,
+        )
+        rag_context_tokens = count_tokens(rag_context)
+        return rag_context, ranked_results, rag_context_tokens
+
+    def _ensure_message_token_limit(
+        self,
+        system_prompt: str,
+        messages: list[dict],
+        tool_registry: list[dict],
+    ) -> tuple[list[dict], int]:
         """
-        Truncate snapshot to fit within max_snapshot_tokens using binary search.
-        Returns truncated snapshot and actual token count.
+        Ensures total message tokens do not exceed max_message_tokens.
+        Truncates oldest history steps if necessary.
         """
-        if not snapshot:
-            return "", 0
-
-        # Quick check if no truncation needed
-        total_tokens = self._count_tokens_fn(snapshot)
-        if total_tokens <= self.max_snapshot_tokens:
-            return snapshot, total_tokens
-
-        # Binary search for the optimal cut point
-        left, right = 0, len(snapshot)
-        best_truncated = snapshot[: self.max_snapshot_tokens]  # Fallback
-        best_token_count = 0
-
-        while left <= right:
-            mid = (left + right) // 2
-            # Ensure we don't cut in the middle of a unicode char if possible,
-            # but for speed we just slice.
-            truncated = snapshot[:mid]
-
-            try:
-                token_count = self._count_tokens_fn(truncated)
-            except Exception:
-                token_count = mid  # Rough estimate if tokenizer fails
-
-            if token_count <= self.max_snapshot_tokens:
-                best_truncated = truncated
-                best_token_count = token_count
-                left = mid + 1
+        step_tokens = count_tokens(
+            content=messages,
+            model=self.model,
+            tools=tool_registry,
+            use_server=False,
+        )
+        while step_tokens > self.max_message_tokens and len(messages) > 1:
+            if len(messages) >= 3:
+                removed_user = messages.pop(1)
+                removed_assistant = messages.pop(1)
+                console.print(
+                    f"[dim]Truncated history to fit token limit. Removed step.[/dim]"
+                )
             else:
-                right = mid - 1
+                break
+            step_tokens = count_tokens(
+                content=messages,
+                model=self.model,
+                tools=tool_registry,
+                use_server=False,
+            )
+        if step_tokens > self.max_message_tokens:
+            raise ValueError(
+                f"LLM input messages ({step_tokens} tokens) still exceed max allowed ({self.max_message_tokens}) even after truncation."
+            )
+        return messages, step_tokens
 
-        # Add indication of truncation
-        if len(best_truncated) < len(snapshot):
-            suffix = "\n\n... [snapshot truncated due to token limit] ..."
-            # Check if adding suffix exceeds limit
-            if (
-                self._count_tokens_fn(best_truncated + suffix)
-                <= self.max_snapshot_tokens
-            ):
-                best_truncated += suffix
-                best_token_count = self._count_tokens_fn(best_truncated)
+    @chain(name="prepare-llm-input")
+    def _prepare_input(
+        self,
+        step_index: int,
+        step_dir: Path,
+        system_prompt: str,
+        user_prompt_content: str,
+        messages: list,
+        context_for_llm: str,
+        step_tokens: int,
+        snapshot_context_tokens: int,
+        ranked_results: list,
+    ):
+        """Saves input data and metrics for the current step."""
+        self.total_input_tokens += step_tokens
+        self.step_token_counts.append(step_tokens)
+        console.print(
+            f"[dim]Step {step_index} input tokens: {step_tokens} (Total: {self.total_input_tokens})[/dim]"
+        )
+        self._save_step_input(
+            step_dir,
+            system_prompt,
+            user_prompt_content,
+            messages,
+            context_for_llm,
+        )
+        save_json(
+            step_dir / "token_metrics.json",
+            {
+                "step": step_index,
+                "input_tokens": step_tokens,
+                "cumulative_tokens": self.total_input_tokens,
+                "snapshot_context_tokens": snapshot_context_tokens,
+                "ranked_chunks_count": len(ranked_results),
+            },
+        )
 
-        return best_truncated, best_token_count
+    @chain(name="capture-output-state")
+    async def _capture_output_state(self, step_index: int, step_dir: Path):
+        """Captures the browser state after a tool execution that changes the DOM."""
+        if self.registry.toolbox.is_closed:
+            return
+        console.print("[dim]State changed. Capturing output state...[/dim]")
+        try:
+            output_state = await self.registry.toolbox.browser_snapshot(
+                step_dir=step_dir
+            )
+            output_link = save_text(step_dir / "output_snapshot.md", output_state)
+            console.print(f"[dim]Output snapshot saved: {output_link}[/dim]")
+            await self.registry.toolbox.browser_take_screenshot(
+                filename=f"step_{step_index}_end.png", step_dir=step_dir
+            )
+        except Exception as e:
+            console.print(f"[yellow]Failed to capture end state: {e}[/yellow]")
 
+    @tool(name="execute-agent-tool")
+    async def _execute_tool_with_tracking(
+        self, decision: AgentDecision, step_dir: Path
+    ) -> str:
+        """Executes the tool and returns the result string for the next iteration."""
+        console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
+        console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
+        try:
+            last_result = await self._execute_tool(decision, step_dir)
+            return last_result
+        except Exception as e:
+            console.print(f"[bold red]Error in tool execution:[/bold red] {e}")
+            return f"Error: {str(e)}"
+
+    @agent(name="browser-agent-loop", session_id=None)
     async def think_and_act(
         self, goal: str, initial_snapshot: str, max_steps: int = 15, **kwargs
     ) -> str:
@@ -103,161 +204,156 @@ class LocalAgent:
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             tool_descriptions=tool_descriptions
         )
-
-        # Reset tracking for this run
+        self.history = []
         self.total_input_tokens = 0
         self.step_token_counts = []
-
         last_result = "None"
-        current_state = initial_snapshot
+        current_snapshot = initial_snapshot
         self.prev_url = await self.registry.toolbox._get_current_url()
-        decision_schema = get_decision_schema()
-        response_format = {"type": "json_schema", "json_schema": decision_schema}
+
+        # We can pass the Pydantic class directly to achat for automatic validation
+        response_format = AgentDecision
 
         for i in range(max_steps):
             step_index = i + 1
             step_dir = get_step_dir(step_index, self.output_dir)
-            console.print(f"[bold cyan]Step {step_index}:[/bold cyan] Thinking...")
-
-            if i > 0 and not self.registry.toolbox.is_closed:
-                console.print("[dim]Refreshing snapshot before LLM decision...[/dim]")
+            success = False
+            for attempt in range(1, self.max_retries_per_step + 1):
                 try:
-                    current_state = await self.registry.toolbox.browser_snapshot(
-                        step_dir=step_dir
+                    if attempt > 1:
+                        console.print(
+                            f"[bold yellow]⚠️ Retrying Step {step_index} (Attempt {attempt}/{self.max_retries_per_step})...[/bold yellow]"
+                        )
+                        await asyncio.sleep(2)
+                        refreshed = await self._refresh_snapshot(step_dir)
+                        if refreshed:
+                            current_snapshot = refreshed
+                        else:
+                            raise Exception("Browser closed during retry wait.")
+
+                    console.print(
+                        f"[bold cyan]Step {step_index} (Attempt {attempt}):[/bold cyan] Thinking..."
                     )
-                except Exception as e:
-                    console.print(f"[yellow]Failed to refresh snapshot: {e}[/yellow]")
+                    if i > 0 and attempt == 1:
+                        refreshed = await self._refresh_snapshot(step_dir)
+                        if refreshed:
+                            current_snapshot = refreshed
 
-            current_url = "Unknown"
-            if (
-                self.registry.toolbox.page
-                and not self.registry.toolbox.page.is_closed()
-            ):
-                try:
-                    current_url = self.registry.toolbox.page.url
-                except:
-                    pass
-
-            # UPDATED: Use token-based truncation
-            truncated_snapshot, snapshot_tokens = self._truncate_snapshot_by_tokens(
-                current_state
-            )
-
-            input_link = save_text(step_dir / "input_snapshot.md", truncated_snapshot)
-            console.print(f"[dim]Input snapshot saved: {input_link}[/dim]")
-            console.print(
-                f"[dim]Snapshot tokens: {snapshot_tokens}/{self.max_snapshot_tokens}[/dim]"
-            )
-
-            try:
-                await self.registry.toolbox.browser_take_screenshot(
-                    filename=f"step_{step_index}_start.png", step_dir=step_dir
-                )
-            except Exception as e:
-                console.print(
-                    f"[yellow]Failed to capture start screenshot: {e}[/yellow]"
-                )
-
-            user_prompt_content = USER_PROMPT_TEMPLATE.format(
-                goal=goal,
-                url=current_url,
-                prev_url=self.prev_url,
-                snapshot=truncated_snapshot,  # Use truncated version
-                last_result=last_result,
-            )
-
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt_content},
-            ]
-
-            # ADDED: Count tokens for this step
-            step_tokens = count_tokens(
-                content=messages,
-                model=self.model,
-                tools=tool_registry,
-                use_server=False,
-            )
-
-            self.total_input_tokens += step_tokens
-            self.step_token_counts.append(step_tokens)
-
-            console.print(
-                f"[dim]Step {step_index} input tokens: {step_tokens} (Total: {self.total_input_tokens})[/dim]"
-            )
-
-            self._save_step_input(
-                step_dir,
-                system_prompt,
-                user_prompt_content,
-                messages,
-                truncated_snapshot,
-            )
-
-            # Save step token metrics
-            save_json(
-                step_dir / "token_metrics.json",
-                {
-                    "step": step_index,
-                    "input_tokens": step_tokens,
-                    "cumulative_tokens": self.total_input_tokens,
-                    "snapshot_tokens": snapshot_tokens,
-                },
-            )
-
-            try:
-                decision = await self._call_llm(
-                    messages, response_format, step_dir, **kwargs
-                )
-                if decision.tool == "final_answer":
-                    decision.finished = True
-                if decision.finished:
-                    console.print("[bold green]Goal achieved.[/bold green]")
-
-                    # ADDED: Save final summary
-                    self._save_token_summary(step_index)
-                    return "Goal achieved."
-
-                console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
-                console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
-                last_result = await self._execute_tool(decision, step_dir)
-                self.prev_url = current_url
-
-                if not self.registry.toolbox.is_closed:
-                    if self.registry.requires_state_refresh(decision.tool):
-                        console.print(
-                            "[dim]State changed. Capturing output state...[/dim]"
-                        )
+                    current_url = "Unknown"
+                    if (
+                        self.registry.toolbox.page
+                        and not self.registry.toolbox.page.is_closed()
+                    ):
                         try:
-                            output_state = await self.registry.toolbox.browser_snapshot(
-                                step_dir=step_dir
-                            )
-                            output_link = save_text(
-                                step_dir / "output_snapshot.md", output_state
-                            )
-                            console.print(
-                                f"[dim]Output snapshot saved: {output_link}[/dim]"
-                            )
-                            await self.registry.toolbox.browser_take_screenshot(
-                                filename=f"step_{step_index}_end.png", step_dir=step_dir
-                            )
-                        except Exception as e:
-                            console.print(
-                                f"[yellow]Failed to capture end state: {e}[/yellow]"
-                            )
-                    else:
+                            current_url = self.registry.toolbox.page.url
+                        except:
+                            pass
+
+                    (
+                        context_for_llm,
+                        ranked_results,
+                        snapshot_context_tokens,
+                    ) = await self._ensure_snapshots_token_limit(goal, current_snapshot)
+                    input_link = save_text(
+                        step_dir / "input_snapshot.md", context_for_llm
+                    )
+                    console.print(f"[dim]Input context saved: {input_link}[/dim]")
+                    console.print(
+                        f"[dim]Snapshot Context Tokens: {snapshot_context_tokens}/{self.max_snapshot_tokens}[/dim]"
+                    )
+
+                    try:
+                        await self.registry.toolbox.browser_take_screenshot(
+                            filename=f"step_{step_index}_start.png", step_dir=step_dir
+                        )
+                    except Exception as e:
                         console.print(
-                            "[dim]Tool passive/terminal. Skipping output snapshot refresh.[/dim]"
+                            f"[yellow]Failed to capture start screenshot: {e}[/yellow]"
                         )
 
-                if self.registry.toolbox.is_closed:
-                    self._save_token_summary(step_index)
-                    return "Browser closed."
+                    user_prompt_content = USER_PROMPT_TEMPLATE.format(
+                        goal=goal,
+                        url=current_url,
+                        prev_url=self.prev_url,
+                        snapshot=context_for_llm,
+                        last_result=last_result,
+                    )
+                    self.history.append(
+                        {"role": "user", "content": user_prompt_content}
+                    )
+                    messages = [
+                        {"role": "system", "content": system_prompt}
+                    ] + self.history
 
-            except Exception as e:
-                console.print(f"[bold red]Error in step {step_index}:[/bold red] {e}")
-                last_result = f"Error: {str(e)}"
-                save_text(step_dir / "error.log", str(e))
+                    messages, step_tokens = self._ensure_message_token_limit(
+                        system_prompt=system_prompt,
+                        messages=messages,
+                        tool_registry=tool_registry,
+                    )
+
+                    self._prepare_input(
+                        step_index,
+                        step_dir,
+                        system_prompt,
+                        user_prompt_content,
+                        messages,
+                        context_for_llm,
+                        step_tokens,
+                        snapshot_context_tokens,
+                        ranked_results,
+                    )
+
+                    decision = await self._call_llm(
+                        messages, response_format, step_dir, **kwargs
+                    )
+
+                    assistant_msg_content = json.dumps(decision.model_dump())
+                    self.history.append(
+                        {"role": "assistant", "content": assistant_msg_content}
+                    )
+
+                    if decision.tool == "final_answer":
+                        decision.finished = True
+
+                    if decision.finished:
+                        console.print("[bold green]Goal achieved.[/bold green]")
+                        self._save_token_summary(step_index)
+                        return "Goal achieved."
+
+                    last_result = await self._execute_tool_with_tracking(
+                        decision, step_dir
+                    )
+                    self.prev_url = current_url
+
+                    if not self.registry.toolbox.is_closed:
+                        if self.registry.requires_state_refresh(decision.tool):
+                            await self._capture_output_state(step_index, step_dir)
+                        else:
+                            console.print(
+                                "[dim]Tool passive/terminal. Skipping output snapshot refresh.[/dim]"
+                            )
+
+                    if self.registry.toolbox.is_closed:
+                        self._save_token_summary(step_index)
+                        return "Browser closed."
+
+                    success = True
+                    break
+
+                except Exception as e:
+                    console.print(
+                        f"[bold red]Error in step {step_index} (Attempt {attempt}):[/bold red] {e}"
+                    )
+                    last_result = f"Error: {str(e)}"
+                    save_text(step_dir / f"error_attempt_{attempt}.log", str(e))
+                    if attempt == self.max_retries_per_step:
+                        raise e
+
+            if not success:
+                console.print(
+                    "[bold red]Step failed after all retries. Stopping.[/bold red]"
+                )
+                return "Step failed after retries."
 
         console.print("[bold yellow]Max steps reached.[/bold yellow]")
         self._save_token_summary(max_steps)
@@ -267,7 +363,6 @@ class LocalAgent:
         """Save final token usage summary."""
         if not self.step_token_counts:
             return
-
         summary = {
             "total_steps": final_step,
             "total_input_tokens": self.total_input_tokens,
@@ -300,39 +395,72 @@ class LocalAgent:
             console.print(f"[red]Execution error: {exec_err}[/red]")
             return f"Error executing {decision.tool}: {str(exec_err)}"
 
+    @llm(model_name=None, provider="llama_cpp")
+    @performance_monitor(threshold_ms=5000)
     async def _call_llm(self, messages, response_format, step_dir, **kwargs):
-        create_kwargs = dict(
-            model=self.model,
-            messages=messages,
-            seed=42,
+        """
+        Calls the LLM using the observed utility which handles
+        streaming, structured output parsing, and telemetry.
+        """
+        model_name = kwargs.get("model", self.model)
+
+        # Prepare extra body params for llama.cpp specific settings
+        extra_body_params = {
+            "top_k": 40,
+            "min_p": 0.0,
+            "repetition_penalty": 1.0,
+            "chat_template_kwargs": {
+                "enable_thinking": False,
+            },
+        }
+
+        # Call achat with structured output support
+        # achat handles the streaming and accumulation internally
+        result: StreamCompletionResult = await achat(
+            prompt_or_messages=messages,
+            model=model_name,
             temperature=0.3,
             top_p=0.95,
             presence_penalty=1.5,
             frequency_penalty=0.0,
-            stream_options={"include_usage": True},
-            extra_body={
-                "top_k": 40,
-                "min_p": 0.0,
-                "repetition_penalty": 1.0,
-                "chat_template_kwargs": {
-                    "enable_thinking": False,
-                },
-            },
-            stream=True,
-            response_format=response_format,
-            **kwargs,
+            max_tokens=16384,
+            response_format=response_format,  # Pass the Pydantic Class directly
+            extra_body_params=extra_body_params,
+            seed=42,
+            # Observability context is handled by initialize_telemetry in main
         )
-        stream = await self.client.chat.completions.create(**create_kwargs)
-        content = ""
-        async for part in stream:
-            if part.choices and part.choices[0].delta.content:
-                content += part.choices[0].delta.content
-                print(part.choices[0].delta.content, end="", flush=True)
-        content = self._clean_json_content(content)
-        save_text(step_dir / "llm_raw_response.txt", content)
-        decision = AgentDecision.model_validate_json(content)
-        save_json(step_dir / "llm_decision.json", decision.model_dump())
-        return decision
+
+        # Save raw response for debugging
+        save_text(step_dir / "llm_raw_response.txt", result.content)
+
+        # Check if structured parsing succeeded
+        if result.structured and result.structured.success:
+            decision = (
+                result.structured.parsed
+            )  # This is already an AgentDecision instance
+            save_json(step_dir / "llm_decision.json", decision.model_dump())
+            return decision
+        else:
+            # Fallback to manual parsing if structured output failed
+            error_msg = (
+                result.structured.error if result.structured else "Unknown error"
+            )
+            console.print(
+                f"[yellow]Structured parsing failed: {error_msg}. Falling back to manual parse.[/yellow]"
+            )
+
+            # Manual JSON extraction fallback
+            cleaned_content = self._clean_json_content(result.content)
+            try:
+                decision = AgentDecision.model_validate_json(cleaned_content)
+                save_json(step_dir / "llm_decision.json", decision.model_dump())
+                return decision
+            except Exception as e:
+                console.print(
+                    f"[bold red]Failed to parse LLM decision manually:[/bold red] {e}"
+                )
+                console.print(f"Raw content: {result.content[:200]}...")
+                raise e
 
     def _save_step_input(
         self, step_dir, system_prompt, user_prompt, messages, snapshot

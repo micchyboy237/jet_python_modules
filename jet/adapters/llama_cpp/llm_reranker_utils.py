@@ -31,10 +31,12 @@ def rerank(
     api_key: str | None = "not-needed",
     max_tokens: int | None = None,
     batch_overlap: int = 0,
+    min_results: int | None = None,
+    min_high_results: int | None = None,
+    high_score_threshold: float = 9.0,
 ) -> list[RankingResult] | list[CompactRankingResult]:
     """
     Synchronous functional interface for LLM-based reranking.
-
     Args:
         query: Search query string.
         documents: List of document strings to rerank.
@@ -42,10 +44,10 @@ def rerank(
         metadata_format_fn: Function to convert metadata dict to string for context injection.
         top_k: Number of top results to return. If None, returns all results that meet min_score.
         min_score: Minimum relevance score threshold.
-                   With Tiered Scoring:
-                   - > 6.0: Only "High" relevance (Score 9.0)
-                   - <= 6.0: "High" and "Medium" relevance (Scores 9.0, 6.0)
-                   - <= 3.0: All tiers (Scores 9.0, 6.0, 3.0)
+            With Tiered Scoring:
+            - > 6.0: Only "High" relevance (Score 9.0)
+            - <= 6.0: "High" and "Medium" relevance (Scores 9.0, 6.0)
+            - <= 3.0: All tiers (Scores 9.0, 6.0, 3.0)
         criteria: Optional specific criteria for the LLM to focus on.
         max_doc_tokens: Max tokens per document after truncation.
         include_reasoning: If True, LLM provides a reason for each ranking.
@@ -54,7 +56,9 @@ def rerank(
         api_key: API key for the LLM server.
         max_tokens: Max context window tokens.
         batch_overlap: Number of documents to overlap between batches.
-
+        min_results: If set, stop processing batches once this many total results are found.
+        min_high_results: If set, stop processing batches once this many 'high' quality results are found.
+        high_score_threshold: Score threshold to define a 'high' quality result (default 9.0).
     Returns:
         List of RankingResult (if include_reasoning=True) or CompactRankingResult.
     """
@@ -75,6 +79,9 @@ def rerank(
         criteria=criteria,
         max_doc_tokens=max_doc_tokens,
         include_reasoning=include_reasoning,
+        min_results=min_results,
+        min_high_results=min_high_results,
+        high_score_threshold=high_score_threshold,
     )
 
 
@@ -93,10 +100,12 @@ async def arerank(
     api_key: str | None = "not-needed",
     max_tokens: int | None = None,
     batch_overlap: int = 0,
+    min_results: int | None = None,
+    min_high_results: int | None = None,
+    high_score_threshold: float = 9.0,
 ) -> list[RankingResult] | list[CompactRankingResult]:
     """
     Asynchronous functional interface for LLM-based reranking.
-
     Args:
         query: Search query string.
         documents: List of document strings to rerank.
@@ -112,7 +121,9 @@ async def arerank(
         api_key: API key for the LLM server.
         max_tokens: Max context window tokens.
         batch_overlap: Number of documents to overlap between batches.
-
+        min_results: If set, stop processing batches once this many total results are found.
+        min_high_results: If set, stop processing batches once this many 'high' quality results are found.
+        high_score_threshold: Score threshold to define a 'high' quality result (default 9.0).
     Returns:
         List of RankingResult (if include_reasoning=True) or CompactRankingResult.
     """
@@ -133,6 +144,9 @@ async def arerank(
         criteria=criteria,
         max_doc_tokens=max_doc_tokens,
         include_reasoning=include_reasoning,
+        min_results=min_results,
+        min_high_results=min_high_results,
+        high_score_threshold=high_score_threshold,
     )
 
 

@@ -59,11 +59,6 @@ def run_demo():
 
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Hello, how are you?"},
-    ]
-
-    messages_with_tools = [
-        {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What's the weather like in Paris?"},
     ]
 
@@ -96,9 +91,7 @@ def run_demo():
     try:
         chat_result_local = count_chat_tokens(messages)
         print(f"Local chat tokens (without tools): {chat_result_local['input_tokens']}")
-        chat_result_local_with_tools = count_chat_tokens(
-            messages_with_tools, tools=tools
-        )
+        chat_result_local_with_tools = count_chat_tokens(messages, tools=tools)
         print(
             f"Local chat tokens (with tools): {chat_result_local_with_tools['input_tokens']}"
         )
@@ -112,7 +105,7 @@ def run_demo():
             f"Server chat tokens (without tools): {chat_result_server['input_tokens']}"
         )
         chat_result_server_with_tools = count_chat_tokens(
-            messages_with_tools, tools=tools, use_server=True
+            messages, tools=tools, use_server=True
         )
         print(
             f"Server chat tokens (with tools): {chat_result_server_with_tools['input_tokens']}"
@@ -127,11 +120,11 @@ def run_demo():
     print(f"String input (server): {result} tokens")
     result = count_tokens(messages)
     print(f"Message dicts without tools (local): {result} tokens")
-    result = count_tokens(messages_with_tools, tools=tools)
+    result = count_tokens(messages, tools=tools)
     print(f"Message dicts with tools (local): {result} tokens")
     result = count_tokens(messages, use_server=True)
     print(f"Message dicts without tools (server): {result} tokens")
-    result = count_tokens(messages_with_tools, tools=tools, use_server=True)
+    result = count_tokens(messages, tools=tools, use_server=True)
     print(f"Message dicts with tools (server): {result} tokens")
     result = count_tokens([123, 456, 789])
     print(f"Token list input: {result} tokens")
@@ -142,6 +135,10 @@ def run_demo():
     print(f"List of strings (local, total): {result} tokens")
     result = count_tokens(string_list, prevent_total=True)
     print(f"List of strings (local, individual): {result} tokens")
+    result = count_tokens(messages, prevent_total=True)
+    print(f"List of messages (local, individual): {result} tokens")
+    result = count_tokens(messages, tools=tools, prevent_total=True)
+    print(f"List of messages with tools (local, individual): {result} tokens")
     result = count_tokens(string_list, use_server=True)
     print(f"List of strings (server, total): {result} tokens")
 

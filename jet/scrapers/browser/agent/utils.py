@@ -6,7 +6,6 @@ Common helpers for file I/O and path management.
 import json
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 
 def get_step_dir(step_index: int, output_dir: Path) -> Path:
@@ -32,8 +31,7 @@ def save_text(path: Path, content: str) -> str:
 
 def _format_rich_link(path: Path) -> str:
     """Format a path as a Rich console link."""
-    # Convert to absolute path and format as file:// URL
+    # Use absolute path for the link target to ensure it works from any directory
     abs_path = path.resolve()
-    # Quote special characters in the path for URL compatibility
-    quoted_path = quote(str(abs_path))
-    return f"link file://{quoted_path} {path.name}"
+    # Format: [link=file:///absolute/path]filename[/link]
+    return f"[link=file://{abs_path}]{path.name}[/link]"

@@ -11,6 +11,7 @@ from jet.scrapers.browser.agent.tools import (
     TOOLS_TRIGGERING_STATE_CHANGE,
     get_tool_registry,
 )
+from jet_telemetry import tool
 from pydantic import BaseModel
 from rich.console import Console
 
@@ -37,6 +38,7 @@ class PlaywrightToolRegistry:
             )
         return schemas
 
+    @tool(name=None, description=None)  # Name and Description set dynamically
     async def execute_tool(
         self, name: str, arguments: Dict, step_dir: Optional[Path] = None
     ) -> Any:

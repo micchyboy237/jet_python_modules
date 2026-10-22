@@ -19,7 +19,6 @@ from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
 from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.logger import logger
 
-# Updated Grammars to enforce Tiered Classification
 COMPACT_TIERED_GRAMMAR = r"""
 root ::= rankings
 rankings ::= "[" item ("," item)* "]"
@@ -40,7 +39,6 @@ string ::= "\"" char* "\""
 char ::= [^"\\] | "\\" ["\\/bfnrt]
 """
 
-# Mapping tiers to fixed numerical scores for downstream compatibility
 TIER_SCORES = {"high": 9.0, "medium": 6.0, "low": 3.0}
 
 
@@ -83,7 +81,6 @@ class BatchedTokenProcessor:
         for i, doc in enumerate(documents):
             doc_tokens = count_tokens(doc, model=self.model)
 
-            # Handle oversized documents
             if doc_tokens > available_budget:
                 logger.warning(
                     f"Document[{i}] ({doc_tokens} tokens) exceeds batch budget "
@@ -91,20 +88,18 @@ class BatchedTokenProcessor:
                 )
                 if current_batch_docs:
                     batches.append((current_batch_docs, current_batch_indices))
-                    current_batch_docs, current_batch_indices, current_batch_tokens = (
-                        [],
-                        [],
-                        0,
-                    )
+                current_batch_docs, current_batch_indices, current_batch_tokens = (
+                    [],
+                    [],
+                    0,
+                )
                 batches.append(([doc], [i]))
                 continue
 
-            # Check if adding this doc exceeds budget
             if current_batch_tokens + doc_tokens > available_budget:
                 if current_batch_docs:
                     batches.append((current_batch_docs, current_batch_indices))
 
-                # Handle overlap
                 overlap_docs = []
                 overlap_indices = []
                 overlap_tokens = 0
@@ -155,6 +150,7 @@ class LLMReranker:
     4. Optional batch overlap for cross-boundary comparison
     5. Metadata injection into ranking context
     6. Fixed Semantic Tiers (High/Medium/Low) for robust scoring
+    7. Tiered Early Exit support
     """
 
     def __init__(
@@ -308,16 +304,11 @@ class LLMReranker:
         )
         indices_to_fetch = set()
 
-        # Always include top
         if sorted_results:
             indices_to_fetch.add(sorted_results[0]["index"])
-
-        # Include median if enough results
         if len(sorted_results) > 2:
             mid_idx = len(sorted_results) // 2
             indices_to_fetch.add(sorted_results[mid_idx]["index"])
-
-        # Include bottom
         if sorted_results:
             indices_to_fetch.add(sorted_results[-1]["index"])
 
@@ -335,7 +326,6 @@ class LLMReranker:
         result = []
         for (idx, _, score), trunc_text in zip(raw_anchors, truncated):
             result.append(f"[ANCHOR ID: {idx}] [Score: {score:.1f}/10] {trunc_text}")
-
         return result
 
     @overload
@@ -351,6 +341,9 @@ class LLMReranker:
         max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
         max_tokens: Optional[int] = None,
+        min_results: int | None = None,
+        min_high_results: int | None = None,
+        high_score_threshold: float = 9.0,
     ) -> list[CompactRankingResult]: ...
 
     @overload
@@ -366,6 +359,9 @@ class LLMReranker:
         max_doc_tokens: int | None = None,
         include_reasoning: bool = True,
         max_tokens: Optional[int] = None,
+        min_results: int | None = None,
+        min_high_results: int | None = None,
+        high_score_threshold: float = 9.0,
     ) -> list[RankingResult]: ...
 
     def rerank(
@@ -380,13 +376,15 @@ class LLMReranker:
         max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
         max_tokens: Optional[int] = None,
+        min_results: int | None = None,
+        min_high_results: int | None = None,
+        high_score_threshold: float = 9.0,
     ) -> list[RankingResult | CompactRankingResult]:
         """Synchronous rerank with semantic truncation and anchor calibration."""
         valid_metadata = self._validate_metadata(documents, metadata)
         docs_for_ranking = self._inject_metadata_context(
             documents, valid_metadata, metadata_format_fn
         )
-
         limit = max_tokens if max_tokens is not None else self.max_tokens
         batches = self._processor.create_batches(
             documents=docs_for_ranking,
@@ -395,7 +393,6 @@ class LLMReranker:
             anchor_reserve=(max_doc_tokens * 3 + 100) if max_doc_tokens else 300,
             batch_overlap=self.batch_overlap,
         )
-
         all_results: List[CompactRankingResult] = []
         anchor_docs: List[str] = []
 
@@ -403,6 +400,22 @@ class LLMReranker:
             logger.info(
                 f"Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_docs)} docs)"
             )
+
+            # Early exit check 1: Total results
+            if min_results is not None and len(all_results) >= min_results:
+                logger.info(f"Early exit: Reached min_results ({min_results}).")
+                break
+
+            # Early exit check 2: High-quality results
+            if min_high_results is not None:
+                high_count = sum(
+                    1 for r in all_results if r["score"] >= high_score_threshold
+                )
+                if high_count >= min_high_results:
+                    logger.info(
+                        f"Early exit: Reached {min_high_results} high-quality results."
+                    )
+                    break
 
             if max_doc_tokens is not None:
                 truncated_docs = self._truncate_semantically(batch_docs, max_doc_tokens)
@@ -418,12 +431,10 @@ class LLMReranker:
                 include_reasoning,
                 anchor_docs=anchor_docs,
             )
-
             grammar_str = (
                 FULL_TIERED_GRAMMAR if include_reasoning else COMPACT_TIERED_GRAMMAR
             )
             response_format = {"type": "grammar", "grammar": grammar_str}
-
             result = chat(
                 prompt_or_messages=[
                     {
@@ -438,11 +449,9 @@ class LLMReranker:
                 enable_thinking=False,
                 response_format=response_format,
             )
-
             batch_results = self._parse_grammar_response(
                 result.content, include_reasoning, min_score
             )
-
             seen_global_indices = {r["index"] for r in all_results}
             for res in batch_results:
                 local_idx = res["index"]
@@ -458,7 +467,18 @@ class LLMReranker:
                         all_results.append(res_copy)
                         seen_global_indices.add(global_idx)
 
-            if batch_idx < len(batches) - 1:
+            # Generate anchors for next batch only if we are continuing
+            continue_processing = True
+            if min_results is not None and len(all_results) >= min_results:
+                continue_processing = False
+            if min_high_results is not None:
+                high_count = sum(
+                    1 for r in all_results if r["score"] >= high_score_threshold
+                )
+                if high_count >= min_high_results:
+                    continue_processing = False
+
+            if batch_idx < len(batches) - 1 and continue_processing:
                 anchor_docs = self._get_anchors(
                     all_results,
                     docs_for_ranking,
@@ -470,7 +490,6 @@ class LLMReranker:
                     )
 
         all_results.sort(key=lambda x: x["score"], reverse=True)
-
         if top_k is None:
             return all_results
         return all_results[:top_k]
@@ -488,6 +507,9 @@ class LLMReranker:
         max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
         max_tokens: Optional[int] = None,
+        min_results: int | None = None,
+        min_high_results: int | None = None,
+        high_score_threshold: float = 9.0,
     ) -> list[CompactRankingResult]: ...
 
     @overload
@@ -503,6 +525,9 @@ class LLMReranker:
         max_doc_tokens: int | None = None,
         include_reasoning: bool = True,
         max_tokens: Optional[int] = None,
+        min_results: int | None = None,
+        min_high_results: int | None = None,
+        high_score_threshold: float = 9.0,
     ) -> list[RankingResult]: ...
 
     async def arerank(
@@ -517,13 +542,15 @@ class LLMReranker:
         max_doc_tokens: int | None = None,
         include_reasoning: bool = False,
         max_tokens: Optional[int] = None,
+        min_results: int | None = None,
+        min_high_results: int | None = None,
+        high_score_threshold: float = 9.0,
     ) -> list[RankingResult | CompactRankingResult]:
         """Async rerank with semantic truncation and anchor calibration."""
         valid_metadata = self._validate_metadata(documents, metadata)
         docs_for_ranking = self._inject_metadata_context(
             documents, valid_metadata, metadata_format_fn
         )
-
         limit = max_tokens if max_tokens is not None else self.max_tokens
         batches = self._processor.create_batches(
             documents=docs_for_ranking,
@@ -532,12 +559,27 @@ class LLMReranker:
             anchor_reserve=(max_doc_tokens * 3 + 100) if max_doc_tokens else 300,
             batch_overlap=self.batch_overlap,
         )
-
         all_results: List[CompactRankingResult] = []
         anchor_docs: List[str] = []
 
         for batch_idx, (batch_docs, original_indices) in enumerate(batches):
             logger.info(f"Async processing batch {batch_idx + 1}/{len(batches)}")
+
+            # Early exit check 1: Total results
+            if min_results is not None and len(all_results) >= min_results:
+                logger.info(f"Early exit: Reached min_results ({min_results}).")
+                break
+
+            # Early exit check 2: High-quality results
+            if min_high_results is not None:
+                high_count = sum(
+                    1 for r in all_results if r["score"] >= high_score_threshold
+                )
+                if high_count >= min_high_results:
+                    logger.info(
+                        f"Early exit: Reached {min_high_results} high-quality results."
+                    )
+                    break
 
             if max_doc_tokens is not None:
                 truncated_docs = self._truncate_semantically(batch_docs, max_doc_tokens)
@@ -553,12 +595,10 @@ class LLMReranker:
                 include_reasoning,
                 anchor_docs=anchor_docs,
             )
-
             grammar_str = (
                 FULL_TIERED_GRAMMAR if include_reasoning else COMPACT_TIERED_GRAMMAR
             )
             response_format = {"type": "grammar", "grammar": grammar_str}
-
             result = await achat(
                 prompt_or_messages=[
                     {
@@ -573,11 +613,9 @@ class LLMReranker:
                 enable_thinking=False,
                 response_format=response_format,
             )
-
             batch_results = self._parse_grammar_response(
                 result.content, include_reasoning, min_score
             )
-
             seen_global_indices = {r["index"] for r in all_results}
             for res in batch_results:
                 local_idx = res["index"]
@@ -593,7 +631,18 @@ class LLMReranker:
                         all_results.append(res_copy)
                         seen_global_indices.add(global_idx)
 
-            if batch_idx < len(batches) - 1:
+            # Generate anchors for next batch only if we are continuing
+            continue_processing = True
+            if min_results is not None and len(all_results) >= min_results:
+                continue_processing = False
+            if min_high_results is not None:
+                high_count = sum(
+                    1 for r in all_results if r["score"] >= high_score_threshold
+                )
+                if high_count >= min_high_results:
+                    continue_processing = False
+
+            if batch_idx < len(batches) - 1 and continue_processing:
                 anchor_docs = self._get_anchors(
                     all_results,
                     docs_for_ranking,
@@ -601,7 +650,6 @@ class LLMReranker:
                 )
 
         all_results.sort(key=lambda x: x["score"], reverse=True)
-
         if top_k is None:
             return all_results
         return all_results[:top_k]
@@ -618,7 +666,6 @@ class LLMReranker:
     ) -> str:
         """Build prompt with semantic anchors and explicit scoring constraints."""
         docs_text = "\n".join([f"[ID: {i}] {doc}" for i, doc in enumerate(documents)])
-
         anchor_text = ""
         if anchor_docs:
             anchor_list = "\n".join(anchor_docs)
@@ -629,28 +676,23 @@ REFERENCE ANCHORS (Calibrate your classification against these):
 - Similar quality to Median Anchor → classify as "medium"
 - Clearly worse than Low Anchor → classify as "low"
 """
-
         criteria_text = f"\nCriteria: {criteria}" if criteria else ""
         reasoning_instr = (
             " Provide a short, concise reason (max 1 sentence)."
             if include_reasoning
             else ""
         )
-
         top_k_instr = (
             f"Return ONLY the top {top_k} documents"
             if top_k is not None
             else "Return ALL documents"
         )
-
-        # Define Fixed Thresholds Semantically
         tier_definitions = """
 RELEVANCE TIERS:
 - "high": Directly answers the query or contains critical core information.
 - "medium": Related to the query, provides context, but doesn't directly answer it.
 - "low": Tangentially related or irrelevant.
 """
-
         return f"""Query: {query}{criteria_text}
 {tier_definitions}
 {anchor_text}
@@ -675,8 +717,6 @@ Format:
             if not isinstance(data, list):
                 data = data.get("rankings", [])
 
-            # Determine allowed tiers based on min_score
-            # High (9.0), Medium (6.0), Low (3.0)
             allowed_tiers = set()
             if min_score <= 3.0:
                 allowed_tiers = {"high", "medium", "low"}
@@ -689,19 +729,15 @@ Format:
             for item in data:
                 item["index"] = int(item["index"])
                 tier = item.get("tier", "low").lower()
-
-                # Assign fixed score based on tier
                 score = TIER_SCORES.get(tier, 3.0)
                 item["score"] = score
 
-                # Filter by allowed tiers (which corresponds to min_score)
                 if tier in allowed_tiers:
                     if include_reasoning and "reason" not in item:
                         item["reason"] = ""
                     item["metadata"] = item.get("metadata", {})
                     item["text"] = item.get("text", "")
                     results.append(item)
-
             return results
         except Exception as e:
             logger.error(
@@ -740,7 +776,7 @@ if __name__ == "__main__":
         documents=documents,
         metadata=meta,
         top_k=None,
-        min_score=6.0,  # Should only allow "high" tier
+        min_score=6.0,
         include_reasoning=False,
     )
     if not results_compact:
@@ -757,7 +793,7 @@ if __name__ == "__main__":
         documents=documents,
         metadata=meta,
         top_k=None,
-        min_score=3.0,  # Should allow "high" and "medium"
+        min_score=3.0,
         criteria="Consider ecosystem maturity and library support",
         include_reasoning=True,
     )
