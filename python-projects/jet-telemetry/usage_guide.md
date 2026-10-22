@@ -99,6 +99,85 @@ async def generate_answer(query: str, docs: list):
 
 **Key Insight:** The span hierarchy is determined by **runtime call stack**, not file structure. Always call decorated functions from within a parent decorated function.
 
+### The Single Root Principle
+
+**Rule:** Every logical operation (HTTP request, background job, user action) should have **exactly one** root span. All other spans must be descendants of this root.
+
+#### ❌ BAD: Multiple Roots Create Fragmented Traces
+
+```python
+# Each decorated function called at module level creates its OWN trace
+@chain(name="fetch-data")
+async def fetch_data():
+    return await db.query()
+
+@chain(name="process-data")
+async def process_data(data):
+    return transform(data)
+
+@chain(name="save-result")
+async def save_result(result):
+    await db.save(result)
+
+# Called sequentially - creates 3 SEPARATE traces!
+data = await fetch_data()
+processed = await process_data(data)
+await save_result(processed)
+```
+
+**Problem:** In Phoenix, you'll see 3 disconnected traces with no way to correlate them.
+
+#### ✅ GOOD: Single Root with Nested Children
+
+```python
+@agent(name="data-pipeline", session_id="request_123")
+async def run_pipeline(input_data: dict):
+    """Single root span. All work happens inside."""
+
+    # These become CHILD spans, not roots
+    data = await fetch_data()
+    processed = await process_data(data)
+    await save_result(processed)
+
+    return processed
+
+@tool(name="fetch-data")
+async def fetch_data():
+    """Child of run_pipeline"""
+    return await db.query()
+
+@tool(name="process-data")
+async def process_data(data):
+    """Child of run_pipeline"""
+    return transform(data)
+
+@tool(name="save-result")
+async def save_result(result):
+    """Child of run_pipeline"""
+    await db.save(result)
+
+# Single call creates ONE trace with 4 spans (1 root + 3 children)
+result = await run_pipeline({"query": "select *"})
+```
+
+**Result:** In Phoenix, you see ONE trace with clear parent-child relationships.
+
+#### Identifying Root Spans in Phoenix
+
+- **Root Span:** Has no parent, appears at the top of the trace tree
+- **Child Span:** Indented under parent, shows hierarchical relationship
+- **Problem Indicator:** Multiple root spans in what should be one operation = fragmented trace
+
+#### When to Start a New Trace
+
+| Scenario                            | New Trace? | Reason                                               |
+| ----------------------------------- | ---------- | ---------------------------------------------------- |
+| New HTTP request                    | ✅ Yes     | Independent user action                              |
+| Background job triggered by request | ✅ Yes     | Different lifecycle, may outlive request             |
+| Async task within request           | ❌ No      | Part of same logical operation                       |
+| Retry of failed operation           | ❌ No      | Same logical attempt, use attributes to mark retries |
+| Webhook callback                    | ✅ Yes     | External trigger, separate context                   |
+
 ---
 
 ## 3. The Decorator Toolkit & Attributes
@@ -439,6 +518,16 @@ for span in spans:
         for attr in required:
             status = "✅" if attr in attrs else "❌"
             print(f"  {status} {attr}")
+
+# Check for multiple root spans
+root_spans = [s for s in spans if not s.get("parent_span_id")]
+if len(root_spans) > 1:
+    print(f"⚠️ WARNING: Found {len(root_spans)} root spans in single trace!")
+    print("This indicates fragmented tracing. Ensure all work flows through one root.")
+    for rs in root_spans:
+        print(f"  - {rs['name']}")
+else:
+    print("✅ Single root span detected - trace structure is correct")
 ```
 
 ### Common Pitfalls & Solutions
@@ -530,6 +619,29 @@ async def embed(image_id: str):  # Just the ID
     image_bytes = load_from_storage(image_id)  # Load internally
     vector = compute_embedding(image_bytes)
     return vector
+```
+
+#### Pitfall 5: Forgetting to Initialize Telemetry
+
+```python
+# ❌ BAD: Using decorators without initialization
+from jet_telemetry import llm
+
+@llm(model_name="gpt-4")
+async def chat(msg):
+    return "response"
+
+# Spans will be created in memory but NOT exported to Phoenix
+# You won't see them in the UI!
+
+# ✅ GOOD: Always initialize at entry point
+from jet_telemetry import initialize_telemetry, llm
+
+initialize_telemetry(service_name="my-app")  # Call once at startup
+
+@llm(model_name="gpt-4")
+async def chat(msg):
+    return "response"
 ```
 
 ---
@@ -804,27 +916,36 @@ initialize_telemetry(
 )
 ```
 
+**Important:**
+
+- Call `initialize_telemetry()` **once** at application startup
+- If forgotten, spans will be created but **not exported** to Phoenix
+- The function is idempotent - calling it multiple times is safe but unnecessary
+
 ---
 
 ## 9. Troubleshooting & Best Practices
 
 1.  **Flat Traces:** Always wrap your main logic in a `@chain` or `@agent`. Without a root, spans may appear disconnected.
-2.  **Missing Attributes:** Ensure you pass arguments (like `messages` for `@llm`) in a way the decorator can inspect.
-3.  **Async Context:** Use `async def` and `await` inside decorated functions. The decorators handle async context propagation automatically.
-4.  **Error Handling:** Let exceptions propagate. The decorators will record the exception on the span, making debugging easier.
-5.  **Large Payloads:** Never pass raw images or massive JSON blobs as arguments to decorated functions if they contain PII. Use references/IDs instead.
+2.  **Multiple Root Spans:** If you see disconnected spans in Phoenix, ensure all work flows through a single root `@agent` or `@chain`. Never call multiple top-level decorated functions sequentially without a parent wrapper.
+3.  **Missing Attributes:** Ensure you pass arguments (like `messages` for `@llm`) in a way the decorator can inspect.
+4.  **Async Context:** Use `async def` and `await` inside decorated functions. The decorators handle async context propagation automatically.
+5.  **Error Handling:** Let exceptions propagate. The decorators will record the exception on the span, making debugging easier.
+6.  **Large Payloads:** Never pass raw images or massive JSON blobs as arguments to decorated functions if they contain PII. Use references/IDs instead.
+7.  **Initialization:** Always call `initialize_telemetry()` at startup. Without it, traces won't appear in Phoenix.
 
 ### Summary Checklist for LLMs
 
 When generating code with `jet-telemetry`, ensure:
 
-- [ ] There is a root `@chain` or `@agent`.
-- [ ] All LLM calls are wrapped in `@llm` with `model_name`.
-- [ ] All external actions are wrapped in `@tool` with `name` and `description`.
-- [ ] RAG steps are properly nested (`@retriever` → `@embedding`).
-- [ ] Sensitive data is handled via `redact()` or automatic PII filtering.
-- [ ] `session_id` is used for multi-turn conversations.
-- [ ] Decorated functions are called from within parent decorated functions (not at module level).
-- [ ] Return objects match expected structures (e.g., LLM responses have `.choices` and `.usage`).
-- [ ] Each span kind has its required attributes (see Section 5 checklist).
-- [ ] Errors are allowed to propagate for automatic exception recording.
+- [ ] `initialize_telemetry()` is called once at application entry point
+- [ ] There is a single root `@chain` or `@agent` per logical operation
+- [ ] All LLM calls are wrapped in `@llm` with `model_name`
+- [ ] All external actions are wrapped in `@tool` with `name` and `description`
+- [ ] RAG steps are properly nested (`@retriever` → `@embedding`)
+- [ ] Sensitive data is handled via `redact()` or automatic PII filtering
+- [ ] `session_id` is used for multi-turn conversations
+- [ ] Decorated functions are called from within parent decorated functions (not at module level)
+- [ ] Return objects match expected structures (e.g., LLM responses have `.choices` and `.usage`)
+- [ ] Each span kind has its required attributes (see Section 5 checklist)
+- [ ] Errors are allowed to propagate for automatic exception recording
