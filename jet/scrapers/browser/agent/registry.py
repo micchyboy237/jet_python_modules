@@ -26,13 +26,16 @@ class PlaywrightToolRegistry:
         schemas = []
         for name, info in self.tool_map.items():
             model = info["model"]
+            # Extract description from the model class itself
+            description = info["desc"]
+
             schema = (
                 {"type": "object", "properties": {}}
                 if model == BaseModel
                 else model.model_json_schema()
             )
             schemas.append(
-                {"name": name, "description": info["desc"], "parameters": schema}
+                {"name": name, "description": description, "parameters": schema}
             )
         return schemas
 
@@ -41,17 +44,21 @@ class PlaywrightToolRegistry:
     ) -> Any:
         if name not in self.tool_map:
             raise ValueError(f"Tool {name} not found")
+
         model_class = self.tool_map[name]["model"]
         validated_args = (
             {}
             if model_class == BaseModel
             else model_class(**arguments).model_dump(exclude_none=True)
         )
+
         if step_dir and name in ["browser_snapshot", "browser_take_screenshot"]:
             validated_args["step_dir"] = step_dir
+
         method = getattr(self.toolbox, name, None)
         if not method:
             raise ValueError(f"Method {name} not implemented")
+
         return await method(**validated_args)
 
     def should_refresh_snapshot(self, tool_name: str) -> bool:
