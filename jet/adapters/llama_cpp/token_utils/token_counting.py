@@ -142,7 +142,35 @@ def count_tokens(
             return token_counts if prevent_total else sum(token_counts)
         else:
             return len(content)
-    logger.warning(f"Unsupported content type: {type(content)}")
+    if isinstance(content, dict):
+        if "role" in content and "content" in content:
+            try:
+                token_res = tokenizer.apply_chat_template(
+                    [content],
+                    tools=tools,
+                    tokenize=True,
+                    add_generation_prompt=False,
+                )
+                if isinstance(token_res, dict):
+                    return len(token_res["input_ids"])
+                else:
+                    return len(token_res)
+            except Exception as e:
+                logger.warning(
+                    f"Chat template failed for single message, falling back to content only: {e}"
+                )
+                return len(
+                    tokenizer.encode(
+                        content.get("content", ""),
+                        add_special_tokens=add_special,
+                    )
+                )
+        else:
+            logger.warning(
+                f"Unsupported content type: {type(content)}. Dict keys: {list(content.keys())}"
+            )
+    else:
+        logger.warning(f"Unsupported content type: {type(content)}")
     return 0
 
 
