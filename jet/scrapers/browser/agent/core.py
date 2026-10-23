@@ -414,10 +414,8 @@ class LocalAgent:
                         {"role": "assistant", "content": assistant_msg_content}
                     )
 
+                    # Automatically determine if we are finished based on the tool selected
                     if decision.tool == "final_answer":
-                        decision.finished = True
-
-                    if decision.finished:
                         console.print("[bold green]Goal achieved.[/bold green]")
                         self._save_token_summary(step_index)
                         return "Goal achieved."
