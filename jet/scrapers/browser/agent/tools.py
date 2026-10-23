@@ -131,7 +131,6 @@ class AgentDecision(BaseModel):
     thought: str = Field(description="Brief reasoning based on Snapshot vs Goal")
     tool: str = Field(description="Tool name")
     arguments: Optional[Dict[str, Any]] = Field(None)
-    finished: bool = Field(False)
 
 
 TOOLS_TRIGGERING_STATE_CHANGE = {
