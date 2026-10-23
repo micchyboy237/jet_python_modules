@@ -2464,27 +2464,41 @@ class ParentWithCommonClass(TreeNode):
 
 
 def get_parents_with_common_class(
-    root: TreeNode,
+    source: str,
     class_name: str | None = None,
     match_type: Literal["tag", "class", "both"] = "both",
+    excludes: list[str] = ["nav", "footer", "script", "style"],
+    timeout_ms: int = 10000,
+    headless: bool = True,
 ) -> list[ParentWithCommonClass]:
     """
-    Finds parent nodes with direct children sharing a specified or common class, tag, or both, excluding parents with children having different classes/tags.
+    Finds parent nodes with direct children sharing a specified or common class, tag, or both.
 
     Args:
-        root: The root TreeNode of the tree to search.
-        class_name: Optional class name to match in child nodes. If provided, matches only by class, ignoring match_type.
-        match_type: Determines if children must share tags ("tag"), classes ("class"), or both ("both"). Defaults to "both".
+        source: URL, file path, or raw HTML string.
+        class_name: Optional class name to match in child nodes. If provided, matches only by class.
+        match_type: Determines if children must share tags ("tag"), classes ("class"), or both ("both").
+        excludes: List of tags to exclude from the tree before analysis.
+        timeout_ms: Timeout for page rendering if source is a URL.
+        headless: Run browser in headless mode.
 
     Returns:
         A list of ParentWithCommonClass objects sorted by number of matching children (descending).
     """
+    # 1. Extract Tree using the robust renderer that handles URLs/Files/HTML
+    root: TreeNode = extract_tree_with_text(
+        source=source,
+        excludes=excludes,
+        timeout_ms=timeout_ms,
+        headless=headless,
+        with_screenshot=False,  # Optimize for speed
+    )
+
     result = []
 
     def traverse(node: TreeNode):
         if not node.has_children():
             return
-
         children = node.get_children()
 
         if class_name:
@@ -2606,7 +2620,6 @@ def get_parents_with_common_class(
                                     children=matching_children,
                                 )
                             )
-
         for child in children:
             traverse(child)
 
@@ -2625,16 +2638,54 @@ class SimpleParent(TypedDict):
 
 
 def get_flattened_parents_with_most_children(
-    html: str,
+    source: str,
     min_children: int = 1,
+    excludes: list[str] = ["head", "nav", "footer", "script", "style", "button"],
+    timeout_ms: int = 10000,
+    headless: bool = True,
 ) -> List[SimpleParent]:
-    html = convert_dl_blocks_to_md(html)
-    html = preprocess_html(
-        html,
-        excludes=["head", "nav", "footer", "script", "style", "button"],
+    """
+    Identifies dense areas of the DOM to help the LLM focus on main content.
+
+    Args:
+        source: URL, file path, or raw HTML string.
+        min_children: Minimum number of direct children to consider a node 'dense'.
+        excludes: List of tags to exclude from the tree before analysis.
+        timeout_ms: Timeout for page rendering if source is a URL.
+        headless: Run browser in headless mode.
+
+    Returns:
+        List of SimpleParent dicts sorted by density (child count).
+    """
+    # 1. Pre-process if it's raw HTML string (URLs are handled by extract_tree_with_text)
+    import os
+    import re
+
+    # Check if source is likely a URL or File
+    is_url_or_file = re.match(r"^https?://", source) or os.path.exists(source)
+
+    if not is_url_or_file:
+        # It's raw HTML, apply preprocessing
+        processed_html = convert_dl_blocks_to_md(source)
+        processed_html = preprocess_html(processed_html, excludes=excludes)
+    else:
+        # For URLs/Files, we let extract_tree_with_text handle fetching/rendering
+        # Note: extract_tree_with_text has its own internal excludes, so we might
+        # want to pass our specific excludes there too.
+        processed_html = None
+
+    # 2. Extract Tree
+    # If we pre-processed HTML, pass it. If URL/File, pass source directly.
+    tree_source = processed_html if processed_html else source
+
+    root: TreeNode = extract_tree_with_text(
+        source=tree_source,
+        excludes=excludes,  # Pass excludes to the renderer
+        timeout_ms=timeout_ms,
+        headless=headless,
+        with_screenshot=False,
     )
 
-    root: TreeNode = extract_tree_with_text(html)
     parents: List[SimpleParent] = []
 
     def collect(node: TreeNode) -> None:
@@ -2648,6 +2699,7 @@ def get_flattened_parents_with_most_children(
         child_xpaths: List[str] = []
         child_css_selectors: List[str] = []
         element = node.get_element()
+
         if element is not None:
             for child_node in children:
                 child_elem = child_node.get_element()
@@ -2665,7 +2717,6 @@ def get_flattened_parents_with_most_children(
                 "child_css_selectors": child_css_selectors,
             }
         )
-
         for child in children:
             collect(child)
 

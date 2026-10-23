@@ -116,7 +116,7 @@ class LocalAgent:
     @chain(name="extract-snapshot-context")
     async def _ensure_snapshots_token_limit(
         self, query: str, current_snapshot: str, memory_context: str = ""
-    ) -> tuple[str, list[RankedChunkResult], int]:
+    ) -> tuple[str, list[RankedChunkResult], int, str]:
         """Extracts relevant context using RAG and ensures it fits within snapshot token limits.
         Now includes memory context in the searchable text."""
 
@@ -144,7 +144,12 @@ class LocalAgent:
             candidate_k=10,
         )
         rag_context_tokens = count_tokens(rag_context)
-        return rag_context, ranked_results, rag_context_tokens
+        return (
+            rag_context,
+            ranked_results,
+            rag_context_tokens,
+            text_to_chunk,
+        )  # Return combined text
 
     def _ensure_message_token_limit(
         self,
@@ -195,6 +200,8 @@ class LocalAgent:
         step_tokens: int,
         snapshot_context_tokens: int,
         ranked_results: list,
+        memory_context: str = "",
+        searchable_text: str = "",
     ):
         """Saves input data and metrics for the current step."""
         self.total_input_tokens += step_tokens
@@ -202,6 +209,8 @@ class LocalAgent:
         console.print(
             f"[dim]Step {step_index} input tokens: {step_tokens} (Total: {self.total_input_tokens})[/dim]"
         )
+
+        # Existing saves
         self._save_step_input(
             step_dir,
             system_prompt,
@@ -209,6 +218,25 @@ class LocalAgent:
             messages,
             context_for_llm,
         )
+
+        # Save Memory State
+        save_json(
+            step_dir / "memory_state.json",
+            {
+                "steps": self.memory.steps,
+                "found_items": self.memory.found_items,
+                "url_history": self.memory.current_url_history,
+            },
+        )
+
+        # Save RAG Searchable Text (Snapshot + Memory)
+        if searchable_text:
+            save_text(step_dir / "rag_searchable_text.md", searchable_text)
+
+        # Save Memory Injection Summary
+        if memory_context:
+            save_text(step_dir / "memory_injection_summary.txt", memory_context)
+
         save_json(
             step_dir / "token_metrics.json",
             {
@@ -320,10 +348,9 @@ class LocalAgent:
                         context_for_llm,
                         ranked_results,
                         snapshot_context_tokens,
+                        searchable_text,  # Capture the combined text
                     ) = await self._ensure_snapshots_token_limit(
-                        query,
-                        current_snapshot,
-                        memory_context,  # Pass memory here
+                        query, current_snapshot, memory_context
                     )
 
                     input_link = save_text(
@@ -374,6 +401,8 @@ class LocalAgent:
                         step_tokens,
                         snapshot_context_tokens,
                         ranked_results,
+                        memory_context,  # Pass memory context
+                        searchable_text,  # Pass searchable text
                     )
 
                     decision = await self._call_llm(
