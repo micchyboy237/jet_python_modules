@@ -3,6 +3,7 @@ import json
 import re
 import uuid
 from pathlib import Path
+from typing import Any
 
 from jet.adapters.llama_cpp.llm_utils_observed import (
     achat,
@@ -54,8 +55,6 @@ class LocalAgent:
         self.session_id = str(uuid.uuid4())[:8]
         self.history = []
         self.memory = AgentMemory()
-
-        # State tracking for optimization
         self.last_tool_executed: str | None = None
         self.cached_context_for_llm: str | None = None
         self.cached_query: str | None = None
@@ -203,7 +202,6 @@ class LocalAgent:
         """Saves LLM input components into structured files under llm_input directory."""
         input_dir = step_dir / "llm_input"
         input_dir.mkdir(parents=True, exist_ok=True)
-
         save_text(input_dir / "system_prompt.md", system_prompt)
         save_text(input_dir / "user_prompt.md", user_prompt)
         save_json(input_dir / "messages.json", messages)
@@ -230,7 +228,6 @@ class LocalAgent:
         console.print(
             f"[dim]Step {step_index} input tokens: {step_tokens} (Total: {self.total_input_tokens})[/dim]"
         )
-
         self._save_step_input(
             step_dir,
             system_prompt,
@@ -238,7 +235,6 @@ class LocalAgent:
             messages,
             context_for_llm,
         )
-
         save_json(
             step_dir / "memory_state.json",
             {
@@ -283,19 +279,18 @@ class LocalAgent:
     @agent(name="browser-agent-loop", session_id=None)
     async def think_and_act(
         self, goal: str, initial_snapshot: str, max_steps: int = 15, **kwargs
-    ) -> str:
+    ) -> Any:
         tool_registry = self.registry.get_tool_schema()
         tool_descriptions = json.dumps(tool_registry, indent=2)
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             tool_descriptions=tool_descriptions
         )
+
         self.history = []
         self.total_input_tokens = 0
         self.step_token_counts = []
         self.memory.reset()
         self.last_tool_executed = None
-
-        # Reset caches
         self.cached_context_for_llm = None
         self.cached_query = None
         self.cached_ranked_results = None
@@ -305,6 +300,7 @@ class LocalAgent:
         last_result = "None"
         current_snapshot = initial_snapshot
         self.prev_url = await self.registry.toolbox._get_current_url()
+
         response_format = AgentDecision
 
         for i in range(max_steps):
@@ -312,13 +308,9 @@ class LocalAgent:
             step_dir = get_step_dir(step_index, self.output_dir)
             success = False
 
-            # Determine if we need to refresh snapshot/RAG at the start of this step
-            # We refresh if the PREVIOUS tool modified the DOM
             state_changed_previous_step = (
                 self.last_tool_executed in TOOLS_TRIGGERING_STATE_CHANGE
             )
-
-            # If state didn't change, we can reuse cached RAG context unless it's the first step
             should_skip_rag = (
                 not state_changed_previous_step
                 and self.cached_context_for_llm is not None
@@ -326,26 +318,20 @@ class LocalAgent:
 
             for attempt in range(1, self.max_retries_per_step + 1):
                 try:
-                    # 1. Refresh Snapshot if needed
                     if state_changed_previous_step:
                         if attempt > 1:
                             console.print(
                                 f"[bold yellow]⚠️ Retrying Step {step_index} (Attempt {attempt}/{self.max_retries_per_step})...[/bold yellow]"
                             )
                             await asyncio.sleep(2)
-
                         console.print(
                             f"[bold cyan]Step {step_index} (Attempt {attempt}):[/bold cyan] Thinking..."
                         )
-
                         refreshed = await self._refresh_snapshot(step_dir)
                         if refreshed:
                             current_snapshot = refreshed
-                            # Invalidate cache because snapshot changed
                             self.cached_context_for_llm = None
-                            state_changed_previous_step = (
-                                False  # Prevent re-refresh in next retry of same step
-                            )
+                            state_changed_previous_step = False
                         else:
                             raise Exception("Browser closed during retry wait.")
                     else:
@@ -354,7 +340,6 @@ class LocalAgent:
                                 f"[bold cyan]Step {step_index} (Attempt {attempt}):[/bold cyan] Thinking..."
                             )
 
-                    # 2. Generate Query & RAG Context (Skip if state unchanged)
                     if should_skip_rag:
                         console.print(
                             "[dim]Reusing cached RAG context (state unchanged)...[/dim]"
@@ -374,7 +359,6 @@ class LocalAgent:
                                 current_url = self.registry.toolbox.page.url
                             except:
                                 pass
-
                         memory_context = self.memory.get_context_string()
                         query = await self._generate_query(
                             goal, current_snapshot, last_result, memory_context
@@ -382,7 +366,6 @@ class LocalAgent:
                         console.print(
                             f"[dim]Generated RAG Query: {query[:100]}...[/dim]"
                         )
-
                         (
                             context_for_llm,
                             ranked_results,
@@ -391,15 +374,12 @@ class LocalAgent:
                         ) = await self._ensure_snapshots_token_limit(
                             query, current_snapshot
                         )
-
-                        # Update cache
                         self.cached_context_for_llm = context_for_llm
                         self.cached_query = query
                         self.cached_ranked_results = ranked_results
                         self.cached_snapshot_tokens = snapshot_context_tokens
                         self.cached_searchable_text = searchable_text
 
-                    # Safety check for None values before saving
                     if not context_for_llm:
                         raise ValueError(
                             "RAG context generation failed and no cache available."
@@ -430,11 +410,9 @@ class LocalAgent:
                         last_result=last_result,
                         memory_context=self.memory.get_context_string(),
                     )
-
                     self.history.append(
                         {"role": "user", "content": user_prompt_content}
                     )
-
                     messages = [
                         {"role": "system", "content": system_prompt}
                     ] + self.history
@@ -444,7 +422,6 @@ class LocalAgent:
                         messages=messages,
                         tool_registry=tool_registry,
                     )
-
                     self._prepare_input(
                         step_index,
                         step_dir,
@@ -462,22 +439,24 @@ class LocalAgent:
                     decision = await self._call_llm(
                         messages, response_format, step_dir, **kwargs
                     )
-
                     assistant_msg_content = json.dumps(decision.model_dump())
                     self.history.append(
                         {"role": "assistant", "content": assistant_msg_content}
                     )
 
+                    # CHANGED: route final_answer through _execute_tool so
+                    # URL inflation + final_answer file saving actually run.
                     if decision.tool == "final_answer":
                         console.print("[bold green]Goal achieved.[/bold green]")
+                        final_result = await self._execute_tool(decision, step_dir)
+                        self.memory.add_step(
+                            step_index, decision, str(final_result), self.prev_url
+                        )
                         self._save_token_summary(step_index)
-                        return "Goal achieved."
+                        return final_result
 
                     last_result = await self._execute_tool(decision, step_dir)
-
-                    # Update last tool executed for next step's refresh logic
                     self.last_tool_executed = decision.tool
-
                     self.memory.add_step(
                         step_index, decision, last_result, self.prev_url
                     )
@@ -485,7 +464,6 @@ class LocalAgent:
                     if not self.registry.toolbox.is_closed:
                         if self.registry.requires_state_refresh(decision.tool):
                             await self._capture_output_state(step_index, step_dir)
-                            # Update URL if it changed during capture
                             new_url = await self.registry.toolbox._get_current_url()
                             if new_url != "Unknown":
                                 self.prev_url = new_url
@@ -503,11 +481,8 @@ class LocalAgent:
                     )
                     last_result = f"Error: {str(e)}"
                     save_text(step_dir / f"error_attempt_{attempt}.log", str(e))
-
-                    # If an error occurred, invalidate cache to force fresh RAG next retry/step
                     self.cached_context_for_llm = None
                     state_changed_previous_step = True
-
                     if attempt == self.max_retries_per_step:
                         raise e
 
@@ -540,11 +515,38 @@ class LocalAgent:
             f"[bold cyan]Total tokens used: {self.total_input_tokens}[/bold cyan]"
         )
 
+    def _load_latest_url_map(self, step_dir: Path) -> dict[str, str]:
+        """Find url_map.json in this step or the most recent earlier step.
+
+        Steps are sorted numerically (step_10 after step_2), newest first,
+        so the map from the latest extraction wins.
+        """
+        candidates = [step_dir / "url_map.json"]
+        step_dirs = sorted(
+            step_dir.parent.glob("step_*"),
+            key=lambda p: int(p.name.split("_")[1]),
+            reverse=True,
+        )
+        candidates += [d / "url_map.json" for d in step_dirs]
+
+        for path in candidates:
+            if path.exists():
+                with open(path, "r", encoding="utf-8") as f:
+                    url_map = json.load(f)
+                console.print(
+                    f"[dim]🔗 Using url_map: {path} ({len(url_map)} links)[/dim]"
+                )
+                return url_map
+
+        console.print("[yellow]⚠️ No url_map.json found; skipping inflation[/yellow]")
+        return {}
+
     @tool(name="execute-agent-tool")
-    async def _execute_tool(self, decision: AgentDecision, step_dir: Path) -> str:
+    async def _execute_tool(self, decision: AgentDecision, step_dir: Path) -> Any:
         """Executes the tool, handles logging, and saves specific outputs."""
         console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
         console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
+
         try:
             result = await self.registry.execute_tool(
                 decision.tool, decision.arguments or {}, step_dir=step_dir
@@ -554,50 +556,20 @@ class LocalAgent:
                 console.print(
                     "[bold green]Final answer provided. Stopping iteration.[/bold green]"
                 )
+                url_map = self._load_latest_url_map(step_dir)
+                inflated_result = inflate_urls_in_object(result, url_map)
 
-                # Find url_map
-                url_map = {}
-                url_map_path = step_dir / "url_map.json"
-                if not url_map_path.exists():
-                    parent_dir = step_dir.parent
-                    for prev_step_dir in sorted(parent_dir.glob("step_*")):
-                        prev_map_path = prev_step_dir / "url_map.json"
-                        if prev_map_path.exists():
-                            url_map_path = prev_map_path
-                            break
-
-                if url_map_path.exists():
-                    import json
-
-                    with open(url_map_path, "r") as f:
-                        url_map = json.load(f)
-
-                    # Inflate URLs regardless of type (str, list, dict) using shared utility
-                    inflated_result = inflate_urls_in_object(result, url_map)
-
-                    # Save and print
-                    file_ext = "json" if not isinstance(inflated_result, str) else "txt"
-                    save_content = (
-                        json.dumps(inflated_result, indent=2)
-                        if not isinstance(inflated_result, str)
-                        else inflated_result
-                    )
-                    answer_path = self.output_dir / f"final_answer.{file_ext}"
-                    save_text(answer_path, save_content)
-                    console.print(inflated_result)
-                    return inflated_result
-
-                # Fallback if no map found
-                file_ext = "json" if not isinstance(result, str) else "txt"
+                file_ext = "json" if not isinstance(inflated_result, str) else "txt"
                 save_content = (
-                    json.dumps(result, indent=2)
-                    if not isinstance(result, str)
-                    else result
+                    json.dumps(inflated_result, indent=2, ensure_ascii=False)
+                    if not isinstance(inflated_result, str)
+                    else inflated_result
                 )
                 answer_path = self.output_dir / f"final_answer.{file_ext}"
                 save_text(answer_path, save_content)
-                console.print(result)
-                return result
+                console.print(f"[dim]Final answer saved: {answer_path}[/dim]")
+                console.print(inflated_result)
+                return inflated_result
 
             elif decision.tool == "browser_extract_content":
                 return result
@@ -617,6 +589,7 @@ class LocalAgent:
         Saves parsed output components into structured files under llm_output directory.
         """
         model_name = kwargs.get("model", self.model)
+
         extra_body_params = {
             "top_k": 40,
             "min_p": 0.0,
@@ -625,6 +598,7 @@ class LocalAgent:
                 "enable_thinking": False,
             },
         }
+
         result: StreamCompletionResult = await achat(
             prompt_or_messages=messages,
             model=model_name,
@@ -638,13 +612,11 @@ class LocalAgent:
             seed=42,
         )
 
-        # Create output directory
         output_dir = step_dir / "llm_output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         if result.structured and result.structured.success:
             decision = result.structured.parsed
-            # Save structured decision as JSON
             save_json(output_dir / "decision.json", decision.model_dump())
             return decision
         else:
@@ -655,7 +627,6 @@ class LocalAgent:
                 f"[yellow]Structured parsing failed: {error_msg}. Falling back to manual parse.[/yellow]"
             )
 
-            # Parse raw content manually
             cleaned_content = self._clean_json_content(result.content)
             try:
                 decision = AgentDecision.model_validate_json(cleaned_content)
@@ -665,20 +636,14 @@ class LocalAgent:
                 console.print(
                     f"[bold red]Failed to parse LLM decision manually:[/bold red] {e}"
                 )
-
-                # Fallback: Save raw content parts as individual files
                 try:
-                    # Try to parse as generic JSON first
                     data = json.loads(cleaned_content)
                     if isinstance(data, dict):
                         for key, value in data.items():
-                            # Convert key to snake_case for filename
                             filename_base = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
-
                             if isinstance(value, (dict, list)):
                                 save_json(output_dir / f"{filename_base}.json", value)
                             else:
-                                # Check if string value is valid JSON
                                 if isinstance(value, str):
                                     try:
                                         json_val = json.loads(value)
@@ -700,9 +665,7 @@ class LocalAgent:
                     else:
                         save_text(output_dir / "content.md", str(data))
                 except json.JSONDecodeError:
-                    # If not JSON at all, save as markdown
                     save_text(output_dir / "content.md", cleaned_content)
-
                 console.print(f"Raw content saved to {output_dir}")
                 raise e
 

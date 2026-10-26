@@ -1,38 +1,61 @@
+import logging
 import re
 from typing import Any, Dict, Tuple
 
 from trafilatura import extract
 
+logger = logging.getLogger(__name__)
+
+# Matches hallucinated wrappers like https://ph.indeed.com/viewjob?jk=link_1
+# Group 1 is the short link id.
+_WRAPPED_PATTERN = re.compile(r"https?://[^\s\"'<>)\]]*?\b(link_\d+)\b")
+_MARKDOWN_PATTERN = re.compile(r"\[([^\]]+)\]\((link_\d+)\)")
+_BARE_PATTERN = re.compile(r"\blink_\d+\b")
+
 
 def inflate_urls(text: str, url_map: Dict[str, str]) -> str:
-    """Replaces short link IDs (e.g., link_0) with their original URLs in a string."""
+    """Replaces short link IDs (e.g., link_0) with their original URLs in a string.
+
+    Handles three forms, in this order:
+    1. Wrapped:  https://site.com/path?x=link_1  -> original URL
+    2. Markdown: [title](link_1)                 -> [title](original URL)
+    3. Bare:     link_1                          -> original URL
+    """
     if not url_map:
         return text
 
-    # Pattern 1: Markdown links [Text](link_X)
-    def replace_markdown(match):
-        link_id = match.group(2)
+    def replace_wrapped(match: re.Match) -> str:
+        link_id = match.group(1)
         if link_id in url_map:
-            return f"[{match.group(1)}]({url_map[link_id]})"
+            logger.debug(
+                f"🔗 Inflated wrapped '{match.group(0)}' -> {url_map[link_id]}"
+            )
+            return url_map[link_id]
+        logger.warning(f"⚠️ Unknown link id in wrapped URL: {link_id}")
         return match.group(0)
 
-    # Pattern 2: Bare link IDs (link_X) - useful for JSON values
-    def replace_bare(match):
+    def replace_markdown(match: re.Match) -> str:
+        link_id = match.group(2)
+        if link_id in url_map:
+            logger.debug(f"🔗 Inflated markdown '{link_id}' -> {url_map[link_id]}")
+            return f"[{match.group(1)}]({url_map[link_id]})"
+        logger.warning(f"⚠️ Unknown link id in markdown link: {link_id}")
+        return match.group(0)
+
+    def replace_bare(match: re.Match) -> str:
         link_id = match.group(0)
         if link_id in url_map:
+            logger.debug(f"🔗 Inflated bare '{link_id}' -> {url_map[link_id]}")
             return url_map[link_id]
+        logger.warning(f"⚠️ Unknown bare link id: {link_id}")
         return link_id
 
-    # Apply Markdown replacement first
-    markdown_pattern = r"\[([^\]]+)\]\((link_\d+)\)"
-    cleaned_text = re.sub(markdown_pattern, replace_markdown, text)
-
-    # Apply bare ID replacement
-    # We use word boundaries \b to avoid matching partial words like 'my_link_1'
-    bare_pattern = r"\blink_\d+\b"
-    final_text = re.sub(bare_pattern, replace_bare, cleaned_text)
-
-    return final_text
+    # Order matters: wrapped must run first, or the bare pattern would
+    # replace link_N inside the fake URL and produce a broken one.
+    text = _WRAPPED_PATTERN.sub(replace_wrapped, text)
+    text = _MARKDOWN_PATTERN.sub(replace_markdown, text)
+    text = _BARE_PATTERN.sub(replace_bare, text)
+    return text
 
 
 def inflate_urls_in_object(obj: Any, url_map: Dict[str, str]) -> Any:
@@ -58,6 +81,7 @@ def extract_content(
     """
     Extract main content from HTML using Trafilatura.
     Replaces long URLs with short IDs to save tokens.
+
     Returns:
         A tuple of (markdown_content, url_map) where url_map maps ID -> Original URL.
     """
