@@ -115,15 +115,12 @@ class LocalAgent:
 
     @chain(name="extract-snapshot-context")
     async def _ensure_snapshots_token_limit(
-        self, query: str, current_snapshot: str, memory_context: str = ""
+        self, query: str, current_snapshot: str
     ) -> tuple[str, list[RankedChunkResult], int, str]:
-        """Extracts relevant context using RAG and ensures it fits within snapshot token limits.
-        Now includes memory context in the searchable text."""
+        """Extracts relevant context using RAG and ensures it fits within snapshot token limits."""
 
-        # Combine current snapshot with memory for RAG chunking/searching
+        # Combine current snapshot for RAG chunking/searching
         text_to_chunk = current_snapshot
-        if memory_context:
-            text_to_chunk += "\n\n" + memory_context
 
         rag_context, ranked_results, _ = find_snapshot(
             query=query,
@@ -350,7 +347,7 @@ class LocalAgent:
                         snapshot_context_tokens,
                         searchable_text,  # Capture the combined text
                     ) = await self._ensure_snapshots_token_limit(
-                        query, current_snapshot, memory_context
+                        query, current_snapshot
                     )
 
                     input_link = save_text(
@@ -376,6 +373,7 @@ class LocalAgent:
                         prev_url=self.prev_url,
                         snapshot=context_for_llm,
                         last_result=last_result,
+                        memory_context=memory_context,
                     )
 
                     self.history.append(

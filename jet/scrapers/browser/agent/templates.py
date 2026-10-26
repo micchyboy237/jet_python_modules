@@ -37,8 +37,14 @@ Respond strictly with the JSON schema provided.
 USER_PROMPT_TEMPLATE = """
 Goal: {goal}
 Current URL: {url}
-Current Page Snapshot:
+Previous URL: {prev_url}
+
+## Agent Memory & History
+{memory_context}
+
+## Current Page Snapshot
 {snapshot}
-Previous Action Result:
+
+## Previous Action Result
 {last_result}
 """
