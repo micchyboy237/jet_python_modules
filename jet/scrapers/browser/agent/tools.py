@@ -118,6 +118,14 @@ class RunCodeArgs(BaseToolModel):
     code: str = Field(description="JS code")
 
 
+class ExtractContentArgs(BaseToolModel):
+    """Extract the main textual content of the current page for reading/summarization."""
+
+    max_chunks: Optional[int] = Field(
+        5, description="Number of content chunks to return"
+    )
+
+
 class FinalAnswerArgs(BaseToolModel):
     """
     Provide the final result.
@@ -162,6 +170,7 @@ TOOL_MODEL_MAP = {
     "browser_handle_dialog": HandleDialogArgs,
     "browser_evaluate": EvaluateArgs,
     "browser_run_code_unsafe": RunCodeArgs,
+    "browser_extract_content": ExtractContentArgs,
     "browser_close": BaseToolModel,
     "final_answer": FinalAnswerArgs,
 }
