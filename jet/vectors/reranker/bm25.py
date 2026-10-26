@@ -192,7 +192,10 @@ def get_bm25_similarities(
             )
 
     # Sort by number of matched queries (descending) only, do not sort by score
-    all_scores.sort(key=lambda x: len(x["matched"]), reverse=True)
+    # all_scores.sort(key=lambda x: len(x["matched"]), reverse=True)
+
+    # Sort by score (descending) only
+    all_scores.sort(key=lambda x: x["score"], reverse=True)
 
     # Assign ranks directly to sorted entries
     for rank, entry in enumerate(all_scores, 1):

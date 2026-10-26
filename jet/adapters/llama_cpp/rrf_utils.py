@@ -1,10 +1,8 @@
 """Reciprocal Rank Fusion (RRF) utilities.
-
 Compatible with the result shapes produced by:
 - jet.adapters.llama_cpp.vector_utils.vector_search
 - jet.adapters.llama_cpp.rerank_utils.rerank
 - jet.vectors.reranker.bm25.rerank_bm25
-
 Formula:
     RRF_score(d) = Σ weight_i / (k + rank_i(d))
 """
@@ -25,10 +23,10 @@ class RRFResult(TypedDict):
 
     rank: int
     index: int
-    score: float  # RRF score
+    score: float
     text: str
-    sources: list[str]  # which lists contributed (e.g. ["dense", "bm25"])
-    original_ranks: dict[str, int]  # list_name → rank
+    sources: list[str]
+    original_ranks: dict[str, int]
 
 
 def reciprocal_rank_fusion(
@@ -42,7 +40,6 @@ def reciprocal_rank_fusion(
 ) -> list[RRFResult]:
     """
     Fuse multiple ranked lists using Reciprocal Rank Fusion.
-
     Args:
         ranked_lists: List of ranked result lists.
                       Each inner list must contain dicts with at least
@@ -54,10 +51,9 @@ def reciprocal_rank_fusion(
         list_names: Human-readable names for the lists (used in ``sources``).
                     Defaults to ["list_0", "list_1", ...].
         id_key: Key used to identify the same document across lists.
-                - "index" → use original document index (preferred)
-                - "text"  → use exact text match
+                - "index" → use original document index (preferred if unique)
+                - "text"  → use exact text match (robust for BM25/Dense mix)
                 - "id"    → use an "id" field if present
-
     Returns:
         List of RRFResult sorted by descending RRF score.
     """
@@ -84,7 +80,6 @@ def reciprocal_rank_fusion(
     for list_idx, ranked in enumerate(ranked_lists):
         weight = weights[list_idx]
         name = list_names[list_idx]
-
         for rank, item in enumerate(ranked, start=1):
             if id_key == "index":
                 doc_id = item.get("index")
@@ -92,7 +87,7 @@ def reciprocal_rank_fusion(
                     doc_id = item.get("text")
             elif id_key == "id":
                 doc_id = item.get("id") or item.get("index") or item.get("text")
-            else:  # "text"
+            else:  # text
                 doc_id = item.get("text")
 
             if doc_id is None:
@@ -104,6 +99,7 @@ def reciprocal_rank_fusion(
             contribution = weight * (1.0 / (k + rank))
             score_map[doc_id] += contribution
 
+            # Store the first occurrence of the document metadata
             if doc_id not in doc_map:
                 doc_map[doc_id] = item
 
@@ -125,7 +121,6 @@ def reciprocal_rank_fusion(
         )
 
     fused.sort(key=lambda x: x["score"], reverse=True)
-
     for rank, item in enumerate(fused, start=1):
         item["rank"] = rank
 
@@ -143,19 +138,32 @@ def hybrid_rrf_search(
     query: str,
     documents: list[str],
     *,
-    dense_top_n: int = 50,
-    sparse_top_n: int = 50,
+    dense_top_n: int = 20,
+    sparse_top_n: int = 20,
     final_top_n: int = 10,
     k: int = 60,
     dense_weight: float = 1.0,
     sparse_weight: float = 1.0,
     use_rerank: bool = False,
     rerank_top_n: int | None = None,
+    sparse_min_score: float = 0.01,
 ) -> list[RRFResult]:
     """
     One-shot hybrid retrieval using dense + BM25 → RRF → optional cross-encoder.
-
     This is the recommended high-level entry point for most RAG pipelines.
+
+    Args:
+        query: Search query.
+        documents: List of document strings.
+        dense_top_n: Number of candidates from dense search.
+        sparse_top_n: Number of candidates from BM25 search.
+        final_top_n: Final number of results to return.
+        k: RRF smoothing constant.
+        dense_weight: Weight for dense results in RRF.
+        sparse_weight: Weight for sparse results in RRF.
+        use_rerank: Whether to apply cross-encoder reranking after fusion.
+        rerank_top_n: Number of candidates to pass to reranker (defaults to final_top_n * 3).
+        sparse_min_score: Minimum BM25 score to include in fusion (filters out noise).
     """
     from jet.adapters.llama_cpp.rerank_utils import rerank
     from jet.adapters.llama_cpp.vector_utils import vector_search
@@ -164,28 +172,40 @@ def hybrid_rrf_search(
     if not documents:
         return []
 
-    # 1. Dense retrieval
+    # 1. Dense Search
     dense_results = vector_search(
         query=query,
         documents=documents,
         top_n=dense_top_n,
     )
 
-    # 2. Sparse (BM25) retrieval
+    # 2. BM25 Search
     _, bm25_raw = rerank_bm25(query=query, documents=documents)
-    sparse_results = [
-        {
-            "rank": r["rank"],
-            "index": documents.index(r["text"]) if r["text"] in documents else -1,
-            "score": r["score"],
-            "text": r["text"],
-        }
-        for r in bm25_raw[:sparse_top_n]
-    ]
 
-    # ------------------------------------------------------------------
-    # Improvement A: Debug logging of individual ranked lists (Rich)
-    # ------------------------------------------------------------------
+    # Filter weak scores and map to consistent structure
+    # Note: We use 'text' as the primary identifier for robustness against
+    # potential index mismatches or duplicate texts in different orders.
+    sparse_results = []
+    for r in bm25_raw[:sparse_top_n]:
+        if r["score"] < sparse_min_score:
+            continue
+
+        # Find index safely
+        try:
+            idx = documents.index(r["text"])
+        except ValueError:
+            idx = -1
+
+        sparse_results.append(
+            {
+                "rank": r["rank"],
+                "index": idx,
+                "score": r["score"],
+                "text": r["text"],
+            }
+        )
+
+    # Debug Logging
     console.print("\n[bold cyan]Dense top results (before RRF):[/bold cyan]")
     for r in dense_results[: min(8, len(dense_results))]:
         console.print(
@@ -205,20 +225,22 @@ def hybrid_rrf_search(
         )
     console.print()
 
-    # 3. RRF fusion
+    # 3. RRF Fusion
+    # Using id_key="text" is more robust here because BM25 and Dense might
+    # have different internal ordering or indexing if documents are duplicated.
     fused = reciprocal_rank_fusion(
         ranked_lists=[dense_results, sparse_results],
         k=k,
         weights=[dense_weight, sparse_weight],
         list_names=["dense", "bm25"],
         top_n=rerank_top_n or final_top_n * 3,
-        id_key="index",
+        id_key="text",
     )
 
     if not use_rerank:
         return fused[:final_top_n]
 
-    # 4. Optional cross-encoder re-ranking
+    # 4. Optional Cross-Encoder Reranking
     candidate_texts = [r["text"] for r in fused]
     reranked = rerank(
         query=query,
@@ -240,13 +262,8 @@ def hybrid_rrf_search(
                 "original_ranks": matched["original_ranks"] if matched else {},
             }
         )
-
     return final
 
-
-# ---------------------------------------------------------------------------
-# Demo
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     query = "What is a giant panda?"
@@ -265,12 +282,10 @@ if __name__ == "__main__":
     console.print("[bold blue]" + "=" * 70)
     console.print(f"\n[bold]Query:[/bold] {query}\n")
 
-    # ------------------------------------------------------------------
-    # 1. Low-level demo (manual ranked lists)
-    # ------------------------------------------------------------------
     console.print("[bold cyan]1. Low-level reciprocal_rank_fusion()[/bold cyan]")
     console.print("-" * 50)
 
+    # Simulated dense results
     dense_list = [
         {"rank": 1, "index": 0, "score": 0.92, "text": docs[0]},
         {"rank": 2, "index": 4, "score": 0.85, "text": docs[4]},
@@ -279,12 +294,13 @@ if __name__ == "__main__":
         {"rank": 5, "index": 5, "score": 0.65, "text": docs[5]},
     ]
 
+    # Simulated sparse results (note: Python has low score here)
     sparse_list = [
         {"rank": 1, "index": 0, "score": 12.4, "text": docs[0]},
         {"rank": 2, "index": 6, "score": 9.8, "text": docs[6]},
         {"rank": 3, "index": 4, "score": 8.1, "text": docs[4]},
         {"rank": 4, "index": 2, "score": 5.3, "text": docs[2]},
-        {"rank": 5, "index": 1, "score": 2.1, "text": docs[1]},
+        {"rank": 5, "index": 1, "score": 0.0, "text": docs[1]},  # Zero score
     ]
 
     fused = reciprocal_rank_fusion(
@@ -315,12 +331,8 @@ if __name__ == "__main__":
             str(r["original_ranks"]),
             r["text"][:55] + ("..." if len(r["text"]) > 55 else ""),
         )
-
     console.print(table)
 
-    # ------------------------------------------------------------------
-    # 2. High-level hybrid demo
-    # ------------------------------------------------------------------
     console.print("\n[bold cyan]2. High-level hybrid_rrf_search()[/bold cyan]")
     console.print("-" * 50)
     console.print(
@@ -331,10 +343,11 @@ if __name__ == "__main__":
         hybrid_results = hybrid_rrf_search(
             query=query,
             documents=docs,
-            dense_top_n=5,
-            sparse_top_n=5,
+            dense_top_n=20,
+            sparse_top_n=20,
             final_top_n=5,
             use_rerank=False,
+            sparse_min_score=0.01,  # Filter out zero-score docs
         )
 
         table2 = Table(
@@ -356,7 +369,6 @@ if __name__ == "__main__":
                 ", ".join(r["sources"]),
                 r["text"][:60] + ("..." if len(r["text"]) > 60 else ""),
             )
-
         console.print(table2)
 
     except Exception as e:
