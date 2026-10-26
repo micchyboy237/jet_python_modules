@@ -342,7 +342,7 @@ class LocalAgent:
                         context_for_llm = self.cached_context_for_llm
                         ranked_results = self.cached_ranked_results
                         snapshot_context_tokens = self.cached_snapshot_tokens
-                        searchable_text = self.cached_searchable_text
+                        searchable_text = self.cached_searchable_text or ""
                         query = self.cached_query
                     else:
                         current_url = "Unknown"
@@ -378,6 +378,12 @@ class LocalAgent:
                         self.cached_ranked_results = ranked_results
                         self.cached_snapshot_tokens = snapshot_context_tokens
                         self.cached_searchable_text = searchable_text
+
+                    # Safety check for None values before saving
+                    if not context_for_llm:
+                        raise ValueError(
+                            "RAG context generation failed and no cache available."
+                        )
 
                     input_link = save_text(
                         step_dir / "input_snapshot.md", context_for_llm
@@ -430,7 +436,7 @@ class LocalAgent:
                         snapshot_context_tokens,
                         ranked_results,
                         self.memory.get_context_string(),
-                        searchable_text if searchable_text else "",
+                        searchable_text,
                     )
 
                     decision = await self._call_llm(
