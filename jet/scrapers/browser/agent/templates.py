@@ -18,7 +18,7 @@ CORE HEURISTICS:
 
 3. EFFICIENT INPUT HANDLING:
    - SCAN: Before acting, identify ALL input fields required to progress (e.g., Search + Location + Date).
-   - BATCH: If 2+ fields need updating, you MUST use `browser_fill_form`. Never chain `browser_type`.
+   - BATCH: If 2+ fields need updating, you MUST use `browser_fill_form` to update them simultaneously.
    - OVERWRITE: Never click "Clear" buttons. Typing into a field usually overwrites existing text.
 
 4. INTERACTION SAFETY:
