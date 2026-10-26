@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Literal, TypedDict
 
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from rich.console import Console
 from rich.table import Table
 
@@ -87,7 +88,7 @@ def reciprocal_rank_fusion(
                     doc_id = item.get("text")
             elif id_key == "id":
                 doc_id = item.get("id") or item.get("index") or item.get("text")
-            else:  # text
+            else:
                 doc_id = item.get("text")
 
             if doc_id is None:
@@ -98,11 +99,8 @@ def reciprocal_rank_fusion(
 
             contribution = weight * (1.0 / (k + rank))
             score_map[doc_id] += contribution
-
-            # Store the first occurrence of the document metadata
             if doc_id not in doc_map:
                 doc_map[doc_id] = item
-
             sources_map[doc_id].append(name)
             ranks_map[doc_id][name] = rank
 
@@ -147,6 +145,7 @@ def hybrid_rrf_search(
     use_rerank: bool = False,
     rerank_top_n: int | None = None,
     sparse_min_score: float = 0.01,
+    embed_model: str = EMBED_MODEL,
 ) -> list[RRFResult]:
     """
     One-shot hybrid retrieval using dense + BM25 → RRF → optional cross-encoder.
@@ -164,6 +163,7 @@ def hybrid_rrf_search(
         use_rerank: Whether to apply cross-encoder reranking after fusion.
         rerank_top_n: Number of candidates to pass to reranker (defaults to final_top_n * 3).
         sparse_min_score: Minimum BM25 score to include in fusion (filters out noise).
+        embed_model: The embedding model identifier to use for dense search.
     """
     from jet.adapters.llama_cpp.rerank_utils import rerank
     from jet.adapters.llama_cpp.vector_utils import vector_search
@@ -172,30 +172,24 @@ def hybrid_rrf_search(
     if not documents:
         return []
 
-    # 1. Dense Search
+    # Pass embed_model to vector_search
     dense_results = vector_search(
         query=query,
         documents=documents,
         top_n=dense_top_n,
+        embed_model=embed_model,
     )
 
-    # 2. BM25 Search
     _, bm25_raw = rerank_bm25(query=query, documents=documents)
 
-    # Filter weak scores and map to consistent structure
-    # Note: We use 'text' as the primary identifier for robustness against
-    # potential index mismatches or duplicate texts in different orders.
     sparse_results = []
     for r in bm25_raw[:sparse_top_n]:
         if r["score"] < sparse_min_score:
             continue
-
-        # Find index safely
         try:
             idx = documents.index(r["text"])
         except ValueError:
             idx = -1
-
         sparse_results.append(
             {
                 "rank": r["rank"],
@@ -205,7 +199,6 @@ def hybrid_rrf_search(
             }
         )
 
-    # Debug Logging
     console.print("\n[bold cyan]Dense top results (before RRF):[/bold cyan]")
     for r in dense_results[: min(8, len(dense_results))]:
         console.print(
@@ -225,9 +218,6 @@ def hybrid_rrf_search(
         )
     console.print()
 
-    # 3. RRF Fusion
-    # Using id_key="text" is more robust here because BM25 and Dense might
-    # have different internal ordering or indexing if documents are duplicated.
     fused = reciprocal_rank_fusion(
         ranked_lists=[dense_results, sparse_results],
         k=k,
@@ -240,7 +230,6 @@ def hybrid_rrf_search(
     if not use_rerank:
         return fused[:final_top_n]
 
-    # 4. Optional Cross-Encoder Reranking
     candidate_texts = [r["text"] for r in fused]
     reranked = rerank(
         query=query,
@@ -284,8 +273,6 @@ if __name__ == "__main__":
 
     console.print("[bold cyan]1. Low-level reciprocal_rank_fusion()[/bold cyan]")
     console.print("-" * 50)
-
-    # Simulated dense results
     dense_list = [
         {"rank": 1, "index": 0, "score": 0.92, "text": docs[0]},
         {"rank": 2, "index": 4, "score": 0.85, "text": docs[4]},
@@ -293,16 +280,13 @@ if __name__ == "__main__":
         {"rank": 4, "index": 2, "score": 0.71, "text": docs[2]},
         {"rank": 5, "index": 5, "score": 0.65, "text": docs[5]},
     ]
-
-    # Simulated sparse results (note: Python has low score here)
     sparse_list = [
         {"rank": 1, "index": 0, "score": 12.4, "text": docs[0]},
         {"rank": 2, "index": 6, "score": 9.8, "text": docs[6]},
         {"rank": 3, "index": 4, "score": 8.1, "text": docs[4]},
         {"rank": 4, "index": 2, "score": 5.3, "text": docs[2]},
-        {"rank": 5, "index": 1, "score": 0.0, "text": docs[1]},  # Zero score
+        {"rank": 5, "index": 1, "score": 0.0, "text": docs[1]},
     ]
-
     fused = reciprocal_rank_fusion(
         ranked_lists=[dense_list, sparse_list],
         k=60,
@@ -321,7 +305,6 @@ if __name__ == "__main__":
     table.add_column("Sources", style="blue", width=18)
     table.add_column("Original Ranks", style="dim", width=22)
     table.add_column("Text", style="white")
-
     for r in fused:
         table.add_row(
             str(r["rank"]),
@@ -338,7 +321,6 @@ if __name__ == "__main__":
     console.print(
         "[dim]Running dense + BM25 → RRF (no cross-encoder for speed)...[/dim]\n"
     )
-
     try:
         hybrid_results = hybrid_rrf_search(
             query=query,
@@ -347,9 +329,8 @@ if __name__ == "__main__":
             sparse_top_n=20,
             final_top_n=5,
             use_rerank=False,
-            sparse_min_score=0.01,  # Filter out zero-score docs
+            sparse_min_score=0.01,
         )
-
         table2 = Table(
             title="Hybrid RRF Search Results",
             show_header=True,
@@ -360,7 +341,6 @@ if __name__ == "__main__":
         table2.add_column("Score", style="yellow", width=10)
         table2.add_column("Sources", style="blue", width=18)
         table2.add_column("Text", style="white")
-
         for r in hybrid_results:
             table2.add_row(
                 str(r["rank"]),
@@ -370,7 +350,6 @@ if __name__ == "__main__":
                 r["text"][:60] + ("..." if len(r["text"]) > 60 else ""),
             )
         console.print(table2)
-
     except Exception as e:
         console.print(f"[red]Hybrid search failed (servers may be offline): {e}[/red]")
         console.print(
