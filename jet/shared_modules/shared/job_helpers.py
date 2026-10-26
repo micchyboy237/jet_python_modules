@@ -1503,7 +1503,6 @@ def hybrid_search_jobs(
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
-    # 1. Pre-filter candidates at the DB level
     matching_jobs = load_jobs_list(
         db_client=db_client,
         include_entities=False,
@@ -1512,7 +1511,6 @@ def hybrid_search_jobs(
         where_conditions=where_conditions,
         db_name=db_name,
     )
-
     candidate_ids = [job["id"] for job in matching_jobs]
     if not candidate_ids:
         logger.warning("DB pre-filter returned 0 candidates; returning empty results")
@@ -1522,7 +1520,6 @@ def hybrid_search_jobs(
         f"Pre-filtered to {len(candidate_ids)} candidate job IDs for hybrid RRF"
     )
 
-    # 2. Fetch chunks AND their embeddings for these candidates
     with db_client.conn.cursor() as cur:
         cur.execute(
             """
@@ -1538,12 +1535,12 @@ def hybrid_search_jobs(
         logger.warning("No chunks found for pre-filtered candidate IDs")
         return []
 
-    # Prepare data structures
     documents = []
     chunk_map = {}
     embeddings_list = []
-    indices_list = []
 
+    # Build documents list and collect embeddings
+    # Note: We assume the order of rows corresponds to the documents list index
     for i, row in enumerate(rows):
         documents.append(row["content"])
         chunk_map[i] = {
@@ -1554,29 +1551,43 @@ def hybrid_search_jobs(
             "doc_id": row["chunk_meta"].get("doc_id"),
         }
 
-        # Handle embedding extraction
         emb = row["embedding"]
         if emb is not None:
-            if hasattr(emb, "tolist"):  # psycopg vector type
+            if hasattr(emb, "tolist"):
                 embeddings_list.append(emb.tolist())
             elif isinstance(emb, list):
                 embeddings_list.append(emb)
-            elif isinstance(emb, str):  # JSON string
+            elif isinstance(emb, str):
                 try:
                     import json
 
                     embeddings_list.append(json.loads(emb))
                 except:
                     pass
-            indices_list.append(i)
 
-    # Convert to numpy array for efficient cosine similarity
+    # Prepare embeddings array if available
+    # The length of embeddings_list should match len(documents) if all have embeddings
+    # If some are missing, we might need to handle that, but for now assuming
+    # we only pass embeddings if we have them for the specific documents passed.
+
+    # However, rrf_utils.hybrid_rrf_search expects 'embeddings' to correspond
+    # exactly to the 'documents' list passed.
+
     dense_embeddings = (
         np.array(embeddings_list, dtype=np.float32) if embeddings_list else None
     )
-    dense_indices = indices_list if indices_list else None
 
-    # 3. Perform Hybrid RRF Search
+    # Only use pre-computed embeddings if we have them for ALL documents in this batch
+    # or if we adjust the documents list to only those with embeddings.
+    # For simplicity and correctness with the new API:
+    # If we have partial embeddings, it's safer to let vector_search handle it
+    # or ensure we only pass docs with embeddings.
+    # Here, we will pass embeddings only if the count matches documents.
+
+    use_precomputed = dense_embeddings is not None and len(dense_embeddings) == len(
+        documents
+    )
+
     fused_results = rrf_fusion(
         query=query,
         documents=documents,
@@ -1588,12 +1599,9 @@ def hybrid_search_jobs(
         sparse_weight=sparse_weight,
         embed_model=embed_model,
         use_rerank=False,
-        # Pass pre-computed embeddings
-        dense_embeddings=dense_embeddings,
-        dense_indices=dense_indices,
+        embeddings=dense_embeddings if use_precomputed else None,
     )
 
-    # 4. Enrich Results with Metadata
     job_metadata_map = {job["id"]: job for job in matching_jobs}
     parent_ids_to_resolve = set()
     enriched_results = []
@@ -1606,8 +1614,8 @@ def hybrid_search_jobs(
         chunk_info = chunk_map[idx]
         doc_id = chunk_info["doc_id"]
         chunk_id = chunk_info["id"]
-
         parent_id = chunk_info["chunk_meta"].get("parent_id")
+
         if parent_id:
             parent_ids_to_resolve.add(parent_id)
 
@@ -1622,7 +1630,7 @@ def hybrid_search_jobs(
             "id": chunk_id,
             "score": rrf_item["score"],
             "similarity": rrf_item["score"],
-            "matched": {},
+            "matched": {},  # BM25 matches would need to be extracted if needed
             "text": rrf_item["text"],
             "metadata": chunk_info["chunk_meta"],
             "parent_content": "",
@@ -1639,14 +1647,12 @@ def hybrid_search_jobs(
         }
         enriched_results.append(result)
 
-    # 5. Batch Resolve Parent Content
     if parent_ids_to_resolve:
         try:
             parent_rows = db_client.get_rows(
                 "job_parents", ids=list(parent_ids_to_resolve)
             )
             parent_map = {row["id"]: row["content"] for row in parent_rows}
-
             for res in enriched_results:
                 pid = res["metadata"].get("parent_id")
                 if pid and pid in parent_map:
@@ -1654,13 +1660,13 @@ def hybrid_search_jobs(
         except Exception as e:
             logger.error(f"Failed to resolve parent content: {e}")
 
-    # 6. Apply Threshold and Trim
     if threshold:
         enriched_results = [r for r in enriched_results if r["score"] >= threshold]
 
     if top_k:
         enriched_results = enriched_results[:top_k]
 
+    # Re-rank after slicing if necessary, though RRF already sorted them
     for i, res in enumerate(enriched_results):
         res["rank"] = i + 1
 

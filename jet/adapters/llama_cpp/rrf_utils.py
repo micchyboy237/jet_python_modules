@@ -26,6 +26,7 @@ class RRFResult(TypedDict):
     rank: int
     index: int
     score: float
+    raw_scores: dict[str, float]
     text: str
     sources: list[str]
     original_ranks: dict[str, int]
@@ -40,27 +41,23 @@ def reciprocal_rank_fusion(
     list_names: list[str] | None = None,
     id_key: Literal["index", "text", "id"] = "index",
 ) -> list[RRFResult]:
-    # ... [Existing reciprocal_rank_fusion code remains unchanged] ...
     if not ranked_lists:
         console.print("[yellow]Warning: No ranked lists provided to RRF[/yellow]")
         return []
-
     n_lists = len(ranked_lists)
     weights = weights or [1.0] * n_lists
     if len(weights) != n_lists:
         raise ValueError(
             f"weights length ({len(weights)}) must match number of lists ({n_lists})"
         )
-
     list_names = list_names or [f"list_{i}" for i in range(n_lists)]
     if len(list_names) != n_lists:
         raise ValueError("list_names length must match number of lists")
-
     score_map: dict[Any, float] = defaultdict(float)
     doc_map: dict[Any, dict[str, Any]] = {}
     sources_map: dict[Any, list[str]] = defaultdict(list)
     ranks_map: dict[Any, dict[str, int]] = defaultdict(dict)
-
+    raw_scores_map: dict[Any, dict[str, float]] = defaultdict(dict)
     for list_idx, ranked in enumerate(ranked_lists):
         weight = weights[list_idx]
         name = list_names[list_idx]
@@ -73,20 +70,18 @@ def reciprocal_rank_fusion(
                 doc_id = item.get("id") or item.get("index") or item.get("text")
             else:
                 doc_id = item.get("text")
-
             if doc_id is None:
                 console.print(
                     f"[yellow]Skipping item without identifiable key: {item}[/yellow]"
                 )
                 continue
-
             contribution = weight * (1.0 / (k + rank))
             score_map[doc_id] += contribution
             if doc_id not in doc_map:
                 doc_map[doc_id] = item
             sources_map[doc_id].append(name)
             ranks_map[doc_id][name] = rank
-
+            raw_scores_map[doc_id][name] = item.get("score", 0.0)
     fused: list[RRFResult] = []
     for doc_id, rrf_score in score_map.items():
         original = doc_map[doc_id]
@@ -95,19 +90,17 @@ def reciprocal_rank_fusion(
                 "rank": 0,
                 "index": original.get("index", -1),
                 "score": rrf_score,
+                "raw_scores": raw_scores_map[doc_id],
                 "text": original.get("text", ""),
                 "sources": sources_map[doc_id],
                 "original_ranks": ranks_map[doc_id],
             }
         )
-
     fused.sort(key=lambda x: x["score"], reverse=True)
     for rank, item in enumerate(fused, start=1):
         item["rank"] = rank
-
     if top_n is not None:
         fused = fused[:top_n]
-
     console.print(
         f"[green]RRF fused {len(score_map)} unique documents from {n_lists} lists "
         f"→ returning {len(fused)}[/green]"
@@ -129,13 +122,10 @@ def hybrid_rrf_search(
     rerank_top_n: int | None = None,
     sparse_min_score: float = 0.01,
     embed_model: str = EMBED_MODEL,
-    # NEW ARGS FOR PRE-COMPUTED EMBEDDINGS
-    dense_embeddings: np.ndarray | None = None,
-    dense_indices: list[int] | None = None,
+    embeddings: np.ndarray | None = None,
 ) -> list[RRFResult]:
     """
     One-shot hybrid retrieval using dense + BM25 → RRF → optional cross-encoder.
-
     Args:
         query: Search query.
         documents: List of document strings.
@@ -149,10 +139,7 @@ def hybrid_rrf_search(
         rerank_top_n: Number of candidates to pass to reranker.
         sparse_min_score: Minimum BM25 score to include in fusion.
         embed_model: The embedding model identifier.
-        dense_embeddings: Optional pre-computed embeddings for 'documents'.
-        dense_indices: Optional list of original indices corresponding to 'dense_embeddings'.
-                       If provided, 'documents' should still contain all texts for BM25,
-                       but dense search will only use the subset defined by these indices.
+        embeddings: Optional pre-computed embeddings for 'documents'.
     """
     from jet.adapters.llama_cpp.embed_utils import embed
     from jet.adapters.llama_cpp.rerank_utils import rerank
@@ -161,52 +148,34 @@ def hybrid_rrf_search(
 
     if not documents:
         return []
-
-    # 1. Dense Search Path
-    if dense_embeddings is not None and dense_indices is not None:
+    if embeddings is not None:
         console.print("[dim]Using pre-computed embeddings for dense search...[/dim]")
-        # Embed query
         query_emb = embed(query, model=embed_model)
         if isinstance(query_emb, list):
             query_emb = np.array(query_emb, dtype=np.float32)
-
-        # Calculate similarity only for the pre-selected indices
-        selected_embs = dense_embeddings
-        similarities = cosine_similarity(query_emb, selected_embs)
-
-        # Create dense results list
+        similarities = cosine_similarity(query_emb, embeddings)
         dense_results_raw = []
-        for local_idx, score in enumerate(similarities):
-            original_idx = dense_indices[local_idx]
+        for idx, score in enumerate(similarities):
             dense_results_raw.append(
                 {
-                    "index": original_idx,
+                    "index": idx,
                     "score": float(score),
-                    "text": documents[original_idx],
+                    "text": documents[idx],
                 }
             )
-
-        # Sort by score descending
         dense_results_raw.sort(key=lambda x: x["score"], reverse=True)
-
-        # Assign ranks and take top_n
         dense_results = []
         for rank, item in enumerate(dense_results_raw[:dense_top_n], start=1):
             item["rank"] = rank
             dense_results.append(item)
-
     else:
-        # Fallback to standard vector_search if no pre-computed embeddings
         dense_results = vector_search(
             query=query,
             documents=documents,
             top_n=dense_top_n,
             embed_model=embed_model,
         )
-
-    # 2. Sparse Search Path (BM25)
     _, bm25_raw = rerank_bm25(query=query, documents=documents)
-
     sparse_results = []
     for r in bm25_raw[:sparse_top_n]:
         if r["score"] < sparse_min_score:
@@ -223,7 +192,6 @@ def hybrid_rrf_search(
                 "text": r["text"],
             }
         )
-
     console.print("\n[bold cyan]Dense top results (before RRF):[/bold cyan]")
     for r in dense_results[: min(8, len(dense_results))]:
         console.print(
@@ -232,7 +200,6 @@ def hybrid_rrf_search(
             f"score=[yellow]{r['score']:.4f}[/yellow]  "
             f"{r['text'][:70]}"
         )
-
     console.print("\n[bold cyan]BM25 top results (before RRF):[/bold cyan]")
     for r in sparse_results[: min(8, len(sparse_results))]:
         console.print(
@@ -242,7 +209,6 @@ def hybrid_rrf_search(
             f"{r['text'][:70]}"
         )
     console.print()
-
     fused = reciprocal_rank_fusion(
         ranked_lists=[dense_results, sparse_results],
         k=k,
@@ -251,10 +217,8 @@ def hybrid_rrf_search(
         top_n=rerank_top_n or final_top_n * 3,
         id_key="text",
     )
-
     if not use_rerank:
         return fused[:final_top_n]
-
     candidate_texts = [r["text"] for r in fused]
     reranked = rerank(
         query=query,
@@ -262,7 +226,6 @@ def hybrid_rrf_search(
         top_n=final_top_n,
         method="auto",
     )
-
     final: list[RRFResult] = []
     for r in reranked:
         matched = next((f for f in fused if f["text"] == r["text"]), None)
@@ -271,6 +234,7 @@ def hybrid_rrf_search(
                 "rank": r["rank"],
                 "index": matched["index"] if matched else r["index"],
                 "score": r["score"],
+                "raw_scores": matched["raw_scores"] if matched else {},
                 "text": r["text"],
                 "sources": matched["sources"] if matched else ["rerank"],
                 "original_ranks": matched["original_ranks"] if matched else {},
@@ -290,12 +254,10 @@ if __name__ == "__main__":
         "The red panda is a small mammal native to the eastern Himalayas.",
         "Bamboo is the primary food source for giant pandas.",
     ]
-
     console.print("\n[bold blue]" + "=" * 70)
     console.print("[bold blue]RRF Utils Demo[/bold blue]")
     console.print("[bold blue]" + "=" * 70)
     console.print(f"\n[bold]Query:[/bold] {query}\n")
-
     console.print("[bold cyan]1. Low-level reciprocal_rank_fusion()[/bold cyan]")
     console.print("-" * 50)
     dense_list = [
@@ -320,13 +282,13 @@ if __name__ == "__main__":
         top_n=5,
         id_key="index",
     )
-
     table = Table(
         title="RRF Fused Results", show_header=True, header_style="bold magenta"
     )
     table.add_column("Rank", style="cyan", width=6)
     table.add_column("Index", style="green", width=6)
     table.add_column("RRF Score", style="yellow", width=12)
+    table.add_column("Raw Scores", style="blue", width=20)
     table.add_column("Sources", style="blue", width=18)
     table.add_column("Original Ranks", style="dim", width=22)
     table.add_column("Text", style="white")
@@ -335,12 +297,12 @@ if __name__ == "__main__":
             str(r["rank"]),
             str(r["index"]),
             f"{r['score']:.5f}",
+            str(r["raw_scores"]),
             ", ".join(r["sources"]),
             str(r["original_ranks"]),
             r["text"][:55] + ("..." if len(r["text"]) > 55 else ""),
         )
     console.print(table)
-
     console.print("\n[bold cyan]2. High-level hybrid_rrf_search()[/bold cyan]")
     console.print("-" * 50)
     console.print(
@@ -380,5 +342,4 @@ if __name__ == "__main__":
         console.print(
             "[yellow]The low-level RRF demo above still works without servers.[/yellow]"
         )
-
     console.print("\n[bold green]Demo finished.[/bold green]")
