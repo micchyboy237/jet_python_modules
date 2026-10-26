@@ -119,7 +119,20 @@ class RunCodeArgs(BaseToolModel):
 
 
 class ExtractContentArgs(BaseToolModel):
-    """Extract the main textual content of the current page for reading/summarization."""
+    """
+    Extracts the main readable text content from the current page into a clean Markdown format.
+
+    WHEN TO USE:
+    1. COMPREHENSIVE LISTING: When the goal requires extracting a list of items (e.g., job titles, products, articles) that may span beyond the visible viewport or are scattered across the page.
+    2. TOKEN EFFICIENCY: When the page is large and the standard snapshot contains too much UI noise (headers, footers, scripts). This tool strips away non-content elements.
+    3. LINK EXTRACTION: When you need to capture many links. This tool automatically shortens long URLs to 'link_X' placeholders and provides a map, saving significant tokens.
+
+    WHEN NOT TO USE:
+    1. SIMPLE FACTS: If the answer is a single piece of text clearly visible in the current snapshot, just use 'final_answer'.
+    2. INTERACTION: This tool is read-only. Do not use it if you need to click or type first.
+
+    NOTE: The output is saved to 'markdown_content.md' and 'url_map.json' in the step directory.
+    """
 
     pass
 
@@ -163,7 +176,7 @@ TOOL_MODEL_MAP = {
     "browser_wait_for": WaitForArgs,
     "browser_press_key": PressKeyArgs,
     "browser_hover": HoverArgs,
-    "browser_find": FindArgs,
+    # "browser_find": FindArgs,
     "browser_select_option": SelectOptionArgs,
     "browser_handle_dialog": HandleDialogArgs,
     "browser_evaluate": EvaluateArgs,

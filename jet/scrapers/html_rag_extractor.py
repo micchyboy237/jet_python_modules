@@ -1,8 +1,5 @@
-"""
-HTML RAG Extractor using Trafilatura.
-Extracts main content from HTML, cleans and formats it as markdown for RAG purposes.
-Supports extraction with links and metadata preservation.
-"""
+import re
+from typing import Dict, Tuple
 
 from trafilatura import extract
 
@@ -12,24 +9,13 @@ def extract_content(
     url: str | None = None,
     include_links: bool = True,
     include_metadata: bool = True,
-) -> str:
+) -> Tuple[str, Dict[str, str]]:
     """
     Extract main content from HTML using Trafilatura.
-
-    Args:
-        html_content: Raw HTML string to extract from
-        url: Optional URL for better metadata extraction
-        include_links: Whether to preserve hyperlinks in output (default: True)
-        include_metadata: Whether to include metadata fields in output (default: True)
+    Replaces long URLs with short IDs to save tokens.
 
     Returns:
-        Markdown-formatted extracted content with optional links and metadata
-
-    Note:
-        Trafilatura automatically strips boilerplate (navigation, ads, footers)
-        while preserving the main article body and structure [[1]].
-        The include_links parameter keeps links along with their targets [[1]].
-        The with_metadata parameter extracts metadata fields like title, author, date [[2]].
+        A tuple of (markdown_content, url_map) where url_map maps ID -> Original URL.
     """
     result = extract(
         html_content,
@@ -38,4 +24,31 @@ def extract_content(
         with_metadata=include_metadata,
         url=url,
     )
-    return result if result else ""
+
+    if not result:
+        return "", {}
+
+    url_map: Dict[str, str] = {}
+    counter = 0
+
+    # Regex to find markdown links: [text](url)
+    # We use a function to replace each match
+    def replace_url(match):
+        nonlocal counter
+        full_match = match.group(0)
+        text_part = match.group(1)
+        url_part = match.group(2)
+
+        # Only replace if the URL is long enough to warrant it (e.g., > 30 chars)
+        if len(url_part) > 30:
+            link_id = f"link_{counter}"
+            counter += 1
+            url_map[link_id] = url_part
+            return f"[{text_part}]({link_id})"
+        return full_match
+
+    # Pattern for markdown links
+    pattern = r"\[([^\]]+)\]\(([^)]+)\)"
+    cleaned_result = re.sub(pattern, replace_url, result)
+
+    return cleaned_result, url_map

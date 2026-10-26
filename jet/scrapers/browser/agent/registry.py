@@ -38,7 +38,7 @@ class PlaywrightToolRegistry:
             )
         return schemas
 
-    @tool(name=None, description=None)  # Name and Description set dynamically
+    @tool
     async def execute_tool(
         self, name: str, arguments: Dict, step_dir: Optional[Path] = None
     ) -> Any:
@@ -52,7 +52,12 @@ class PlaywrightToolRegistry:
             else model_class(**arguments).model_dump(exclude_none=True)
         )
 
-        if step_dir and name in ["browser_snapshot", "browser_take_screenshot"]:
+        # Pass step_dir to tools that need to save files
+        if step_dir and name in [
+            "browser_snapshot",
+            "browser_take_screenshot",
+            "browser_extract_content",
+        ]:
             validated_args["step_dir"] = step_dir
 
         method = getattr(self.toolbox, name, None)

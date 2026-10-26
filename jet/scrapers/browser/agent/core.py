@@ -1,5 +1,8 @@
+# jet_python_modules/jet/scrapers/browser/agent/core.py
+
 import asyncio
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -80,12 +83,9 @@ class LocalAgent:
             "Focus on interactive elements, labels, or content mentioned in the goal. "
             "Do not include explanations, just the query string."
         )
-
-        # Include memory context in the prompt to help generate better queries
         memory_hint = (
             f"\nRelevant History: {memory_context[:500]}" if memory_context else ""
         )
-
         user_prompt = (
             f"User Goal: {goal}{memory_hint}\n"
             f"Last Action Result: {last_result}\n"
@@ -118,13 +118,10 @@ class LocalAgent:
         self, query: str, current_snapshot: str
     ) -> tuple[str, list[RankedChunkResult], int, str]:
         """Extracts relevant context using RAG and ensures it fits within snapshot token limits."""
-
-        # Combine current snapshot for RAG chunking/searching
         text_to_chunk = current_snapshot
-
         rag_context, ranked_results, _ = find_snapshot(
             query=query,
-            text=text_to_chunk,  # Pass combined text
+            text=text_to_chunk,
             top_k=10,
             min_score=3.0,
             model=self.model,
@@ -146,7 +143,7 @@ class LocalAgent:
             ranked_results,
             rag_context_tokens,
             text_to_chunk,
-        )  # Return combined text
+        )
 
     def _ensure_message_token_limit(
         self,
@@ -206,8 +203,6 @@ class LocalAgent:
         console.print(
             f"[dim]Step {step_index} input tokens: {step_tokens} (Total: {self.total_input_tokens})[/dim]"
         )
-
-        # Existing saves
         self._save_step_input(
             step_dir,
             system_prompt,
@@ -215,8 +210,6 @@ class LocalAgent:
             messages,
             context_for_llm,
         )
-
-        # Save Memory State
         save_json(
             step_dir / "memory_state.json",
             {
@@ -225,15 +218,10 @@ class LocalAgent:
                 "url_history": self.memory.current_url_history,
             },
         )
-
-        # Save RAG Searchable Text (Snapshot + Memory)
         if searchable_text:
             save_text(step_dir / "rag_searchable_text.md", searchable_text)
-
-        # Save Memory Injection Summary
         if memory_context:
             save_text(step_dir / "memory_injection_summary.txt", memory_context)
-
         save_json(
             step_dir / "token_metrics.json",
             {
@@ -275,12 +263,14 @@ class LocalAgent:
         self.history = []
         self.total_input_tokens = 0
         self.step_token_counts = []
-        self.memory.reset()  # Reset memory for new session
-
+        self.memory.reset()
         last_result = "None"
         current_snapshot = initial_snapshot
         self.prev_url = await self.registry.toolbox._get_current_url()
         response_format = AgentDecision
+
+        # Track if we need to refresh the snapshot before thinking
+        needs_refresh = True
 
         for i in range(max_steps):
             step_index = i + 1
@@ -289,25 +279,30 @@ class LocalAgent:
 
             for attempt in range(1, self.max_retries_per_step + 1):
                 try:
-                    if attempt > 1:
+                    # Only refresh snapshot if needed (initial, retry, or after state-changing tool)
+                    if needs_refresh:
+                        if attempt > 1:
+                            console.print(
+                                f"[bold yellow]⚠️ Retrying Step {step_index} (Attempt {attempt}/{self.max_retries_per_step})...[/bold yellow]"
+                            )
+                            await asyncio.sleep(2)
+
                         console.print(
-                            f"[bold yellow]⚠️ Retrying Step {step_index} (Attempt {attempt}/{self.max_retries_per_step})...[/bold yellow]"
+                            f"[bold cyan]Step {step_index} (Attempt {attempt}):[/bold cyan] Thinking..."
                         )
-                        await asyncio.sleep(2)
+
                         refreshed = await self._refresh_snapshot(step_dir)
                         if refreshed:
                             current_snapshot = refreshed
+                            needs_refresh = False  # Snapshot is now fresh
                         else:
                             raise Exception("Browser closed during retry wait.")
-
-                    console.print(
-                        f"[bold cyan]Step {step_index} (Attempt {attempt}):[/bold cyan] Thinking..."
-                    )
-
-                    if i > 0 and attempt == 1:
-                        refreshed = await self._refresh_snapshot(step_dir)
-                        if refreshed:
-                            current_snapshot = refreshed
+                    else:
+                        # If we don't need refresh, just print the thinking header if it's the first attempt
+                        if attempt == 1:
+                            console.print(
+                                f"[bold cyan]Step {step_index} (Attempt {attempt}):[/bold cyan] Thinking..."
+                            )
 
                     current_url = "Unknown"
                     if (
@@ -319,9 +314,7 @@ class LocalAgent:
                         except:
                             pass
 
-                    # Get Memory Context
                     memory_context = self.memory.get_context_string()
-
                     query = await self._generate_query(
                         goal, current_snapshot, last_result, memory_context
                     )
@@ -331,7 +324,7 @@ class LocalAgent:
                         context_for_llm,
                         ranked_results,
                         snapshot_context_tokens,
-                        searchable_text,  # Capture the combined text
+                        searchable_text,
                     ) = await self._ensure_snapshots_token_limit(
                         query, current_snapshot
                     )
@@ -361,7 +354,6 @@ class LocalAgent:
                         last_result=last_result,
                         memory_context=memory_context,
                     )
-
                     self.history.append(
                         {"role": "user", "content": user_prompt_content}
                     )
@@ -385,8 +377,8 @@ class LocalAgent:
                         step_tokens,
                         snapshot_context_tokens,
                         ranked_results,
-                        memory_context,  # Pass memory context
-                        searchable_text,  # Pass searchable text
+                        memory_context,
+                        searchable_text,
                     )
 
                     decision = await self._call_llm(
@@ -398,26 +390,27 @@ class LocalAgent:
                         {"role": "assistant", "content": assistant_msg_content}
                     )
 
-                    # Automatically determine if we are finished based on the tool selected
                     if decision.tool == "final_answer":
                         console.print("[bold green]Goal achieved.[/bold green]")
                         self._save_token_summary(step_index)
                         return "Goal achieved."
 
                     last_result = await self._execute_tool(decision, step_dir)
-
-                    # Update Memory after successful tool execution
                     self.memory.add_step(step_index, decision, last_result, current_url)
-
                     self.prev_url = current_url
 
+                    # Determine if next step needs a refresh
                     if not self.registry.toolbox.is_closed:
                         if self.registry.requires_state_refresh(decision.tool):
                             await self._capture_output_state(step_index, step_dir)
+                            needs_refresh = True  # Next step needs fresh snapshot
                         else:
                             console.print(
                                 "[dim]Tool passive/terminal. Skipping output snapshot refresh.[/dim]"
                             )
+                            # If tool is passive, the snapshot hasn't changed, so we don't need to refresh
+                            # unless an error occurred.
+                            needs_refresh = False
 
                     if self.registry.toolbox.is_closed:
                         self._save_token_summary(step_index)
@@ -432,6 +425,8 @@ class LocalAgent:
                     )
                     last_result = f"Error: {str(e)}"
                     save_text(step_dir / f"error_attempt_{attempt}.log", str(e))
+                    # On error, we should refresh next time to ensure clean state
+                    needs_refresh = True
                     if attempt == self.max_retries_per_step:
                         raise e
 
@@ -466,34 +461,58 @@ class LocalAgent:
 
     @tool(name="execute-agent-tool")
     async def _execute_tool(self, decision: AgentDecision, step_dir: Path) -> str:
-        """
-        Executes the tool, handles logging, and saves specific outputs like extracted content.
-        """
+        """Executes the tool, handles logging, and saves specific outputs."""
         console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
         console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
-
         try:
-            # Execute the tool via the registry
             result = await self.registry.execute_tool(
                 decision.tool, decision.arguments or {}, step_dir=step_dir
             )
-
-            # Handle specific post-execution logic
             if decision.tool == "final_answer":
                 console.print(
                     "[bold green]Final answer provided. Stopping iteration.[/bold green]"
                 )
+
+                # Note: url_map.json is generated in the step where browser_extract_content was called.
+                # If final_answer is called in a subsequent step, we need to look for it there.
+                url_map = {}
+                url_map_path = step_dir / "url_map.json"
+
+                if not url_map_path.exists():
+                    # Look in previous steps
+                    parent_dir = step_dir.parent
+                    for prev_step_dir in sorted(parent_dir.glob("step_*")):
+                        prev_map_path = prev_step_dir / "url_map.json"
+                        if prev_map_path.exists():
+                            url_map_path = prev_map_path
+                            break
+
+                if url_map_path.exists() and isinstance(result, str):
+                    import json
+
+                    with open(url_map_path, "r") as f:
+                        url_map = json.load(f)
+                    inflated_result = self._inflate_urls(result, url_map)
+                    file_ext = "txt"
+                    answer_path = self.output_dir / f"final_answer.{file_ext}"
+                    save_text(answer_path, inflated_result)
+                    console.print(inflated_result)
+                    return inflated_result
+                elif not isinstance(result, str):
+                    # If result is not a string (e.g. JSON object), we can't inflate easily
+                    # unless we convert it to string first, but the LLM likely didn't use link_X placeholders
+                    pass
+
+                return result
+
             elif decision.tool == "browser_extract_content":
-                if isinstance(result, str):
-                    save_text(step_dir / "extracted_content.md", result)
-                    console.print(
-                        f"[green]Extracted content saved to extracted_content.md[/green]"
-                    )
+                # Saving is handled inside toolbox.browser_extract_content
+                # We just return the result which is the markdown content
+                return result
+
             else:
                 console.print(f"[green]Successfully executed {decision.tool}[/green]")
-
-            return result
-
+                return result
         except Exception as exec_err:
             console.print(f"[bold red]Execution error:[/bold red] {exec_err}")
             return f"Error executing {decision.tool}: {str(exec_err)}"
@@ -567,3 +586,17 @@ class LocalAgent:
         if content.endswith("```"):
             content = content[:-3]
         return content.strip()
+
+    def _inflate_urls(self, text: str, url_map: dict) -> str:
+        """Replaces short link IDs (e.g., link_0) with their original URLs."""
+        if not url_map:
+            return text
+
+        def replace_id(match):
+            link_id = match.group(2)
+            if link_id in url_map:
+                return f"[{match.group(1)}]({url_map[link_id]})"
+            return match.group(0)
+
+        pattern = r"\[([^\]]+)\]\((link_\d+)\)"
+        return re.sub(pattern, replace_id, text)

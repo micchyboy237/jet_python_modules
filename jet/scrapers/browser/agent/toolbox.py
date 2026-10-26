@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from jet.scrapers.browser.agent.utils import save_text
+from jet.scrapers.browser.agent.utils import save_json, save_text
 from jet.scrapers.html_rag_extractor import extract_content
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from rich.console import Console
@@ -361,22 +361,30 @@ class PlaywrightToolbox:
         await page.locator(resolved).first.hover()
         console.print(f"[green]Hovered {target}[/green]")
 
-    async def browser_extract_content(self):
+    async def browser_extract_content(self, step_dir: Optional[Path] = None):
         """
         Extracts the main readable content from the current page HTML using Trafilatura.
-        Returns the content as Markdown.
+        Returns the content as Markdown with shortened URLs.
         """
         page = await self._ensure_page()
         try:
             html_content = await page.content()
             current_url = await self._get_current_url()
+            markdown_content, url_map = extract_content(html_content, url=current_url)
+            if step_dir:
+                md_link = save_text(step_dir / "markdown_content.md", markdown_content)
+                map_link = save_json(step_dir / "url_map.json", url_map)
 
-            # Use the existing extractor
-            markdown_content = extract_content(html_content, url=current_url)
-
-            console.print(
-                f"[green]Extracted content ({len(markdown_content)} chars)[/green]"
-            )
+                console.print(
+                    f"[green]Markdown saved ({len(markdown_content)} chars):[/green] {md_link}"
+                )
+                console.print(
+                    f"[green]URL Map saved ({len(url_map)} links shortened):[/green] {map_link}"
+                )
+            else:
+                console.print(
+                    f"[green]Extracted content ({len(markdown_content)} chars, {len(url_map)} links shortened)[/green]"
+                )
             return markdown_content
         except Exception as e:
             console.print(f"[bold red]Error extracting content:[/bold red] {e}")
