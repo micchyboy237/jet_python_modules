@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Literal, TypedDict
 
+import numpy as np
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from rich.console import Console
 from rich.table import Table
@@ -39,25 +40,7 @@ def reciprocal_rank_fusion(
     list_names: list[str] | None = None,
     id_key: Literal["index", "text", "id"] = "index",
 ) -> list[RRFResult]:
-    """
-    Fuse multiple ranked lists using Reciprocal Rank Fusion.
-    Args:
-        ranked_lists: List of ranked result lists.
-                      Each inner list must contain dicts with at least
-                      ``text`` and preferably ``index``.
-        k: Smoothing constant (industry default = 60).
-        weights: Optional per-list weights (same length as ranked_lists).
-                 Defaults to 1.0 for every list.
-        top_n: Keep only the top-N after fusion.
-        list_names: Human-readable names for the lists (used in ``sources``).
-                    Defaults to ["list_0", "list_1", ...].
-        id_key: Key used to identify the same document across lists.
-                - "index" → use original document index (preferred if unique)
-                - "text"  → use exact text match (robust for BM25/Dense mix)
-                - "id"    → use an "id" field if present
-    Returns:
-        List of RRFResult sorted by descending RRF score.
-    """
+    # ... [Existing reciprocal_rank_fusion code remains unchanged] ...
     if not ranked_lists:
         console.print("[yellow]Warning: No ranked lists provided to RRF[/yellow]")
         return []
@@ -146,10 +129,12 @@ def hybrid_rrf_search(
     rerank_top_n: int | None = None,
     sparse_min_score: float = 0.01,
     embed_model: str = EMBED_MODEL,
+    # NEW ARGS FOR PRE-COMPUTED EMBEDDINGS
+    dense_embeddings: np.ndarray | None = None,
+    dense_indices: list[int] | None = None,
 ) -> list[RRFResult]:
     """
     One-shot hybrid retrieval using dense + BM25 → RRF → optional cross-encoder.
-    This is the recommended high-level entry point for most RAG pipelines.
 
     Args:
         query: Search query.
@@ -161,25 +146,65 @@ def hybrid_rrf_search(
         dense_weight: Weight for dense results in RRF.
         sparse_weight: Weight for sparse results in RRF.
         use_rerank: Whether to apply cross-encoder reranking after fusion.
-        rerank_top_n: Number of candidates to pass to reranker (defaults to final_top_n * 3).
-        sparse_min_score: Minimum BM25 score to include in fusion (filters out noise).
-        embed_model: The embedding model identifier to use for dense search.
+        rerank_top_n: Number of candidates to pass to reranker.
+        sparse_min_score: Minimum BM25 score to include in fusion.
+        embed_model: The embedding model identifier.
+        dense_embeddings: Optional pre-computed embeddings for 'documents'.
+        dense_indices: Optional list of original indices corresponding to 'dense_embeddings'.
+                       If provided, 'documents' should still contain all texts for BM25,
+                       but dense search will only use the subset defined by these indices.
     """
+    from jet.adapters.llama_cpp.embed_utils import embed
     from jet.adapters.llama_cpp.rerank_utils import rerank
-    from jet.adapters.llama_cpp.vector_utils import vector_search
+    from jet.adapters.llama_cpp.vector_utils import cosine_similarity, vector_search
     from jet.vectors.reranker.bm25 import rerank_bm25
 
     if not documents:
         return []
 
-    # Pass embed_model to vector_search
-    dense_results = vector_search(
-        query=query,
-        documents=documents,
-        top_n=dense_top_n,
-        embed_model=embed_model,
-    )
+    # 1. Dense Search Path
+    if dense_embeddings is not None and dense_indices is not None:
+        console.print("[dim]Using pre-computed embeddings for dense search...[/dim]")
+        # Embed query
+        query_emb = embed(query, model=embed_model)
+        if isinstance(query_emb, list):
+            query_emb = np.array(query_emb, dtype=np.float32)
 
+        # Calculate similarity only for the pre-selected indices
+        selected_embs = dense_embeddings
+        similarities = cosine_similarity(query_emb, selected_embs)
+
+        # Create dense results list
+        dense_results_raw = []
+        for local_idx, score in enumerate(similarities):
+            original_idx = dense_indices[local_idx]
+            dense_results_raw.append(
+                {
+                    "index": original_idx,
+                    "score": float(score),
+                    "text": documents[original_idx],
+                }
+            )
+
+        # Sort by score descending
+        dense_results_raw.sort(key=lambda x: x["score"], reverse=True)
+
+        # Assign ranks and take top_n
+        dense_results = []
+        for rank, item in enumerate(dense_results_raw[:dense_top_n], start=1):
+            item["rank"] = rank
+            dense_results.append(item)
+
+    else:
+        # Fallback to standard vector_search if no pre-computed embeddings
+        dense_results = vector_search(
+            query=query,
+            documents=documents,
+            top_n=dense_top_n,
+            embed_model=embed_model,
+        )
+
+    # 2. Sparse Search Path (BM25)
     _, bm25_raw = rerank_bm25(query=query, documents=documents)
 
     sparse_results = []

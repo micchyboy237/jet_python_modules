@@ -1489,17 +1489,21 @@ def hybrid_search_jobs(
     posted_before: datetime | None = None,
     where_conditions: dict[str, Any] | None = None,
     db_name: str = DEFAULT_JOBS_DB_NAME,
+    dense_weight: float = 1.0,
+    sparse_weight: float = 1.0,
+    k: int = 60,
 ) -> list[HybridSearchResult]:
     """
-    Hybrid search combining vector search with BM25 reranking.
-    Pre-filters candidates at the DB job level before vector search.
+    Hybrid search combining Vector Search and BM25 using Reciprocal Rank Fusion (RRF).
+    Optimized to reuse existing embeddings from the database.
     """
-    from jet.vectors.reranker.bm25 import rerank_bm25
+    import numpy as np
+    from jet.adapters.llama_cpp.rrf_utils import hybrid_rrf_search as rrf_fusion
 
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
-    # 1. Filter Jobs to get candidate IDs
+    # 1. Pre-filter candidates at the DB level
     matching_jobs = load_jobs_list(
         db_client=db_client,
         include_entities=False,
@@ -1510,35 +1514,22 @@ def hybrid_search_jobs(
     )
 
     candidate_ids = [job["id"] for job in matching_jobs]
-
     if not candidate_ids:
         logger.warning("DB pre-filter returned 0 candidates; returning empty results")
         return []
 
     logger.info(
-        f"Pre-filtered to {len(candidate_ids)} candidate job IDs for hybrid search"
+        f"Pre-filtered to {len(candidate_ids)} candidate job IDs for hybrid RRF"
     )
 
-    # 2. Get Embeddings for these candidates
-    # Note: candidate_ids are Job IDs. We need Chunk IDs.
-    # We need to find all chunks associated with these job IDs.
-    # current db_client.get_embeddings takes chunk IDs.
-    # We need a way to get chunk IDs from job IDs.
-    # Looking at schema: job_chunks.chunk_meta->>'doc_id' is the job ID.
-    # QueryExecutor.get_rows supports where_conditions but not JSONB querying easily in the generic helper.
-    # However, we can use execute_raw_query or adjust logic.
-
-    # Alternative: Fetch all chunks for these job IDs using raw SQL or helper.
-    # Let's use a raw query to get chunk IDs and content for these jobs.
-
+    # 2. Fetch chunks AND their embeddings for these candidates
     with db_client.conn.cursor() as cur:
-        # Get chunk IDs and content for candidate jobs
         cur.execute(
             """
-            SELECT id, content, header, parent_header, chunk_meta 
-            FROM job_chunks 
+            SELECT id, content, header, parent_header, chunk_meta, embedding
+            FROM job_chunks
             WHERE chunk_meta->>'doc_id' = ANY(%s)
-        """,
+            """,
             (candidate_ids,),
         )
         rows = cur.fetchall()
@@ -1547,68 +1538,78 @@ def hybrid_search_jobs(
         logger.warning("No chunks found for pre-filtered candidate IDs")
         return []
 
-    raw_results = []
-    chunk_ids = []
+    # Prepare data structures
     documents = []
-    metadatas = []
+    chunk_map = {}
+    embeddings_list = []
+    indices_list = []
 
-    for row in rows:
-        chunk_id = row["id"]
-        chunk_ids.append(chunk_id)
-        raw_results.append(
-            {
-                "id": chunk_id,
-                "content": row["content"],
-                "header": row["header"],
-                "parent_header": row["parent_header"],
-                "chunk_meta": row["chunk_meta"],
-                "score": 1.0,  # Placeholder
-            }
-        )
+    for i, row in enumerate(rows):
         documents.append(row["content"])
-        metadatas.append(
-            {
-                "parent_id": row["chunk_meta"].get("parent_id"),
-                "doc_id": row["chunk_meta"].get("doc_id"),
-                "chunk_index": row["chunk_meta"].get("chunk_index"),
-                "start_idx": row["chunk_meta"].get("start_idx"),
-                "end_idx": row["chunk_meta"].get("end_idx"),
-                "num_tokens": row["chunk_meta"].get("num_tokens"),
-                "header": row["header"],
-                "parent_header": row["parent_header"],
-            }
-        )
+        chunk_map[i] = {
+            "id": row["id"],
+            "header": row["header"],
+            "parent_header": row["parent_header"],
+            "chunk_meta": row["chunk_meta"],
+            "doc_id": row["chunk_meta"].get("doc_id"),
+        }
 
-    # 3. Rerank with BM25
-    # Note: BM25 reranker usually takes query, docs, ids.
-    # The previous implementation called rerank_bm25(query, documents, ids, metadatas).
+        # Handle embedding extraction
+        emb = row["embedding"]
+        if emb is not None:
+            if hasattr(emb, "tolist"):  # psycopg vector type
+                embeddings_list.append(emb.tolist())
+            elif isinstance(emb, list):
+                embeddings_list.append(emb)
+            elif isinstance(emb, str):  # JSON string
+                try:
+                    import json
 
-    query_candidates, reranked_results = rerank_bm25(
-        query, documents, chunk_ids, metadatas
+                    embeddings_list.append(json.loads(emb))
+                except:
+                    pass
+            indices_list.append(i)
+
+    # Convert to numpy array for efficient cosine similarity
+    dense_embeddings = (
+        np.array(embeddings_list, dtype=np.float32) if embeddings_list else None
+    )
+    dense_indices = indices_list if indices_list else None
+
+    # 3. Perform Hybrid RRF Search
+    fused_results = rrf_fusion(
+        query=query,
+        documents=documents,
+        dense_top_n=50,
+        sparse_top_n=50,
+        final_top_n=top_k * 2 if top_k else 20,
+        k=k,
+        dense_weight=dense_weight,
+        sparse_weight=sparse_weight,
+        embed_model=embed_model,
+        use_rerank=False,
+        # Pass pre-computed embeddings
+        dense_embeddings=dense_embeddings,
+        dense_indices=dense_indices,
     )
 
-    filtered_results = [
-        result for result in reranked_results if is_valid_score(result.get("score"))
-    ]
-
-    # Limit to top_k
-    if top_k:
-        filtered_results = filtered_results[:top_k]
-
-    # 4. Enrich with Metadata
-    # We already have matching_jobs map
+    # 4. Enrich Results with Metadata
     job_metadata_map = {job["id"]: job for job in matching_jobs}
-
-    parent_map = _resolve_parents_from_children(filtered_results, db_client)
+    parent_ids_to_resolve = set()
     enriched_results = []
 
-    for result in filtered_results:
-        chunk_meta = result.get(
-            "metadata", {}
-        )  # BM25 result structure might differ slightly
-        doc_id = chunk_meta.get("doc_id", "")
-        if not doc_id:
-            doc_id = result.get("id", "")  # Fallback, though unlikely for hybrid
+    for rrf_item in fused_results:
+        idx = rrf_item["index"]
+        if idx not in chunk_map:
+            continue
+
+        chunk_info = chunk_map[idx]
+        doc_id = chunk_info["doc_id"]
+        chunk_id = chunk_info["id"]
+
+        parent_id = chunk_info["chunk_meta"].get("parent_id")
+        if parent_id:
+            parent_ids_to_resolve.add(parent_id)
 
         metadata = job_metadata_map.get(doc_id)
         if not metadata:
@@ -1616,34 +1617,52 @@ def hybrid_search_jobs(
 
         entity_row = load_job_entities(doc_id, db_client=db_client)
 
-        parent_id = chunk_meta.get("parent_id")
-        parent_content = parent_map.get(parent_id, result.get("text", ""))
+        result: HybridSearchResult = {
+            "rank": rrf_item["rank"],
+            "id": chunk_id,
+            "score": rrf_item["score"],
+            "similarity": rrf_item["score"],
+            "matched": {},
+            "text": rrf_item["text"],
+            "metadata": chunk_info["chunk_meta"],
+            "parent_content": "",
+            "job_title": metadata.get("title", "") if metadata else "",
+            "company": metadata.get("company", "") if metadata else "",
+            "link": metadata.get("link", "") if metadata else "",
+            "keywords": metadata.get("keywords", []) if metadata else [],
+            "entities": entity_row["entities"] if entity_row else None,
+            "domain": metadata.get("domain") if metadata else None,
+            "salary": metadata.get("salary") if metadata else None,
+            "job_type": metadata.get("job_type") if metadata else None,
+            "tags": metadata.get("tags") if metadata else [],
+            "hours_per_week": metadata.get("hours_per_week") if metadata else None,
+        }
+        enriched_results.append(result)
 
-        enriched = {**result}
-        enriched["parent_content"] = parent_content
-        enriched["header"] = chunk_meta.pop("header", "")
-        enriched["parent_header"] = chunk_meta.pop("parent_header", "")
-        enriched["metadata"] = chunk_meta
-
-        if metadata:
-            enriched.update(
-                {
-                    "job_title": metadata.get("title", ""),
-                    "company": metadata.get("company", ""),
-                    "link": metadata.get("link", ""),
-                    "keywords": metadata.get("keywords", []),
-                    "entities": entity_row["entities"] if entity_row else None,
-                    "domain": metadata.get("domain"),
-                    "salary": metadata.get("salary"),
-                    "job_type": metadata.get("job_type"),
-                    "tags": metadata.get("tags"),
-                    "hours_per_week": metadata.get("hours_per_week"),
-                }
+    # 5. Batch Resolve Parent Content
+    if parent_ids_to_resolve:
+        try:
+            parent_rows = db_client.get_rows(
+                "job_parents", ids=list(parent_ids_to_resolve)
             )
-        else:
-            logger.warning(f"No metadata found for doc_id='{doc_id}'")
+            parent_map = {row["id"]: row["content"] for row in parent_rows}
 
-        enriched_results.append(enriched)
+            for res in enriched_results:
+                pid = res["metadata"].get("parent_id")
+                if pid and pid in parent_map:
+                    res["parent_content"] = parent_map[pid]
+        except Exception as e:
+            logger.error(f"Failed to resolve parent content: {e}")
+
+    # 6. Apply Threshold and Trim
+    if threshold:
+        enriched_results = [r for r in enriched_results if r["score"] >= threshold]
+
+    if top_k:
+        enriched_results = enriched_results[:top_k]
+
+    for i, res in enumerate(enriched_results):
+        res["rank"] = i + 1
 
     return enriched_results
 
