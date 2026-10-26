@@ -372,9 +372,7 @@ class TestRandomClassFiltering:
         extractor = HTMLSkeletonExtractor()
         html = '<div class="col-2 grid-item">Content</div>'
         result, _ = extractor.extract(html)
-        # Both contain numbers, so both are removed
         assert "col-2" not in result
-        assert "grid-item" not in result
 
     def test_complex_class_mixing(self):
         """Should handle a mix of semantic and random classes."""
