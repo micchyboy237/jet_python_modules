@@ -138,8 +138,8 @@ class LocalAgent:
             max_tokens=self.max_snapshot_tokens,
             chunk_size=500,
             chunk_overlap=100,
-            embed_chunk_size=400,
-            embed_chunk_overlap=100,
+            embed_chunk_size=300,
+            embed_chunk_overlap=0,
             show_progress=True,
             min_high_results=3,
             min_results=5,
@@ -611,13 +611,9 @@ class LocalAgent:
             extra_body_params=extra_body_params,
             seed=42,
         )
-
         output_dir = step_dir / "llm_output"
         output_dir.mkdir(parents=True, exist_ok=True)
-
         decision = None
-
-        # 1. Parse Decision
         if result.structured and result.structured.success:
             decision = result.structured.parsed
         else:
@@ -634,26 +630,20 @@ class LocalAgent:
                 console.print(
                     f"[bold red]Failed to parse LLM decision manually:[/bold red] {e}"
                 )
-                # Fallback: Save raw content if parsing fails completely
                 save_text(output_dir / "content.md", cleaned_content)
                 raise e
 
-        # 2. Save Standard Output Files
         if decision:
-            # Save thought.md
             save_text(output_dir / "thought.md", decision.thought)
-
-            # Save decision.json (for complete reference)
             save_json(output_dir / "decision.json", decision.model_dump())
 
-            # 3. Conditional Saving based on Tool Type
+            # NEW LOGIC: Save inflated response if final_answer
             if decision.tool == "final_answer":
-                # Extract result from arguments
                 args = decision.arguments or {}
                 final_result = args.get("result")
 
+                # Save original response first (existing logic)
                 if final_result is not None:
-                    # Determine extension
                     if isinstance(final_result, (dict, list)):
                         file_ext = "json"
                         content_to_save = json.dumps(
@@ -662,10 +652,32 @@ class LocalAgent:
                     else:
                         file_ext = "md"
                         content_to_save = str(final_result)
-
                     save_text(output_dir / f"response.{file_ext}", content_to_save)
+
+                    # Inflate URLs and save separate file
+                    url_map = self._load_latest_url_map(step_dir)
+                    if url_map:
+                        inflated_result = inflate_urls_in_object(final_result, url_map)
+                        if isinstance(inflated_result, (dict, list)):
+                            inflated_content = json.dumps(
+                                inflated_result, indent=2, ensure_ascii=False
+                            )
+                            save_text(
+                                output_dir / "response_inflated.json", inflated_content
+                            )
+                        else:
+                            save_text(
+                                output_dir / "response_inflated.md",
+                                str(inflated_result),
+                            )
+                        console.print(
+                            f"[dim]Inflated response saved in llm_output[/dim]"
+                        )
+                else:
+                    if decision.arguments:
+                        save_json(output_dir / "arguments.json", decision.arguments)
             else:
-                # Save arguments.json for non-final-answer tools
+                # Existing logic for non-final-answer tools
                 if decision.arguments:
                     save_json(output_dir / "arguments.json", decision.arguments)
 

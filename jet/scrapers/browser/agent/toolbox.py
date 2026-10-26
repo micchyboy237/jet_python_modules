@@ -237,6 +237,15 @@ class PlaywrightToolbox:
         """Check if URL has changed and scroll if needed."""
         if await self._has_url_changed():
             console.print("[dim]URL changed detected, triggering scroll[/dim]")
+
+            # ADD THIS: Wait for the page to load/stabilize before scrolling
+            try:
+                await self.page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except Exception:
+                console.print(
+                    "[yellow]Page load state wait timed out, proceeding with caution[/yellow]"
+                )
+
             await self._scroll_to_bottom()
             await self._update_last_url()
 
