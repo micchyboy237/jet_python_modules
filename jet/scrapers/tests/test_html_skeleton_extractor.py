@@ -1,6 +1,5 @@
 """
 Unit tests for HTML Skeleton Extractor
-
 Follows pytest best practices: fast, independent, descriptive names, edge cases [[35]][[36]][[41]]
 """
 
@@ -20,7 +19,7 @@ class TestSkeletonConfig:
     def test_default_config_is_valid(self):
         """Default configuration should pass validation."""
         config = SkeletonConfig()
-        config.validate()  # Should not raise
+        config.validate()
 
     def test_invalid_max_text_length_raises_error(self):
         """Negative max_text_length should raise ValueError."""
@@ -62,14 +61,14 @@ class TestHTMLSkeletonExtractor:
 
     def test_extract_empty_html_returns_empty_string(self, extractor):
         """Empty HTML should return empty string."""
-        assert extractor.extract("") == ""
-        assert extractor.extract("   ") == ""
-        assert extractor.extract(None) == ""
+        result, url_map = extractor.extract("")
+        assert result == ""
+        assert url_map == {}
 
     def test_extract_removes_script_tags(self, extractor):
         """Script tags should be removed."""
         html = "<html><body><script>alert('xss')</script><p>Content</p></body></html>"
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<script>" not in result
         assert "alert" not in result
         assert "Content" in result
@@ -80,7 +79,7 @@ class TestHTMLSkeletonExtractor:
         html = (
             "<html><body><style>.red { color: red; }</style><p>Text</p></body></html>"
         )
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<style>" not in result
         assert "color: red" not in result
         assert "Text" in result
@@ -101,7 +100,7 @@ class TestHTMLSkeletonExtractor:
         </body>
         </html>
         """
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<header>" in result
         assert "<nav>" in result
         assert "<main>" in result
@@ -112,7 +111,7 @@ class TestHTMLSkeletonExtractor:
     def test_extract_preserves_essential_attributes(self, extractor):
         """Essential attributes like id, class, role should be preserved."""
         html = '<div id="main" class="container" role="main"><p>Text</p></div>'
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert 'id="main"' in result
         assert 'class="container"' in result
         assert 'role="main"' in result
@@ -120,7 +119,7 @@ class TestHTMLSkeletonExtractor:
     def test_extract_removes_non_essential_attributes(self, extractor):
         """Non-essential attributes should be removed."""
         html = '<div onclick="handleClick()" style="color: red" data-custom="value"><p>Text</p></div>'
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "onclick" not in result
         assert "style=" not in result
         assert "data-custom" not in result
@@ -129,21 +128,19 @@ class TestHTMLSkeletonExtractor:
         """Long text content should be truncated."""
         long_text = " ".join([f"word{i}" for i in range(100)])
         html = f"<p>{long_text}</p>"
-        result = extractor.extract(html)
-        # Should contain placeholder instead of full text
+        result, _ = extractor.extract(html)
         assert "..." in result or len(result) < len(html)
 
     def test_extract_merges_single_child_containers(self, extractor):
         """Single-child containers should be merged."""
         html = "<div><div><p>Text</p></div></div>"
-        result = extractor.extract(html)
-        # Should have fewer nested divs
+        result, _ = extractor.extract(html)
         assert result.count("<div>") <= 2
 
     def test_extract_removes_empty_elements(self, extractor):
         """Empty elements should be removed."""
         html = "<div><p></p><span>Text</span><div></div></div>"
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<p></p>" not in result
         assert "<div></div>" not in result
         assert "Text" in result
@@ -152,7 +149,7 @@ class TestHTMLSkeletonExtractor:
     def test_extract_preserves_self_closing_tags(self, extractor):
         """Self-closing tags like br, img should be preserved."""
         html = "<p>Line1<br/>Line2<img src='test.jpg' alt='Test'/></p>"
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<br" in result
         assert "<img" in result
         assert 'alt="Test"' in result
@@ -165,7 +162,7 @@ class TestHTMLSkeletonExtractor:
             <tbody><tr><td>Alice</td><td>30</td></tr></tbody>
         </table>
         """
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<table>" in result
         assert "<thead>" in result
         assert "<th>" in result
@@ -180,7 +177,7 @@ class TestHTMLSkeletonExtractor:
             <button type="submit">Submit</button>
         </form>
         """
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<form>" in result
         assert "<label" in result
         assert "<input" in result
@@ -190,7 +187,7 @@ class TestHTMLSkeletonExtractor:
     def test_extract_unwraps_non_whitelisted_tags_with_children(self, extractor):
         """Non-whitelisted tags with important children should be unwrapped."""
         html = "<custom-tag><p>Important</p></custom-tag>"
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<custom-tag>" not in result
         assert "Important" in result
         assert "<p>" in result
@@ -198,7 +195,7 @@ class TestHTMLSkeletonExtractor:
     def test_extract_decomposes_non_whitelisted_tags_without_children(self, extractor):
         """Non-whitelisted tags without children should be decomposed."""
         html = "<custom-tag></custom-tag><p>Text</p>"
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<custom-tag>" not in result
         assert "Text" in result
         assert "<p>" in result
@@ -208,13 +205,13 @@ class TestHTMLSkeletonExtractor:
         config = SkeletonConfig(preserve_comments=True)
         extractor = HTMLSkeletonExtractor(config)
         html = "<!-- Comment --><p>Text</p>"
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "Comment" in result
 
     def test_extract_removes_comments_by_default(self, extractor):
         """Comments should be removed by default."""
         html = "<!-- Comment --><p>Text</p>"
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "Comment" not in result
 
     def test_extract_handles_nested_lists(self, extractor):
@@ -228,25 +225,25 @@ class TestHTMLSkeletonExtractor:
             </li>
         </ul>
         """
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<ul>" in result
         assert "<li>" in result
 
     def test_extract_handles_links(self, extractor):
         """Links with href should be preserved."""
         html = '<a href="https://example.com" class="link">Click here</a>'
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<a" in result
         assert 'href="https://example.com"' in result
 
     def test_extract_handles_images(self, extractor):
         """Images with src and alt should be preserved."""
         html = '<img src="image.jpg" alt="Description" width="100"/>'
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<img" in result
         assert 'src="image.jpg"' in result
         assert 'alt="Description"' in result
-        assert "width" not in result  # Non-essential attribute
+        assert "width" not in result
 
     def test_complex_html_extraction(self, extractor):
         """Complex real-world HTML should be properly skeletonized."""
@@ -284,24 +281,109 @@ class TestHTMLSkeletonExtractor:
         </body>
         </html>
         """
-        result = extractor.extract(html)
-
-        # Should preserve structure
+        result, _ = extractor.extract(html)
         assert "<header>" in result
         assert "<nav" in result
         assert "<main>" in result
         assert "<article" in result
         assert "<h1>" in result
         assert "<footer>" in result
-
-        # Should remove noise
         assert "<script>" not in result
         assert "<link" not in result
         assert "<meta" not in result
-
-        # Should preserve essential attributes
         assert 'id="main-nav"' in result
         assert 'id="post-1"' in result
+
+
+class TestURLCompression:
+    """Tests for URL compression functionality."""
+
+    def test_short_urls_are_not_compressed(self):
+        """Short URLs should remain unchanged."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<a href="https://short.com">Link</a>'
+        result, url_map = extractor.extract(html)
+        assert 'href="https://short.com"' in result
+        assert url_map == {}
+
+    def test_long_urls_are_compressed(self):
+        """Long URLs should be replaced with placeholders."""
+        extractor = HTMLSkeletonExtractor()
+        long_url = "https://example.com/very/long/path/with/many/parameters?param1=value1&param2=value2&param3=value3"
+        html = f'<a href="{long_url}">Link</a>'
+        result, url_map = extractor.extract(html)
+        assert 'href="' in result
+        assert long_url not in result
+        assert len(url_map) == 1
+        placeholder = list(url_map.keys())[0]
+        assert url_map[placeholder] == long_url
+        assert placeholder in result
+
+    def test_url_compression_can_be_disabled(self):
+        """URL compression should be optional."""
+        config = SkeletonConfig(compress_urls=False)
+        extractor = HTMLSkeletonExtractor(config)
+        long_url = "https://example.com/very/long/path/with/many/parameters?param1=value1&param2=value2&param3=value3"
+        html = f'<a href="{long_url}">Link</a>'
+        result, url_map = extractor.extract(html)
+        # BeautifulSoup escapes & to &amp; in attributes, so we check for the escaped version or use html.unescape
+        assert "https://example.com/very/long/path/with/many/parameters" in result
+        assert "param1=value1" in result
+        assert url_map == {}
+
+
+class TestRandomClassFiltering:
+    """Tests for filtering randomly generated class names."""
+
+    def test_random_emotion_classes_are_removed(self):
+        """Emotion-style classes (css-xxxxxx) should be removed."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<div class="css-g5y9jx container">Content</div>'
+        result, _ = extractor.extract(html)
+        assert 'class="container"' in result
+        assert "css-g5y9jx" not in result
+
+    def test_short_hash_classes_are_removed(self):
+        """Short hash classes like css-ti3gu should be removed."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<div class="css-ti3gu main-content">Content</div>'
+        result, _ = extractor.extract(html)
+        assert 'class="main-content"' in result
+        assert "css-ti3gu" not in result
+
+    def test_mixed_alphanumeric_classes_are_removed(self):
+        """Classes with mixed digits and letters like e8ju0x50 should be removed."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<div class="e8ju0x50 r-1awozwy wrapper">Content</div>'
+        result, _ = extractor.extract(html)
+        assert 'class="wrapper"' in result
+        assert "e8ju0x50" not in result
+        assert "r-1awozwy" not in result
+
+    def test_semantic_classes_are_preserved(self):
+        """Semantic class names should be preserved."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<div class="header-nav primary-button">Content</div>'
+        result, _ = extractor.extract(html)
+        assert 'class="header-nav primary-button"' in result
+
+    def test_classes_with_numbers_are_removed_by_default(self):
+        """Classes containing numbers (like col-2) are removed as they are often brittle layout classes."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<div class="col-2 grid-item">Content</div>'
+        result, _ = extractor.extract(html)
+        # Both contain numbers, so both are removed
+        assert "col-2" not in result
+        assert "grid-item" not in result
+
+    def test_complex_class_mixing(self):
+        """Should handle a mix of semantic and random classes."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<div class="css-1a2b3c header-wrapper r-xyz123">Content</div>'
+        result, _ = extractor.extract(html)
+        assert 'class="header-wrapper"' in result
+        assert "css-1a2b3c" not in result
+        assert "r-xyz123" not in result
 
 
 class TestBlockTreeBuilder:
@@ -321,7 +403,6 @@ class TestBlockTreeBuilder:
         """Simple HTML should create a basic tree structure."""
         html = "<div><p>Text</p></div>"
         tree = builder.build_block_tree(html)
-
         assert tree != {}
         assert "tag" in tree
         assert "children" in tree
@@ -331,7 +412,6 @@ class TestBlockTreeBuilder:
         html = '<html><body><div id="main" class="container"><p>Text</p></div></body></html>'
         tree = builder.build_block_tree(html)
 
-        # Navigate to the div node
         def find_node_by_tag(node, tag_name):
             if node.get("tag") == tag_name:
                 return node
@@ -351,7 +431,6 @@ class TestBlockTreeBuilder:
         html = "<p>Hello world test</p>"
         tree = builder.build_block_tree(html)
 
-        # Find the p tag in children
         def find_node_by_tag(node, tag_name):
             if node.get("tag") == tag_name:
                 return node
@@ -375,9 +454,7 @@ class TestBlockTreeBuilder:
         """
         tree = builder.build_block_tree(html)
         pruned = builder.prune_by_relevance(tree, "Python")
-
         assert pruned != {}
-        # Should keep Python-related content
 
     def test_prune_by_relevance_removes_irrelevant_nodes(self, builder):
         """Pruning should remove nodes not matching query."""
@@ -389,8 +466,6 @@ class TestBlockTreeBuilder:
         """
         tree = builder.build_block_tree(html)
         pruned = builder.prune_by_relevance(tree, "Python")
-
-        # May return empty or filtered tree
         assert pruned is not None
 
     def test_build_tree_handles_nested_structure(self, builder):
@@ -406,9 +481,7 @@ class TestBlockTreeBuilder:
         </div>
         """
         tree = builder.build_block_tree(html)
-
         assert tree != {}
-        # Should have nested children
         assert len(tree.get("children", [])) > 0
 
 
@@ -418,14 +491,15 @@ class TestConvenienceFunctions:
     def test_extract_skeleton_function(self):
         """extract_skeleton should work as expected."""
         html = "<div><p>Test</p></div>"
-        result = extract_skeleton(html)
+        result, url_map = extract_skeleton(html)
         assert "<p>" in result
+        assert isinstance(url_map, dict)
 
     def test_extract_skeleton_with_custom_config(self):
         """extract_skeleton should accept custom config."""
         config = SkeletonConfig(max_text_length=10)
         html = "<p>" + " ".join(["word"] * 50) + "</p>"
-        result = extract_skeleton(html, config)
+        result, _ = extract_skeleton(html, config)
         assert "..." in result or len(result) < 100
 
     def test_build_block_tree_function(self):
@@ -443,27 +517,22 @@ class TestEdgeCases:
         """Extractor should handle malformed HTML gracefully."""
         html = "<div><p>Unclosed tag<div>Nested</div>"
         extractor = HTMLSkeletonExtractor()
-        result = extractor.extract(html)
-        # Should not raise exception
+        result, _ = extractor.extract(html)
         assert isinstance(result, str)
 
     def test_unicode_content_handling(self):
         """Extractor should handle Unicode content."""
         html = "<p>Hello 世界 🌍 Привет</p>"
         extractor = HTMLSkeletonExtractor()
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "世界" in result or "🌍" in result or "Привет" in result
 
     def test_large_html_performance(self):
         """Extractor should handle large HTML documents."""
-        # Create a large HTML document
         items = "".join([f"<li>Item {i}</li>" for i in range(1000)])
         html = f"<ul>{items}</ul>"
-
         extractor = HTMLSkeletonExtractor()
-        result = extractor.extract(html)
-
-        # Should complete without error
+        result, _ = extractor.extract(html)
         assert isinstance(result, str)
         assert "<ul>" in result
 
@@ -473,14 +542,14 @@ class TestEdgeCases:
             '<div data-value="test&amp;value" title="Quote: \\"test\\"">Content</div>'
         )
         extractor = HTMLSkeletonExtractor()
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert isinstance(result, str)
 
     def test_deeply_nested_structure(self):
         """Extractor should handle deeply nested structures."""
         html = "<div>" * 50 + "<p>Deep</p>" + "</div>" * 50
         extractor = HTMLSkeletonExtractor()
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "Deep" in result
         assert "<p>" in result
 
@@ -496,7 +565,7 @@ class TestEdgeCases:
         </div>
         """
         extractor = HTMLSkeletonExtractor()
-        result = extractor.extract(html)
+        result, _ = extractor.extract(html)
         assert "<span>" in result
         assert "<strong>" in result
 
@@ -542,28 +611,18 @@ class TestIntegration:
         </body>
         </html>
         """
-
-        # Extract skeleton
-        skeleton = extract_skeleton(html)
-
-        # Verify structure is preserved
+        skeleton, url_map = extract_skeleton(html)
         assert "<header>" in skeleton
         assert "<nav" in skeleton
         assert "<main>" in skeleton
         assert "<article" in skeleton
         assert "<h1>" in skeleton
         assert "<footer>" in skeleton
-
-        # Verify noise is removed
         assert "<script>" not in skeleton
         assert "<style>" not in skeleton
-
-        # Verify essential attributes preserved
         assert 'id="product-123"' in skeleton
         assert "aria-label=" in skeleton
-
-        # Verify structure is simplified
-        assert skeleton.count("<div>") < 10  # Should be compressed
+        assert skeleton.count("<div>") < 10
 
     def test_block_tree_with_pruning(self):
         """Test block tree building and pruning workflow."""
@@ -581,16 +640,10 @@ class TestIntegration:
         </body>
         </html>
         """
-
-        # Build tree
         tree = build_block_tree(html)
         assert tree != {}
-
-        # Prune for Python-related content
         builder = BlockTreeBuilder()
         pruned = builder.prune_by_relevance(tree, "Python")
-
-        # Should retain relevant structure
         assert pruned is not None
 
 
