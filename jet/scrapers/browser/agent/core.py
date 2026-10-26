@@ -1,6 +1,5 @@
 import asyncio
 import json
-import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -37,7 +36,7 @@ class LocalAgent:
         registry: PlaywrightToolRegistry,
         output_dir: Path,
         max_message_tokens: int = 12000,
-        max_snapshot_tokens: int = 3000,
+        max_snapshot_tokens: int = 3500,
         max_retries_per_step: int = 3,
     ):
         self.model = model
@@ -139,7 +138,7 @@ class LocalAgent:
             max_tokens=self.max_snapshot_tokens,
             chunk_size=500,
             chunk_overlap=100,
-            embed_chunk_size=300,
+            embed_chunk_size=400,
             embed_chunk_overlap=100,
             show_progress=True,
             min_high_results=3,
@@ -280,6 +279,9 @@ class LocalAgent:
     async def think_and_act(
         self, goal: str, initial_snapshot: str, max_steps: int = 15, **kwargs
     ) -> Any:
+        # --- Save initial goal ---
+        save_text(self.output_dir / "goal.md", goal)
+
         tool_registry = self.registry.get_tool_schema()
         tool_descriptions = json.dumps(tool_registry, indent=2)
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
@@ -589,7 +591,6 @@ class LocalAgent:
         Saves parsed output components into structured files under llm_output directory.
         """
         model_name = kwargs.get("model", self.model)
-
         extra_body_params = {
             "top_k": 40,
             "min_p": 0.0,
@@ -598,7 +599,6 @@ class LocalAgent:
                 "enable_thinking": False,
             },
         }
-
         result: StreamCompletionResult = await achat(
             prompt_or_messages=messages,
             model=model_name,
@@ -615,10 +615,11 @@ class LocalAgent:
         output_dir = step_dir / "llm_output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        decision = None
+
+        # 1. Parse Decision
         if result.structured and result.structured.success:
             decision = result.structured.parsed
-            save_json(output_dir / "decision.json", decision.model_dump())
-            return decision
         else:
             error_msg = (
                 result.structured.error if result.structured else "Unknown error"
@@ -626,48 +627,49 @@ class LocalAgent:
             console.print(
                 f"[yellow]Structured parsing failed: {error_msg}. Falling back to manual parse.[/yellow]"
             )
-
             cleaned_content = self._clean_json_content(result.content)
             try:
                 decision = AgentDecision.model_validate_json(cleaned_content)
-                save_json(output_dir / "decision.json", decision.model_dump())
-                return decision
             except Exception as e:
                 console.print(
                     f"[bold red]Failed to parse LLM decision manually:[/bold red] {e}"
                 )
-                try:
-                    data = json.loads(cleaned_content)
-                    if isinstance(data, dict):
-                        for key, value in data.items():
-                            filename_base = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
-                            if isinstance(value, (dict, list)):
-                                save_json(output_dir / f"{filename_base}.json", value)
-                            else:
-                                if isinstance(value, str):
-                                    try:
-                                        json_val = json.loads(value)
-                                        save_json(
-                                            output_dir / f"{filename_base}.json",
-                                            json_val,
-                                        )
-                                    except json.JSONDecodeError:
-                                        save_text(
-                                            output_dir / f"{filename_base}.md",
-                                            str(value),
-                                        )
-                                else:
-                                    save_text(
-                                        output_dir / f"{filename_base}.md", str(value)
-                                    )
-                    elif isinstance(data, list):
-                        save_json(output_dir / "content.json", data)
-                    else:
-                        save_text(output_dir / "content.md", str(data))
-                except json.JSONDecodeError:
-                    save_text(output_dir / "content.md", cleaned_content)
-                console.print(f"Raw content saved to {output_dir}")
+                # Fallback: Save raw content if parsing fails completely
+                save_text(output_dir / "content.md", cleaned_content)
                 raise e
+
+        # 2. Save Standard Output Files
+        if decision:
+            # Save thought.md
+            save_text(output_dir / "thought.md", decision.thought)
+
+            # Save decision.json (for complete reference)
+            save_json(output_dir / "decision.json", decision.model_dump())
+
+            # 3. Conditional Saving based on Tool Type
+            if decision.tool == "final_answer":
+                # Extract result from arguments
+                args = decision.arguments or {}
+                final_result = args.get("result")
+
+                if final_result is not None:
+                    # Determine extension
+                    if isinstance(final_result, (dict, list)):
+                        file_ext = "json"
+                        content_to_save = json.dumps(
+                            final_result, indent=2, ensure_ascii=False
+                        )
+                    else:
+                        file_ext = "md"
+                        content_to_save = str(final_result)
+
+                    save_text(output_dir / f"response.{file_ext}", content_to_save)
+            else:
+                # Save arguments.json for non-final-answer tools
+                if decision.arguments:
+                    save_json(output_dir / "arguments.json", decision.arguments)
+
+        return decision
 
     def _clean_json_content(self, content: str) -> str:
         content = content.strip()
