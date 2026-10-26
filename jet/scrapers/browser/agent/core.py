@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -191,6 +192,23 @@ class LocalAgent:
             )
         return messages, step_tokens
 
+    def _save_step_input(
+        self,
+        step_dir: Path,
+        system_prompt: str,
+        user_prompt: str,
+        messages: list,
+        snapshot: str,
+    ):
+        """Saves LLM input components into structured files under llm_input directory."""
+        input_dir = step_dir / "llm_input"
+        input_dir.mkdir(parents=True, exist_ok=True)
+
+        save_text(input_dir / "system_prompt.md", system_prompt)
+        save_text(input_dir / "user_prompt.md", user_prompt)
+        save_json(input_dir / "messages.json", messages)
+        save_text(input_dir / "snapshot.yml", snapshot)
+
     @chain(name="prepare-llm-input")
     def _prepare_input(
         self,
@@ -212,6 +230,7 @@ class LocalAgent:
         console.print(
             f"[dim]Step {step_index} input tokens: {step_tokens} (Total: {self.total_input_tokens})[/dim]"
         )
+
         self._save_step_input(
             step_dir,
             system_prompt,
@@ -219,6 +238,7 @@ class LocalAgent:
             messages,
             context_for_llm,
         )
+
         save_json(
             step_dir / "memory_state.json",
             {
@@ -594,6 +614,7 @@ class LocalAgent:
         """
         Calls the LLM using the observed utility which handles
         streaming, structured output parsing, and telemetry.
+        Saves parsed output components into structured files under llm_output directory.
         """
         model_name = kwargs.get("model", self.model)
         extra_body_params = {
@@ -616,10 +637,15 @@ class LocalAgent:
             extra_body_params=extra_body_params,
             seed=42,
         )
-        save_text(step_dir / "llm_raw_response.txt", result.content)
+
+        # Create output directory
+        output_dir = step_dir / "llm_output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
         if result.structured and result.structured.success:
             decision = result.structured.parsed
-            save_json(step_dir / "llm_decision.json", decision.model_dump())
+            # Save structured decision as JSON
+            save_json(output_dir / "decision.json", decision.model_dump())
             return decision
         else:
             error_msg = (
@@ -628,27 +654,57 @@ class LocalAgent:
             console.print(
                 f"[yellow]Structured parsing failed: {error_msg}. Falling back to manual parse.[/yellow]"
             )
+
+            # Parse raw content manually
             cleaned_content = self._clean_json_content(result.content)
             try:
                 decision = AgentDecision.model_validate_json(cleaned_content)
-                save_json(step_dir / "llm_decision.json", decision.model_dump())
+                save_json(output_dir / "decision.json", decision.model_dump())
                 return decision
             except Exception as e:
                 console.print(
                     f"[bold red]Failed to parse LLM decision manually:[/bold red] {e}"
                 )
-                console.print(f"Raw content: {result.content[:200]}...")
-                raise e
 
-    def _save_step_input(
-        self, step_dir, system_prompt, user_prompt, messages, snapshot
-    ):
-        input_data = {
-            "system_prompt": system_prompt,
-            "user_prompt": user_prompt,
-            "messages": messages,
-        }
-        save_json(step_dir / "llm_input.json", input_data)
+                # Fallback: Save raw content parts as individual files
+                try:
+                    # Try to parse as generic JSON first
+                    data = json.loads(cleaned_content)
+                    if isinstance(data, dict):
+                        for key, value in data.items():
+                            # Convert key to snake_case for filename
+                            filename_base = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+
+                            if isinstance(value, (dict, list)):
+                                save_json(output_dir / f"{filename_base}.json", value)
+                            else:
+                                # Check if string value is valid JSON
+                                if isinstance(value, str):
+                                    try:
+                                        json_val = json.loads(value)
+                                        save_json(
+                                            output_dir / f"{filename_base}.json",
+                                            json_val,
+                                        )
+                                    except json.JSONDecodeError:
+                                        save_text(
+                                            output_dir / f"{filename_base}.md",
+                                            str(value),
+                                        )
+                                else:
+                                    save_text(
+                                        output_dir / f"{filename_base}.md", str(value)
+                                    )
+                    elif isinstance(data, list):
+                        save_json(output_dir / "content.json", data)
+                    else:
+                        save_text(output_dir / "content.md", str(data))
+                except json.JSONDecodeError:
+                    # If not JSON at all, save as markdown
+                    save_text(output_dir / "content.md", cleaned_content)
+
+                console.print(f"Raw content saved to {output_dir}")
+                raise e
 
     def _clean_json_content(self, content: str) -> str:
         content = content.strip()
