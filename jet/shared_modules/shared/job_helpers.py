@@ -1396,51 +1396,95 @@ def search_full_jobs(
     posted_before: datetime | None = None,
     where_conditions: dict[str, Any] | None = None,
     db_name: str = DEFAULT_JOBS_DB_NAME,
+    dense_weight: float = 1.0,
+    sparse_weight: float = 1.0,
+    k: int = 60,
 ) -> list[JobSearchResult]:
     """
-    Search for jobs and return unique Job-Level results.
-    Now supports date range and null/non-null filtering at the DB level.
+    Search for jobs and return unique Job-Level results using Hybrid Search (RRF).
+
+    Replaces pure vector search with Hybrid Search (Vector + BM25) for better retrieval.
+    Supports date range and null/non-null filtering at the DB level.
+
+    Args:
+        query: Search query string.
+        top_k: Number of top results to return.
+        threshold: Minimum score threshold for results.
+        embed_model: Embedding model to use.
+        db_client: Optional PgVectorClient instance.
+        posted_after: Filter jobs posted on or after this date.
+        posted_before: Filter jobs posted on or before this date.
+        where_conditions: Additional column filters.
+        db_name: Name of the database.
+        dense_weight: Weight for dense (vector) scores in RRF.
+        sparse_weight: Weight for sparse (BM25) scores in RRF.
+        k: RRF smoothing constant.
+
+    Returns:
+        List of JobSearchResult dicts.
     """
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
-    chunk_results = search_jobs(
+    # Use hybrid_search_jobs instead of search_jobs
+    # Note: hybrid_search_jobs returns HybridSearchResult which has 'text' and 'metadata'
+    # We need to map this back to JobSearchResult format
+
+    hybrid_results = hybrid_search_jobs(
         query=query,
         top_k=top_k,
         threshold=threshold,
         embed_model=embed_model,
         db_client=db_client,
+        posted_after=posted_after,
+        posted_before=posted_before,
+        where_conditions=where_conditions,
+        db_name=db_name,
+        dense_weight=dense_weight,
+        sparse_weight=sparse_weight,
+        k=k,
     )
 
-    if not chunk_results:
+    if not hybrid_results:
         return []
 
+    # Extract unique job IDs from hybrid results to fetch full job metadata
+    # hybrid_search_jobs returns chunk-level results, so we need to deduplicate by job_id (doc_id)
     best_scores: dict[str, float] = {}
-    for result in chunk_results:
-        chunk_meta = result.get("chunk_meta", {})
+    best_result_map: dict[str, HybridSearchResult] = {}
+
+    for result in hybrid_results:
+        chunk_meta = result.get("metadata", {})
         job_id = chunk_meta.get("doc_id")
         if not job_id:
             continue
+
         score = result.get("score", 0.0)
+        # Keep the highest scoring chunk for each job
         if job_id not in best_scores or score > best_scores[job_id]:
             best_scores[job_id] = score
+            best_result_map[job_id] = result
 
     if not best_scores:
         return []
 
     sorted_job_ids = sorted(
-        best_scores.keys(), key=lambda jid: best_scores[jid], reverse=True
+        best_scores.keys(), key=lambda jid: best_scores[job_id], reverse=True
     )
+
     if top_k:
         sorted_job_ids = sorted_job_ids[:top_k]
 
+    # Fetch full job metadata including entities
     jobs_with_entities = load_jobs_list(
         db_client=db_client,
         include_entities=True,
         posted_after=posted_after,
         posted_before=posted_before,
         where_conditions=where_conditions,
+        db_name=db_name,
     )
+
     jobs_map = {job["id"]: job for job in jobs_with_entities}
 
     final_results: list[JobSearchResult] = []
@@ -1448,16 +1492,21 @@ def search_full_jobs(
         job = jobs_map.get(job_id)
         if not job:
             logger.warning(
-                f"Job {job_id} found in vector index but missing in public.jobs"
+                f"Job {job_id} found in hybrid search but missing in public.jobs"
             )
             continue
 
         score = best_scores[job_id]
+
+        # Get parent content from the best matching chunk result
+        best_chunk_result = best_result_map.get(job_id, {})
+        parent_content = best_chunk_result.get("parent_content", "")
+
         result: JobSearchResult = {
             "id": job_id,
             "rank": rank,
             "score": score,
-            "distance": round(1.0 - score, 6),
+            "distance": round(1.0 - score, 6) if score <= 1.0 else 0.0,
             "link": job.get("link"),
             "title": job.get("title"),
             "company": job.get("company"),
@@ -1471,17 +1520,22 @@ def search_full_jobs(
             "tags": job.get("tags"),
             "entities": job.get("entities"),
         }
+
+        # Optionally attach parent content if needed by callers,
+        # though JobSearchResult TypedDict doesn't currently include it.
+        # If you want to expose it, you'd need to update the TypedDict.
+
         final_results.append(result)
 
     logger.info(
-        f"Deduplicated search: {len(final_results)} unique jobs from {len(chunk_results)} chunks"
+        f"Hybrid Deduplicated search: {len(final_results)} unique jobs from {len(hybrid_results)} chunks"
     )
     return final_results
 
 
 def hybrid_search_jobs(
     query: str,
-    top_k: int | None = 10,
+    top_k: int | None = 20,  # UPDATED: Default changed from 10 to 20
     threshold: float | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
@@ -1492,10 +1546,14 @@ def hybrid_search_jobs(
     dense_weight: float = 1.0,
     sparse_weight: float = 1.0,
     k: int = 60,
+    use_rerank: bool = True,  # IMPROVED: Enabled reranking by default for better precision
 ) -> list[HybridSearchResult]:
     """
     Hybrid search combining Vector Search and BM25 using Reciprocal Rank Fusion (RRF).
     Optimized to reuse existing embeddings from the database.
+
+    Args:
+        use_rerank: If True, uses a cross-encoder to rerank the top fused candidates.
     """
     import numpy as np
     from jet.adapters.llama_cpp.rrf_utils import hybrid_rrf_search as rrf_fusion
@@ -1503,6 +1561,7 @@ def hybrid_search_jobs(
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
+    # 1. Pre-filter jobs based on metadata (dates, tags, etc.)
     matching_jobs = load_jobs_list(
         db_client=db_client,
         include_entities=False,
@@ -1520,6 +1579,7 @@ def hybrid_search_jobs(
         f"Pre-filtered to {len(candidate_ids)} candidate job IDs for hybrid RRF"
     )
 
+    # 2. Fetch chunks and embeddings for these candidates
     with db_client.conn.cursor() as cur:
         cur.execute(
             """
@@ -1539,8 +1599,6 @@ def hybrid_search_jobs(
     chunk_map = {}
     embeddings_list = []
 
-    # Build documents list and collect embeddings
-    # Note: We assume the order of rows corresponds to the documents list index
     for i, row in enumerate(rows):
         documents.append(row["content"])
         chunk_map[i] = {
@@ -1550,7 +1608,6 @@ def hybrid_search_jobs(
             "chunk_meta": row["chunk_meta"],
             "doc_id": row["chunk_meta"].get("doc_id"),
         }
-
         emb = row["embedding"]
         if emb is not None:
             if hasattr(emb, "tolist"):
@@ -1565,43 +1622,44 @@ def hybrid_search_jobs(
                 except:
                     pass
 
-    # Prepare embeddings array if available
-    # The length of embeddings_list should match len(documents) if all have embeddings
-    # If some are missing, we might need to handle that, but for now assuming
-    # we only pass embeddings if we have them for the specific documents passed.
-
-    # However, rrf_utils.hybrid_rrf_search expects 'embeddings' to correspond
-    # exactly to the 'documents' list passed.
-
     dense_embeddings = (
         np.array(embeddings_list, dtype=np.float32) if embeddings_list else None
     )
-
-    # Only use pre-computed embeddings if we have them for ALL documents in this batch
-    # or if we adjust the documents list to only those with embeddings.
-    # For simplicity and correctness with the new API:
-    # If we have partial embeddings, it's safer to let vector_search handle it
-    # or ensure we only pass docs with embeddings.
-    # Here, we will pass embeddings only if the count matches documents.
-
     use_precomputed = dense_embeddings is not None and len(dense_embeddings) == len(
         documents
     )
 
+    # 3. Determine RRF parameters
+    effective_top_k = top_k if top_k else 20
+
+    # IMPROVED: Increase input pools to ensure diverse candidates enter fusion
+    # Using max(50, effective_top_k * 4) ensures we have enough candidates even for small top_k
+    dense_pool_size = max(50, effective_top_k * 4)
+    sparse_pool_size = max(50, effective_top_k * 4)
+
+    # IMPROVED: Dynamic fusion limit
+    # If reranking, we fetch more candidates (e.g., 3x final) so the reranker can choose the best ones
+    if use_rerank:
+        fusion_limit = effective_top_k * 3
+    else:
+        fusion_limit = effective_top_k
+
     fused_results = rrf_fusion(
         query=query,
         documents=documents,
-        dense_top_n=50,
-        sparse_top_n=50,
-        final_top_n=top_k * 2 if top_k else 20,
+        dense_top_n=dense_pool_size,  # IMPROVED: Larger pool
+        sparse_top_n=sparse_pool_size,  # IMPROVED: Larger pool
+        final_top_n=fusion_limit,  # IMPROVED: Dynamic limit based on reranking
         k=k,
         dense_weight=dense_weight,
         sparse_weight=sparse_weight,
         embed_model=embed_model,
-        use_rerank=False,
+        use_rerank=use_rerank,  # IMPROVED: Uses cross-encoder if enabled
+        rerank_top_n=fusion_limit,  # Pass the full fused pool to reranker
         embeddings=dense_embeddings if use_precomputed else None,
     )
 
+    # 4. Enrich results with metadata
     job_metadata_map = {job["id"]: job for job in matching_jobs}
     parent_ids_to_resolve = set()
     enriched_results = []
@@ -1630,7 +1688,7 @@ def hybrid_search_jobs(
             "id": chunk_id,
             "score": rrf_item["score"],
             "similarity": rrf_item["score"],
-            "matched": {},  # BM25 matches would need to be extracted if needed
+            "matched": {},
             "text": rrf_item["text"],
             "metadata": chunk_info["chunk_meta"],
             "parent_content": "",
@@ -1647,6 +1705,7 @@ def hybrid_search_jobs(
         }
         enriched_results.append(result)
 
+    # 5. Resolve Parent Content (for context)
     if parent_ids_to_resolve:
         try:
             parent_rows = db_client.get_rows(
@@ -1660,13 +1719,15 @@ def hybrid_search_jobs(
         except Exception as e:
             logger.error(f"Failed to resolve parent content: {e}")
 
+    # 6. Final Filtering and Truncation
     if threshold:
         enriched_results = [r for r in enriched_results if r["score"] >= threshold]
 
+    # Ensure we only return exactly top_k results
     if top_k:
         enriched_results = enriched_results[:top_k]
 
-    # Re-rank after slicing if necessary, though RRF already sorted them
+    # Re-assign ranks after truncation
     for i, res in enumerate(enriched_results):
         res["rank"] = i + 1
 
