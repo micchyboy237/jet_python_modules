@@ -14,7 +14,10 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Literal, TypedDict
 
-from jet.logger import logger
+from rich.console import Console
+from rich.table import Table
+
+console = Console()
 
 
 class RRFResult(TypedDict):
@@ -59,7 +62,7 @@ def reciprocal_rank_fusion(
         List of RRFResult sorted by descending RRF score.
     """
     if not ranked_lists:
-        logger.warning("No ranked lists provided to RRF")
+        console.print("[yellow]Warning: No ranked lists provided to RRF[/yellow]")
         return []
 
     n_lists = len(ranked_lists)
@@ -93,7 +96,9 @@ def reciprocal_rank_fusion(
                 doc_id = item.get("text")
 
             if doc_id is None:
-                logger.warning(f"Skipping item without identifiable key: {item}")
+                console.print(
+                    f"[yellow]Skipping item without identifiable key: {item}[/yellow]"
+                )
                 continue
 
             contribution = weight * (1.0 / (k + rank))
@@ -127,9 +132,9 @@ def reciprocal_rank_fusion(
     if top_n is not None:
         fused = fused[:top_n]
 
-    logger.info(
-        f"RRF fused {len(score_map)} unique documents from {n_lists} lists "
-        f"→ returning {len(fused)}"
+    console.print(
+        f"[green]RRF fused {len(score_map)} unique documents from {n_lists} lists "
+        f"→ returning {len(fused)}[/green]"
     )
     return fused
 
@@ -178,6 +183,28 @@ def hybrid_rrf_search(
         for r in bm25_raw[:sparse_top_n]
     ]
 
+    # ------------------------------------------------------------------
+    # Improvement A: Debug logging of individual ranked lists (Rich)
+    # ------------------------------------------------------------------
+    console.print("\n[bold cyan]Dense top results (before RRF):[/bold cyan]")
+    for r in dense_results[: min(8, len(dense_results))]:
+        console.print(
+            f"  [cyan]#{r['rank']:<2}[/cyan]  "
+            f"idx=[green]{r['index']:<3}[/green]  "
+            f"score=[yellow]{r['score']:.4f}[/yellow]  "
+            f"{r['text'][:70]}"
+        )
+
+    console.print("\n[bold cyan]BM25 top results (before RRF):[/bold cyan]")
+    for r in sparse_results[: min(8, len(sparse_results))]:
+        console.print(
+            f"  [cyan]#{r['rank']:<2}[/cyan]  "
+            f"idx=[green]{r['index']:<3}[/green]  "
+            f"score=[yellow]{r['score']:.4f}[/yellow]  "
+            f"{r['text'][:70]}"
+        )
+    console.print()
+
     # 3. RRF fusion
     fused = reciprocal_rank_fusion(
         ranked_lists=[dense_results, sparse_results],
@@ -222,11 +249,6 @@ def hybrid_rrf_search(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    from rich.console import Console
-    from rich.table import Table
-
-    console = Console()
-
     query = "What is a giant panda?"
     docs = [
         "The giant panda is a bear species endemic to China.",
@@ -238,9 +260,9 @@ if __name__ == "__main__":
         "Bamboo is the primary food source for giant pandas.",
     ]
 
-    console.print("\n[bold blue]=" * 70)
+    console.print("\n[bold blue]" + "=" * 70)
     console.print("[bold blue]RRF Utils Demo[/bold blue]")
-    console.print("[bold blue]=" * 70)
+    console.print("[bold blue]" + "=" * 70)
     console.print(f"\n[bold]Query:[/bold] {query}\n")
 
     # ------------------------------------------------------------------
@@ -249,7 +271,6 @@ if __name__ == "__main__":
     console.print("[bold cyan]1. Low-level reciprocal_rank_fusion()[/bold cyan]")
     console.print("-" * 50)
 
-    # Simulate two ranked lists (as if they came from vector_search + bm25)
     dense_list = [
         {"rank": 1, "index": 0, "score": 0.92, "text": docs[0]},
         {"rank": 2, "index": 4, "score": 0.85, "text": docs[4]},
@@ -282,7 +303,7 @@ if __name__ == "__main__":
     table.add_column("Index", style="green", width=6)
     table.add_column("RRF Score", style="yellow", width=12)
     table.add_column("Sources", style="blue", width=18)
-    table.add_column("Original Ranks", style="dim", width=20)
+    table.add_column("Original Ranks", style="dim", width=22)
     table.add_column("Text", style="white")
 
     for r in fused:
@@ -313,7 +334,7 @@ if __name__ == "__main__":
             dense_top_n=5,
             sparse_top_n=5,
             final_top_n=5,
-            use_rerank=False,  # set True if rerank server is available
+            use_rerank=False,
         )
 
         table2 = Table(
