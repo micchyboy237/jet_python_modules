@@ -121,9 +121,7 @@ class RunCodeArgs(BaseToolModel):
 class ExtractContentArgs(BaseToolModel):
     """Extract the main textual content of the current page for reading/summarization."""
 
-    max_chunks: Optional[int] = Field(
-        5, description="Number of content chunks to return"
-    )
+    pass
 
 
 class FinalAnswerArgs(BaseToolModel):

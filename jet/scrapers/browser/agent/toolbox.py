@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from jet.scrapers.browser.agent.utils import save_text
-from jet.scrapers.html_rag_extractor import HtmlRagExtractor
+from jet.scrapers.html_rag_extractor import extract_content
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from rich.console import Console
 
@@ -126,29 +126,39 @@ class PlaywrightToolbox:
         """Scroll to bottom of page with various strategies."""
         if not self.auto_scroll or not self.page or strategy == "none":
             return
+
+        # Use instance defaults if not overridden
         mode = mode or self.scroll_mode
         max_attempts = max_attempts or self.max_scrolls
         delay_ms = delay_ms or self.scroll_delay_ms
         overall_timeout_ms = overall_timeout_ms or self.scroll_timeout_ms
+
         console.print(
             f"[dim]Auto-scrolling to bottom (strategy={strategy}, mode={mode}, max={max_attempts})...[/dim]"
         )
+
         page = self.page
         start_time = asyncio.get_event_loop().time()
+
+        # Initial check for document readiness
         try:
             last_height = await page.evaluate("document.documentElement.scrollHeight")
         except Exception as e:
             console.print(f"[yellow]Scroll init failed: {e}[/yellow]")
             return
+
         STABILIZE_THRESHOLD_PX = 150
         no_change_count = 0
         MAX_NO_CHANGE = 4
+
         for attempt in range(1, max_attempts + 1):
+            # Check overall timeout
             if (
                 asyncio.get_event_loop().time() - start_time
             ) * 1000 > overall_timeout_ms:
                 console.print("[yellow]Scroll timeout reached[/yellow]")
                 break
+
             try:
                 if mode == "jump":
                     await page.evaluate(
@@ -156,21 +166,27 @@ class PlaywrightToolbox:
                     )
                 else:
                     await page.evaluate("window.scrollBy(0, window.innerHeight * 0.9)")
+
                 await page.wait_for_timeout(delay_ms)
+
                 if strategy == "once":
                     break
+
+                # Safe evaluation with null checks
                 metrics = await page.evaluate("""() => {
-if (!document.documentElement) return { scrollHeight: 0, scrollY: 0, innerHeight: 0 };
-return {
-scrollHeight: document.documentElement.scrollHeight,
-scrollY: window.scrollY,
-innerHeight: window.innerHeight
-};
-}""")
+                    if (!document.documentElement) return { scrollHeight: 0, scrollY: 0, innerHeight: 0 };
+                    return {
+                        scrollHeight: document.documentElement.scrollHeight,
+                        scrollY: window.scrollY,
+                        innerHeight: window.innerHeight
+                    };
+                }""")
+
                 new_height = metrics["scrollHeight"]
                 view_bottom = metrics["scrollY"] + metrics["innerHeight"]
                 bottom_reached = view_bottom >= (new_height - STABILIZE_THRESHOLD_PX)
                 height_changed = new_height != last_height
+
                 console.print(
                     f"[dim]Scroll {attempt}/{max_attempts}: "
                     f"height={new_height}px, "
@@ -178,10 +194,12 @@ innerHeight: window.innerHeight
                     f"bottom={bottom_reached}, "
                     f"changed={height_changed}[/dim]"
                 )
+
                 if not height_changed:
                     no_change_count += 1
                 else:
                     no_change_count = 0
+
                 if mode == "increment":
                     if bottom_reached:
                         if height_changed:
@@ -198,13 +216,15 @@ innerHeight: window.innerHeight
                             f"[yellow]Height not changing for {no_change_count} attempts, but not at bottom yet → stopping[/yellow]"
                         )
                         break
-                else:
+                else:  # jump mode
                     if not height_changed:
                         console.print(
                             f"[dim]Scroll stabilized (height only) after {attempt} attempts[/dim]"
                         )
                         break
+
                 last_height = new_height
+
             except Exception as e:
                 console.print(f"[yellow]Scroll step {attempt} failed: {e}[/yellow]")
                 break
@@ -274,15 +294,21 @@ innerHeight: window.innerHeight
         page = await self._ensure_page()
         resolved = self._resolve_target(target)
         locator = page.locator(resolved).first
+
+        # Wait for visibility
         await locator.wait_for(state="visible", timeout=5000)
+
+        # Force scroll into view to prevent "outside viewport" errors
         try:
             await locator.scroll_into_view_if_needed(timeout=2000)
         except:
-            pass
+            pass  # Ignore if it fails, Playwright click usually handles it
+
         if doubleClick:
             await locator.dblclick(button=button)
         else:
             await locator.click(button=button)
+
         console.print(f"[green]Clicked {target}[/green]")
         await self._maybe_scroll_if_url_changed()
 
@@ -335,6 +361,27 @@ innerHeight: window.innerHeight
         await page.locator(resolved).first.hover()
         console.print(f"[green]Hovered {target}[/green]")
 
+    async def browser_extract_content(self):
+        """
+        Extracts the main readable content from the current page HTML using Trafilatura.
+        Returns the content as Markdown.
+        """
+        page = await self._ensure_page()
+        try:
+            html_content = await page.content()
+            current_url = await self._get_current_url()
+
+            # Use the existing extractor
+            markdown_content = extract_content(html_content, url=current_url)
+
+            console.print(
+                f"[green]Extracted content ({len(markdown_content)} chars)[/green]"
+            )
+            return markdown_content
+        except Exception as e:
+            console.print(f"[bold red]Error extracting content:[/bold red] {e}")
+            raise e
+
     async def browser_find(
         self,
         text: Optional[str] = None,
@@ -365,13 +412,21 @@ innerHeight: window.innerHeight
 
     async def browser_evaluate(self, function: str, target: Optional[str] = None):
         page = await self._ensure_page()
+
+        # Sanitize and wrap the function string if necessary
+        # Playwright's evaluate expects a function or an expression.
+        # If the LLM returns "return document.title", it fails.
+        # We wrap it in an arrow function if it starts with 'return' or contains top-level returns.
         js_code = function.strip()
         if js_code.startswith("return ") or (
             js_code.startswith("{") and "return " in js_code
         ):
+            # If it looks like a function body, wrap it
             js_code = f"() => {{ {js_code} }}"
         elif not js_code.startswith("(") and not js_code.startswith("function"):
+            # If it's just an expression like "document.title", wrap it
             js_code = f"() => {{ return {js_code}; }}"
+
         try:
             if target:
                 resolved = self._resolve_target(target)
@@ -380,6 +435,7 @@ innerHeight: window.innerHeight
                 result = await locator.evaluate(js_code)
             else:
                 result = await page.evaluate(js_code)
+
             console.print(f"[green]Evaluated JS. Result: {result}[/green]")
             await self._maybe_scroll_if_url_changed()
             return result
@@ -408,6 +464,8 @@ innerHeight: window.innerHeight
             base_name = f"{Path(base_name).stem}.{type}"
         output_path = (step_dir or self.output_dir) / base_name
         await page.screenshot(path=str(output_path), full_page=fullPage, type=type)
+
+        # Use the standard Rich link format
         abs_path = output_path.resolve()
         link = f"[link=file://{abs_path}]{output_path.name}[/link]"
         console.print(f"[green]Screenshot saved:[/green] {link}")
@@ -415,32 +473,6 @@ innerHeight: window.innerHeight
 
     async def browser_close(self):
         await self.close()
-
-    async def browser_extract_content(self, max_chunks: int = 5) -> str:
-        """
-        Extracts main content from the current page using Trafilatura.
-        Returns a formatted string of the top chunks for the LLM.
-        """
-        if not self.page or self.page.is_closed():
-            return "Error: Page is not open."
-
-        try:
-            html_content = await self.page.content()
-            extractor = HtmlRagExtractor(chunk_size=500, chunk_overlap=50)
-            chunks = extractor.extract_and_chunk(html_content, url=self.page.url)
-
-            if not chunks:
-                return "No significant content found on this page."
-
-            # Return top N chunks formatted for RAG
-            selected_chunks = chunks[:max_chunks]
-            result_parts = []
-            for i, chunk in enumerate(selected_chunks):
-                result_parts.append(f"--- Chunk {i + 1} ---\n{chunk.content}")
-
-            return "\n\n".join(result_parts)
-        except Exception as e:
-            return f"Error extracting content: {str(e)}"
 
     async def final_answer(self, result: Any):
         console.print(f"[bold green]Final Answer Received[/bold green]")

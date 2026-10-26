@@ -1,6 +1,12 @@
 """Observability Wrapper for chat_stream.py using jet_telemetry.
 Refactored to use granular decorators (@agent, @llm, @tool, @evaluator)
 and manual tool loop instrumentation for full visibility.
+
+REFACTORING NOTES:
+- Removed top-level @chain wrappers (chat-stream-session, etc.) to flatten trace hierarchy.
+- Promoted run_agentic_chat (@agent), run_simple_chat (@chain), and observe_generate_stream (@llm) to root spans.
+- Removed hardcoded model_name="unknown" from @llm decorators; jet-telemetry now extracts it dynamically.
+- Ensured session_id is passed to root span decorators for proper Phoenix grouping.
 """
 
 from __future__ import annotations
@@ -112,7 +118,7 @@ def observe_structured_parsing(
     return result
 
 
-@llm(model_name="unknown")
+@llm()  # model_name extracted dynamically by jet-telemetry from 'model' arg
 @performance_monitor(threshold_ms=1500)
 def observe_llm_chat_stream(
     prompt_or_messages: str | list[dict[str, Any]],
@@ -120,7 +126,7 @@ def observe_llm_chat_stream(
     on_chunk: Callable,
     client: OpenAI | None = None,
     system_message: str | None = None,
-    response_format: Any = None,  # Added this parameter
+    response_format: Any = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """
@@ -133,12 +139,13 @@ def observe_llm_chat_stream(
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        response_format=response_format,  # Pass it down
+        response_format=response_format,
         **kwargs,
     )
     span = otel_trace.get_current_span()
     if span.is_recording():
-        span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
+        # Manual attribute setting for fields not auto-captured by jet-telemetry
+        # due to custom return type (StreamCompletionResult)
         if result.usage:
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
@@ -158,7 +165,7 @@ def observe_llm_chat_stream(
     return result
 
 
-@llm(model_name="unknown")
+@llm()  # model_name extracted dynamically by jet-telemetry from 'model' arg
 @performance_monitor(threshold_ms=1500)
 async def observe_llm_chat_stream_async(
     prompt_or_messages: str | list[dict[str, Any]],
@@ -166,7 +173,7 @@ async def observe_llm_chat_stream_async(
     on_chunk: Callable,
     client: AsyncOpenAI | None = None,
     system_message: str | None = None,
-    response_format: Any = None,  # Added this parameter
+    response_format: Any = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """Decorated LLM span for asynchronous chat streaming."""
@@ -176,16 +183,21 @@ async def observe_llm_chat_stream_async(
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        response_format=response_format,  # Pass it down
+        response_format=response_format,
         **kwargs,
     )
     span = otel_trace.get_current_span()
     if span.is_recording():
-        span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model)
+        # Manual attribute setting for fields not auto-captured by jet-telemetry
+        # due to custom return type (StreamCompletionResult)
         if result.usage:
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
                 result.usage.get("total_tokens", 0),
+            )
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                result.usage.get("completion_tokens", 0),
             )
         if result.content:
             output_msg = [{"role": "assistant", "content": redact(result.content)}]
@@ -197,7 +209,8 @@ async def observe_llm_chat_stream_async(
     return result
 
 
-@chain(name="llm.generate_session")
+@llm()  # Changed from @chain to @llm for semantic correctness
+@performance_monitor(threshold_ms=1500)
 def observe_generate_stream(
     prompt: str,
     model: str,
@@ -205,17 +218,32 @@ def observe_generate_stream(
     client: OpenAI | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
-    """Wraps raw text generation in a CHAIN span."""
-    return _pure_run_generate_stream(
+    """Wraps raw text generation in an LLM span."""
+    result = _pure_run_generate_stream(
         prompt=prompt,
         model=model,
         on_chunk=on_chunk,
         client=client,
         **kwargs,
     )
+    # Manual attribute setting for generate stream
+    span = otel_trace.get_current_span()
+    if span.is_recording():
+        if result.usage:
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
+                result.usage.get("total_tokens", 0),
+            )
+        if result.content:
+            span.set_attribute(
+                SpanAttributes.LLM_OUTPUT_MESSAGES,
+                json.dumps([{"role": "assistant", "content": redact(result.content)}]),
+            )
+    return result
 
 
-@chain(name="llm.generate_session.async")
+@llm()  # Changed from @chain to @llm
+@performance_monitor(threshold_ms=1500)
 async def observe_generate_stream_async(
     prompt: str,
     model: str,
@@ -223,14 +251,28 @@ async def observe_generate_stream_async(
     client: AsyncOpenAI | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
-    """Wraps async raw text generation in a CHAIN span."""
-    return await _pure_run_generate_stream_async(
+    """Wraps async raw text generation in an LLM span."""
+    result = await _pure_run_generate_stream_async(
         prompt=prompt,
         model=model,
         on_chunk=on_chunk,
         client=client,
         **kwargs,
     )
+    # Manual attribute setting for generate stream
+    span = otel_trace.get_current_span()
+    if span.is_recording():
+        if result.usage:
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
+                result.usage.get("total_tokens", 0),
+            )
+        if result.content:
+            span.set_attribute(
+                SpanAttributes.LLM_OUTPUT_MESSAGES,
+                json.dumps([{"role": "assistant", "content": redact(result.content)}]),
+            )
+    return result
 
 
 def _execute_tool_with_span(
@@ -341,11 +383,13 @@ def run_agentic_chat(
     client: OpenAI | None = None,
     max_tool_rounds: int = 10,
     system_message: str | None = None,
+    session_id: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
     """
     Top-level AGENT span for agentic loops.
     Implements manual tool loop to ensure TOOL spans are created.
+    Now serves as the ROOT span for agentic traces.
     """
     image_source = kwargs.get("image_source")
     if image_source:
@@ -367,7 +411,7 @@ def run_agentic_chat(
             on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
             client=client,
             system_message=system_message,
-            response_format=resolved_fmt.api_format,  # Pass the resolved API format
+            response_format=resolved_fmt.api_format,
             **{
                 k: v
                 for k, v in kwargs.items()
@@ -448,9 +492,10 @@ async def run_agentic_chat_async(
     client: AsyncOpenAI | None = None,
     max_tool_rounds: int = 10,
     system_message: str | None = None,
+    session_id: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
-    """Async top-level AGENT span for agentic loops."""
+    """Async top-level AGENT span for agentic loops. Serves as ROOT span."""
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
@@ -471,7 +516,7 @@ async def run_agentic_chat_async(
             on_chunk=on_chunk if round_idx == max_tool_rounds - 1 else lambda x: None,
             client=client,
             system_message=system_message,
-            response_format=resolved_fmt.api_format,  # Pass the resolved API format
+            response_format=resolved_fmt.api_format,
             **{
                 k: v
                 for k, v in kwargs.items()
@@ -550,9 +595,10 @@ def run_simple_chat(
     on_chunk: Callable,
     client: OpenAI | None = None,
     system_message: str | None = None,
+    session_id: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
-    """Top-level CHAIN span for non-agentic chat."""
+    """Top-level CHAIN span for non-agentic chat. Serves as ROOT span."""
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
@@ -563,7 +609,7 @@ def run_simple_chat(
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        response_format=resolved_fmt.api_format,  # Pass the resolved API format
+        response_format=resolved_fmt.api_format,
         **kwargs,
     )
     if result.content:
@@ -581,9 +627,10 @@ async def run_simple_chat_async(
     on_chunk: Callable,
     client: AsyncOpenAI | None = None,
     system_message: str | None = None,
+    session_id: str | None = None,
     **kwargs,
 ) -> StreamCompletionResult:
-    """Async top-level CHAIN span for non-agentic chat."""
+    """Async top-level CHAIN span for non-agentic chat. Serves as ROOT span."""
     image_source = kwargs.get("image_source")
     if image_source:
         observe_image_encoding(image_source)
@@ -594,7 +641,7 @@ async def run_simple_chat_async(
         on_chunk=on_chunk,
         client=client,
         system_message=system_message,
-        response_format=resolved_fmt.api_format,  # Pass the resolved API format
+        response_format=resolved_fmt.api_format,
         **kwargs,
     )
     if result.content:
@@ -677,6 +724,7 @@ def _print_header_footer(
                 phoenix_url, project_name, trace_id=trace_id_hex
             )
             console.print(f"🔗 Inspect API : [link={api_url}]{api_url}[/link]")
+
             try:
                 jsonl_path = export_spans_to_jsonl(
                     project_name=project_name,
@@ -709,15 +757,17 @@ def _print_header_footer(
         logger.info(f"   Duration         : {total_secs:.2f}s")
         if ttft is not None:
             logger.info(f"   Time to first token: {ttft:.2f}s")
-        if result.structured:
-            status = "✅" if result.structured.success else "⚠️"
-            logger.info(
-                f"   Structured       : {status} {result.structured.format_used.value}"
-            )
+
+    if result.structured:
+        status = "✅" if result.structured.success else "⚠️"
+        logger.info(
+            f"   Structured       : {status} {result.structured.format_used.value}"
+        )
     logger.info("─" * 60)
 
 
-@chain(name="chat-stream-session")
+# NOTE: Removed @chain(name="chat-stream-session") decorator.
+# run_agentic_chat or run_simple_chat now serve as the root span.
 @performance_monitor(threshold_ms=5000)
 def run_chat_stream(
     prompt_or_messages: str | list[dict[str, Any]] = "What is OpenTelemetry?",
@@ -778,6 +828,7 @@ def run_chat_stream(
         "extra_body_params": extra_body_params,
         "image_source": image_source,
         "system_message": system_message,
+        "session_id": session_id,  # Pass session_id to inner functions
     }
 
     if is_agentic:
@@ -818,7 +869,7 @@ def run_chat_stream(
     return result
 
 
-@chain(name="achat-stream-session")
+# NOTE: Removed @chain(name="achat-stream-session") decorator.
 @performance_monitor(threshold_ms=5000)
 async def run_chat_stream_async(
     prompt_or_messages: str | list[dict[str, Any]] = "What is OpenTelemetry?",
@@ -879,6 +930,7 @@ async def run_chat_stream_async(
         "extra_body_params": extra_body_params,
         "image_source": image_source,
         "system_message": system_message,
+        "session_id": session_id,
     }
 
     if is_agentic:
@@ -919,7 +971,8 @@ async def run_chat_stream_async(
     return result
 
 
-@chain(name="generate-stream-session")
+# NOTE: Removed @chain(name="generate-stream-session") decorator.
+# observe_generate_stream is now the root span.
 def run_generate_stream(
     prompt: str,
     model: str = MODEL,
@@ -939,6 +992,7 @@ def run_generate_stream(
     seed: int | None = None,
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
     output_dir: Path | None = None,
 ) -> StreamCompletionResult:
     """Traced synchronous raw text completion."""
@@ -986,7 +1040,7 @@ def run_generate_stream(
     return result
 
 
-@chain(name="agenerate-stream-session")
+# NOTE: Removed @chain(name="agenerate-stream-session") decorator.
 async def run_generate_stream_async(
     prompt: str,
     model: str = MODEL,
@@ -1006,6 +1060,7 @@ async def run_generate_stream_async(
     seed: int | None = None,
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
     output_dir: Path | None = None,
 ) -> StreamCompletionResult:
     """Traced asynchronous raw text completion."""

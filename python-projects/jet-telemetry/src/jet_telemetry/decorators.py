@@ -40,6 +40,7 @@ class LazyPhoenixTracer:
                     self._real_tracer = provider.get_tracer(__name__)
             except Exception:
                 pass
+
         if self._real_tracer is None:
             return otel_trace.get_tracer(__name__)
         return self._real_tracer
@@ -88,10 +89,31 @@ def _safe_json_serialize(obj: Any) -> str:
         return str(obj)
 
 
+def _extract_model_from_args(args, kwargs, func_sig) -> str:
+    """
+    Helper to extract model name from function arguments if not explicitly provided.
+    Checks for common argument names: 'model', 'model_name', 'engine'.
+    """
+    try:
+        bound_args = func_sig.bind(*args, **kwargs)
+        bound_args.apply_defaults()
+
+        # Check common argument names in priority order
+        for arg_name in ["model", "model_name", "engine"]:
+            if arg_name in bound_args.arguments:
+                val = bound_args.arguments[arg_name]
+                if val and isinstance(val, str):
+                    return val
+    except Exception:
+        pass
+    return "unknown"
+
+
 def performance_monitor(func=None, *, threshold_ms: float = 500):
     """
     Attaches performance metrics (duration_ms, slow) to the CURRENT active span.
     Useful for stacking with @llm, @tool, or @chain to track latency explicitly.
+
     Args:
         threshold_ms: If duration exceeds this, sets 'perf.slow' to True.
     """
@@ -149,11 +171,16 @@ def llm(
     """
     Decorator for LLM calls using built-in Phoenix tracer.
     Captures input messages, output messages, tokens, and cost.
+
+    FIX: If model_name is "unknown", attempts to extract it from function arguments
+    named 'model', 'model_name', or 'engine'.
     """
 
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
+        sig = inspect.signature(f)
+
         try:
             phoenix_decorator_factory = tracer.llm(name=span_name)
             decorated = phoenix_decorator_factory(f)
@@ -162,21 +189,22 @@ def llm(
 
         @wraps(decorated)
         def wrapper(*args, **kwargs):
-            # Call the original/decorated function first to get result
             result = decorated(*args, **kwargs)
-
             span = otel_trace.get_current_span()
             if span.is_recording():
-                span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model_name)
+                # Dynamic model name extraction
+                final_model_name = model_name
+                if final_model_name == "unknown":
+                    final_model_name = _extract_model_from_args(args, kwargs, sig)
+
+                span.set_attribute(SpanAttributes.LLM_MODEL_NAME, final_model_name)
                 span.set_attribute(SpanAttributes.LLM_PROVIDER, provider)
                 if session_id:
                     span.set_attribute(SpanAttributes.SESSION_ID, session_id)
 
-                # Capture Input
-                sig = inspect.signature(f)
+                # Input capture
                 bound_args = sig.bind(*args, **kwargs)
                 bound_args.apply_defaults()
-
                 if "messages" in bound_args.arguments:
                     msgs = bound_args.arguments["messages"]
                     if isinstance(msgs, list):
@@ -203,7 +231,7 @@ def llm(
                             SpanAttributes.INPUT_MIME_TYPE, "application/json"
                         )
 
-                # Capture Output (if result is a standard completion object)
+                # Output capture
                 if hasattr(result, "choices") and result.choices:
                     choice = result.choices[0]
                     message = choice.message
@@ -222,7 +250,7 @@ def llm(
                         SpanAttributes.OUTPUT_MIME_TYPE, "application/json"
                     )
 
-                    # Token Usage
+                    # Token capture
                     if hasattr(result, "usage") and result.usage:
                         usage = result.usage
                         if hasattr(usage, "prompt_tokens"):
@@ -239,7 +267,6 @@ def llm(
                             span.set_attribute(
                                 SpanAttributes.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens
                             )
-
             return result
 
         if inspect.iscoroutinefunction(f):
@@ -249,15 +276,19 @@ def llm(
                 result = await decorated(*args, **kwargs)
                 span = otel_trace.get_current_span()
                 if span.is_recording():
-                    span.set_attribute(SpanAttributes.LLM_MODEL_NAME, model_name)
+                    # Dynamic model name extraction
+                    final_model_name = model_name
+                    if final_model_name == "unknown":
+                        final_model_name = _extract_model_from_args(args, kwargs, sig)
+
+                    span.set_attribute(SpanAttributes.LLM_MODEL_NAME, final_model_name)
                     span.set_attribute(SpanAttributes.LLM_PROVIDER, provider)
                     if session_id:
                         span.set_attribute(SpanAttributes.SESSION_ID, session_id)
 
-                    sig = inspect.signature(f)
+                    # Input capture
                     bound_args = sig.bind(*args, **kwargs)
                     bound_args.apply_defaults()
-
                     if "messages" in bound_args.arguments:
                         msgs = bound_args.arguments["messages"]
                         if isinstance(msgs, list):
@@ -284,6 +315,7 @@ def llm(
                                 SpanAttributes.INPUT_MIME_TYPE, "application/json"
                             )
 
+                    # Output capture
                     if hasattr(result, "choices") and result.choices:
                         choice = result.choices[0]
                         message = choice.message
@@ -302,6 +334,7 @@ def llm(
                             SpanAttributes.OUTPUT_MIME_TYPE, "application/json"
                         )
 
+                        # Token capture
                         if hasattr(result, "usage") and result.usage:
                             usage = result.usage
                             if hasattr(usage, "prompt_tokens"):
@@ -319,10 +352,10 @@ def llm(
                                     SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
                                     usage.total_tokens,
                                 )
-
                 return result
 
             return async_wrapper
+
         return wrapper
 
     if func is not None:
@@ -343,6 +376,7 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
             kwargs["name"] = name
         if description:
             kwargs["description"] = description
+
         try:
             phoenix_decorator_factory = tracer.tool(**kwargs)
             decorated = phoenix_decorator_factory(f)
@@ -358,22 +392,17 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
                     span.set_attribute(SpanAttributes.TOOL_NAME, name)
                 if description:
                     span.set_attribute(SpanAttributes.TOOL_DESCRIPTION, description)
-
-                # Capture Parameters
                 if kwargs:
                     safe_params = {k: _redact(str(v)) for k, v in kwargs.items()}
                     span.set_attribute(
                         SpanAttributes.TOOL_PARAMETERS,
                         _safe_json_serialize(safe_params),
                     )
-
-                # Capture Output
                 if result is not None:
                     span.set_attribute(
                         SpanAttributes.OUTPUT_VALUE, _redact(str(result))
                     )
                     span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
-
             return result
 
         if inspect.iscoroutinefunction(f):
@@ -403,6 +432,7 @@ def tool(func=None, *, name: Optional[str] = None, description: Optional[str] = 
                 return result
 
             return async_wrapper
+
         return wrapper
 
     if func is not None:
@@ -420,6 +450,7 @@ def chain(func=None, *, name: Optional[str] = None, session_id: Optional[str] = 
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+
         if is_async:
 
             @wraps(f)
@@ -485,6 +516,7 @@ def agent(func=None, *, name: Optional[str] = None, session_id: Optional[str] = 
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+
         if is_async:
 
             @wraps(f)
@@ -545,6 +577,7 @@ def retriever(
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+
         if is_async:
 
             @wraps(f)
@@ -567,14 +600,12 @@ def retriever(
 
                     if span.is_recording() and result:
                         if isinstance(result, list) and len(result) > 0:
-                            # Capture Document Metadata and Content (limited)
                             documents = []
                             for i, doc in enumerate(result[:10]):
                                 doc_entry = {"index": i}
                                 if isinstance(doc, dict):
                                     doc_entry["score"] = doc.get("score")
                                     doc_entry["id"] = doc.get("id")
-                                    # Limit content length to avoid large spans
                                     content = str(doc.get("content", ""))[:500]
                                     doc_entry["content"] = _redact(content)
                                 else:
@@ -586,7 +617,6 @@ def retriever(
                                 _safe_json_serialize(documents),
                             )
                             span.set_attribute("retrieval.document_count", len(result))
-
                     return result
 
             return async_wrapper
@@ -629,7 +659,6 @@ def retriever(
                                 _safe_json_serialize(documents),
                             )
                             span.set_attribute("retrieval.document_count", len(result))
-
                     return result
 
             return sync_wrapper
@@ -643,12 +672,16 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
     """
     Decorator for embedding generation.
     Captures text input and vector dimensions.
+
+    FIX: If model_name is "unknown", attempts to extract it from function arguments.
     """
 
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+        sig = inspect.signature(f)
+
         try:
             import numpy as np
         except ImportError:
@@ -662,8 +695,15 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                     span_name, openinference_span_kind="embedding"
                 ) as span:
                     if span.is_recording():
+                        # Dynamic model name extraction
+                        final_model_name = model_name
+                        if final_model_name == "unknown":
+                            final_model_name = _extract_model_from_args(
+                                args, kwargs, sig
+                            )
+
                         span.set_attribute(
-                            SpanAttributes.EMBEDDING_MODEL_NAME, model_name
+                            SpanAttributes.EMBEDDING_MODEL_NAME, final_model_name
                         )
                         if args:
                             text = str(args[0])
@@ -686,7 +726,6 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                                 dim = len(result)
                         if dim is not None:
                             span.set_attribute("embedding.vector_dimension", dim)
-
                     return result
 
             return async_wrapper
@@ -698,8 +737,15 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                     span_name, openinference_span_kind="embedding"
                 ) as span:
                     if span.is_recording():
+                        # Dynamic model name extraction
+                        final_model_name = model_name
+                        if final_model_name == "unknown":
+                            final_model_name = _extract_model_from_args(
+                                args, kwargs, sig
+                            )
+
                         span.set_attribute(
-                            SpanAttributes.EMBEDDING_MODEL_NAME, model_name
+                            SpanAttributes.EMBEDDING_MODEL_NAME, final_model_name
                         )
                         if args:
                             text = str(args[0])
@@ -722,7 +768,6 @@ def embedding(func=None, *, name: Optional[str] = None, model_name: str = "unkno
                                 dim = len(result)
                         if dim is not None:
                             span.set_attribute("embedding.vector_dimension", dim)
-
                     return result
 
             return sync_wrapper
@@ -737,12 +782,16 @@ def reranker(
 ):
     """
     Decorator for document reranking.
+
+    FIX: If model_name is not provided, attempts to extract it from function arguments.
     """
 
     def decorator(f):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+        sig = inspect.signature(f)
+
         if is_async:
 
             @wraps(f)
@@ -751,9 +800,18 @@ def reranker(
                     span_name, openinference_span_kind="reranker"
                 ) as span:
                     if span.is_recording():
-                        if model_name:
+                        # Dynamic model name extraction
+                        final_model_name = model_name
+                        if final_model_name is None:
+                            final_model_name = _extract_model_from_args(
+                                args, kwargs, sig
+                            )
+                            if final_model_name == "unknown":
+                                final_model_name = None  # Keep None if not found
+
+                        if final_model_name:
                             span.set_attribute(
-                                RerankerAttributes.RERANKER_MODEL_NAME, model_name
+                                RerankerAttributes.RERANKER_MODEL_NAME, final_model_name
                             )
                         if args and len(args) > 0:
                             span.set_attribute(
@@ -776,7 +834,6 @@ def reranker(
                                     "reranker.output_scores",
                                     _safe_json_serialize(scores),
                                 )
-
                     return result
 
             return async_wrapper
@@ -788,9 +845,18 @@ def reranker(
                     span_name, openinference_span_kind="reranker"
                 ) as span:
                     if span.is_recording():
-                        if model_name:
+                        # Dynamic model name extraction
+                        final_model_name = model_name
+                        if final_model_name is None:
+                            final_model_name = _extract_model_from_args(
+                                args, kwargs, sig
+                            )
+                            if final_model_name == "unknown":
+                                final_model_name = None  # Keep None if not found
+
+                        if final_model_name:
                             span.set_attribute(
-                                RerankerAttributes.RERANKER_MODEL_NAME, model_name
+                                RerankerAttributes.RERANKER_MODEL_NAME, final_model_name
                             )
                         if args and len(args) > 0:
                             span.set_attribute(
@@ -813,7 +879,6 @@ def reranker(
                                     "reranker.output_scores",
                                     _safe_json_serialize(scores),
                                 )
-
                     return result
 
             return sync_wrapper
@@ -832,6 +897,7 @@ def guardrail(func=None, *, name: Optional[str] = None):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+
         if is_async:
 
             @wraps(f)
@@ -852,7 +918,6 @@ def guardrail(func=None, *, name: Optional[str] = None):
                         span.set_attribute(
                             SpanAttributes.OUTPUT_MIME_TYPE, "text/plain"
                         )
-
                     return result
 
             return async_wrapper
@@ -876,7 +941,6 @@ def guardrail(func=None, *, name: Optional[str] = None):
                         span.set_attribute(
                             SpanAttributes.OUTPUT_MIME_TYPE, "text/plain"
                         )
-
                     return result
 
             return sync_wrapper
@@ -895,6 +959,7 @@ def evaluator(func=None, *, name: Optional[str] = None):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+
         if is_async:
 
             @wraps(f)
@@ -936,6 +1001,7 @@ def prompt(func=None, *, name: Optional[str] = None):
         tracer = _get_tracer()
         span_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+
         if is_async:
 
             @wraps(f)
@@ -981,6 +1047,7 @@ def trace(func=None, *, name: Optional[str] = None, kind: str = "CHAIN"):
         tracer = _get_tracer()
         span_name = name or f.__name__
         kind_upper = kind.upper()
+
         if kind_upper == "CHAIN":
             try:
                 return tracer.chain(name=span_name)(f)
