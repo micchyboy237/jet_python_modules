@@ -28,12 +28,10 @@ def test_extract_and_chunk_basic():
     assert len(chunks) > 0
     assert isinstance(chunks[0], HtmlRagChunk)
 
-    # Check that navigation and footer are likely excluded or minimized
     combined_content = " ".join([c.content for c in chunks])
     assert "Main Article Title" in combined_content
     assert "first paragraph" in combined_content
 
-    # Check metadata
     assert chunks[0].metadata["source_url"] == "http://example.com"
     assert chunks[0].metadata["extraction_method"] == "trafilatura"
 
@@ -50,7 +48,6 @@ def test_extract_metadata():
 
     assert doc is not None
     # Trafilatura often prefers the main content heading (h1) over the <title> tag
-    # if it appears more relevant to the extracted body.
     assert doc.title == "Main Article Title"
     assert doc.url == "http://example.com"
 
