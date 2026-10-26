@@ -140,10 +140,16 @@ class ExtractContentArgs(BaseToolModel):
 class FinalAnswerArgs(BaseToolModel):
     """
     Provide the final result.
-    RULE: Call IMMEDIATELY when goal is met. Extract data from snapshot if present.
+    RULES:
+    1. Call IMMEDIATELY when goal is met.
+    2. PRESERVE PLACEHOLDERS: Keep any 'link_*' identifiers found in context exactly as they are.
+    3. DO NOT RESOLVE: Never replace placeholders with full URLs; the system inflates them automatically.
+    4. Extract data from snapshot if present.
     """
 
-    result: Any = Field(description="Final answer (string, list, or object)")
+    result: Any = Field(
+        description="Final answer (string, list, or object). Preserve any 'link_*' placeholders exactly as they appear."
+    )
 
 
 class AgentDecision(BaseModel):
