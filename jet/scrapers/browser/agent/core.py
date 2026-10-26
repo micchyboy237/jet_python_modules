@@ -263,20 +263,6 @@ class LocalAgent:
         except Exception as e:
             console.print(f"[yellow]Failed to capture end state: {e}[/yellow]")
 
-    @tool(name="execute-agent-tool")
-    async def _execute_tool_with_tracking(
-        self, decision: AgentDecision, step_dir: Path
-    ) -> str:
-        """Executes the tool and returns the result string for the next iteration."""
-        console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
-        console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
-        try:
-            last_result = await self._execute_tool(decision, step_dir)
-            return last_result
-        except Exception as e:
-            console.print(f"[bold red]Error in tool execution:[/bold red] {e}")
-            return f"Error: {str(e)}"
-
     @agent(name="browser-agent-loop", session_id=None)
     async def think_and_act(
         self, goal: str, initial_snapshot: str, max_steps: int = 15, **kwargs
@@ -418,9 +404,7 @@ class LocalAgent:
                         self._save_token_summary(step_index)
                         return "Goal achieved."
 
-                    last_result = await self._execute_tool_with_tracking(
-                        decision, step_dir
-                    )
+                    last_result = await self._execute_tool(decision, step_dir)
 
                     # Update Memory after successful tool execution
                     self.memory.add_step(step_index, decision, last_result, current_url)
@@ -480,21 +464,38 @@ class LocalAgent:
             f"[bold cyan]Total tokens used: {self.total_input_tokens}[/bold cyan]"
         )
 
-    async def _execute_tool(self, decision, step_dir):
-        """Execute tool without managing snapshot state."""
+    @tool(name="execute-agent-tool")
+    async def _execute_tool(self, decision: AgentDecision, step_dir: Path) -> str:
+        """
+        Executes the tool, handles logging, and saves specific outputs like extracted content.
+        """
+        console.print(f"\n[dim]Thought: {decision.thought}[/dim]")
+        console.print(f"[bold yellow]Executing:[/bold yellow] {decision.tool}")
+
         try:
+            # Execute the tool via the registry
             result = await self.registry.execute_tool(
                 decision.tool, decision.arguments or {}, step_dir=step_dir
             )
+
+            # Handle specific post-execution logic
             if decision.tool == "final_answer":
                 console.print(
                     "[bold green]Final answer provided. Stopping iteration.[/bold green]"
                 )
+            elif decision.tool == "browser_extract_content":
+                if isinstance(result, str):
+                    save_text(step_dir / "extracted_content.md", result)
+                    console.print(
+                        f"[green]Extracted content saved to extracted_content.md[/green]"
+                    )
             else:
                 console.print(f"[green]Successfully executed {decision.tool}[/green]")
+
             return result
+
         except Exception as exec_err:
-            console.print(f"[red]Execution error: {exec_err}[/red]")
+            console.print(f"[bold red]Execution error:[/bold red] {exec_err}")
             return f"Error executing {decision.tool}: {str(exec_err)}"
 
     @llm(model_name=None, provider="llama_cpp")
