@@ -294,6 +294,37 @@ class TestHTMLSkeletonExtractor:
         assert 'id="main-nav"' in result
         assert 'id="post-1"' in result
 
+    def test_removes_presentational_separators(self):
+        """Elements with role='separator' and no meaningful text should be removed."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<div role="separator"><span>&nbsp;</span></div><p>Content</p>'
+        result, _ = extractor.extract(html)
+        assert 'role="separator"' not in result
+        assert "Content" in result
+
+    def test_unwraps_nested_attribute_less_divs(self):
+        """Nested divs without attributes should be unwrapped to reduce noise."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<a href="/test"><div><div>Link Text</div></div></a>'
+        result, _ = extractor.extract(html)
+
+        # The divs should be unwrapped, leaving the text directly in the anchor
+        assert "<a" in result
+        assert "Link Text" in result
+
+        # Ensure we don't have unnecessary nested divs left
+        # Note: Depending on prettify, there might be 0 divs.
+        # If the logic preserves one wrapper for structure, we ensure it's not nested.
+        assert "<div>" not in result or result.count("<div>") <= 1
+
+    def test_preserves_nested_divs_with_attributes(self):
+        """Nested divs with important attributes should be preserved."""
+        extractor = HTMLSkeletonExtractor()
+        html = '<a href="/test"><div id="inner"><div>Link Text</div></div></a>'
+        result, _ = extractor.extract(html)
+        assert 'id="inner"' in result
+        assert "<div>" in result
+
 
 class TestURLCompression:
     """Tests for URL compression functionality."""

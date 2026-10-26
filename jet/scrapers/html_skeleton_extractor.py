@@ -124,17 +124,17 @@ ESSENTIAL_ATTRIBUTES = frozenset(
     ]
 )
 
+# Roles that are purely presentational and often contain no useful RAG context
+PRESENTATIONAL_ROLES = frozenset(["separator", "presentation", "none"])
+
 # Regex patterns for detecting randomly generated class names
-# Matches patterns like: css-123abc, r-12345, _hash123, etc.
 RANDOM_CLASS_PATTERNS = [
     re.compile(r"^css-[a-zA-Z0-9]+$"),  # Emotion/styled-components (any length)
-    re.compile(
-        r"^[a-z]-[a-zA-Z0-9]+$"
-    ),  # Generic short-hash patterns (e.g. r-1awozwy, e8ju0x50 if prefixed)
+    re.compile(r"^[a-z]-[a-zA-Z0-9]+$"),  # Generic short-hash patterns
     re.compile(r"^_[a-zA-Z0-9]+$"),  # Underscore-prefixed hashes
     re.compile(
         r"^[a-zA-Z0-9]*\d[a-zA-Z0-9]*$"
-    ),  # Fallback: any class containing digits that isn't purely semantic
+    ),  # Fallback: any class containing digits
 ]
 
 # Helper to identify "semantic" looking classes to avoid over-filtering
@@ -149,19 +149,13 @@ URL_THRESHOLD = 60  # Characters threshold to consider a URL for compression
 
 def _is_random_class(class_name: str) -> bool:
     """Check if a class name appears to be randomly generated."""
-    # If it looks purely semantic (lowercase letters and hyphens), keep it
     if SEMANTIC_CLASS_PATTERN.match(class_name):
         return False
-
-    # If it contains digits, it's highly likely to be a hash/obfuscated
     if any(char.isdigit() for char in class_name):
         return True
-
-    # Check specific known prefixes for obfuscation
     for pattern in RANDOM_CLASS_PATTERNS:
         if pattern.match(class_name):
             return True
-
     return False
 
 
@@ -180,7 +174,7 @@ class SkeletonConfig:
     remove_empty_elements: bool = True
     preserve_comments: bool = False
     min_word_count_for_block: int = 10
-    compress_urls: bool = True  # New feature
+    compress_urls: bool = True
 
     def validate(self) -> None:
         """Validate configuration parameters."""
@@ -242,7 +236,6 @@ class HTMLSkeletonExtractor:
         if len(url) < URL_THRESHOLD:
             return url
 
-        # Create a short hash-based ID
         url_hash = hashlib.md5(url.encode()).hexdigest()[:6]
         placeholder = f"u_{url_hash}"
 
@@ -251,6 +244,14 @@ class HTMLSkeletonExtractor:
             self.url_counter += 1
 
         return placeholder
+
+    def _is_meaningful_text(self, text: str) -> bool:
+        """Check if text contains more than just whitespace or non-breaking spaces."""
+        if not text:
+            return False
+        # Remove common non-content characters
+        cleaned = text.replace("\u00a0", "").replace("\u200b", "").strip()
+        return bool(cleaned)
 
     def _clean_document(self, soup: BeautifulSoup) -> None:
         """Remove unwanted elements and attributes from the document."""
@@ -296,7 +297,9 @@ class HTMLSkeletonExtractor:
                     return True
                 if self._has_important_children(child):
                     return True
-            elif isinstance(child, NavigableString) and child.strip():
+            elif isinstance(child, NavigableString) and self._is_meaningful_text(
+                str(child)
+            ):
                 return True
         return False
 
@@ -328,23 +331,43 @@ class HTMLSkeletonExtractor:
             changed = False
             iterations += 1
             for tag in list(soup.find_all(True)):
-                tag_children = [
-                    child for child in tag.children if isinstance(child, Tag)
-                ]
-                if len(tag_children) == 1:
-                    child = tag_children[0]
-                    if tag.name in (
-                        "div",
-                        "span",
-                        "section",
-                        "article",
-                    ) and child.name in ("div", "span", "section", "article"):
-                        for attr, value in child.attrs.items():
-                            if attr not in tag.attrs:
-                                tag.attrs[attr] = value
-                        child.unwrap()
+                # 1. Aggressive unwrapping of generic containers without essential attributes
+                # We consider 'class' non-essential here if it's empty or filtered out already
+                essential_attrs_present = any(
+                    k in tag.attrs for k in ESSENTIAL_ATTRIBUTES if k != "class"
+                )
+
+                # If it's a generic container with no essential attrs (like id, aria-label, etc.)
+                if not essential_attrs_present and tag.name in ("div", "span"):
+                    # Check if it only contains one child element or just text
+                    children = [c for c in tag.children if isinstance(c, Tag)]
+                    text_children = [
+                        c
+                        for c in tag.children
+                        if isinstance(c, NavigableString) and str(c).strip()
+                    ]
+
+                    # Unwrap if it has exactly one child tag OR if it just wraps text
+                    if len(children) == 1 or (len(children) == 0 and text_children):
+                        tag.unwrap()
                         changed = True
                         break
+
+                # 2. Original logic for merging specific semantic containers
+                elif tag.name in ("div", "span", "section", "article"):
+                    tag_children = [
+                        child for child in tag.children if isinstance(child, Tag)
+                    ]
+                    if len(tag_children) == 1:
+                        child = tag_children[0]
+                        if child.name in ("div", "span", "section", "article"):
+                            # Merge attributes from child to parent if parent doesn't have them
+                            for attr, value in child.attrs.items():
+                                if attr not in tag.attrs:
+                                    tag.attrs[attr] = value
+                            child.unwrap()
+                            changed = True
+                            break
 
     def _remove_empty_elements(self, soup: BeautifulSoup) -> None:
         """Remove empty elements that don't contribute to structure."""
@@ -355,8 +378,17 @@ class HTMLSkeletonExtractor:
             changed = False
             iterations += 1
             for tag in list(soup.find_all(True)):
-                has_text = bool(tag.get_text(strip=True))
+                # Check for presentational roles that act as empty spacers
+                role = tag.get("role", "")
+                if role in PRESENTATIONAL_ROLES:
+                    if not self._is_meaningful_text(tag.get_text()):
+                        tag.decompose()
+                        changed = True
+                        break
+
+                has_text = self._is_meaningful_text(tag.get_text())
                 has_tag_children = any(isinstance(child, Tag) for child in tag.children)
+
                 if not has_text and not has_tag_children:
                     if tag.name not in ("br", "hr", "img", "input"):
                         tag.decompose()
