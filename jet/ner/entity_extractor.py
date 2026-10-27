@@ -1,7 +1,7 @@
 # jet/ner/entity_extractor.py
 import json
 import os
-from typing import Type, TypeVar
+from typing import List, Type, TypeVar
 
 from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.llm_utils_observed import chat
@@ -9,9 +9,198 @@ from jet.logger import logger
 from jet_telemetry import chain, get_service_name, redact
 from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace as otel_trace
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
+
+ENTITIES_EXTRACTION_TEXT_TEMPLATE = """
+Priority Information:
+{priority}
+
+Additional Context:
+{others}
+"""
+
+
+class KeyFilterResult(BaseModel):
+    """
+    Structured output to determine which keys from 'other_data'
+    should be kept because they provide unique information not present in 'priority_data'.
+    """
+
+    keys_to_keep: List[str] = Field(
+        description="List of keys from other_data that contain unique information NOT found in priority_data."
+    )
+    reasoning: str = Field(
+        description="Brief explanation of why certain keys were removed or kept."
+    )
+
+
+def filter_conflicting_keys(
+    priority_text: str,
+    other_data: dict,
+    model_name: str = "qwen3.5-uncensored:2b",
+    temperature: float = 0.0,
+) -> dict:
+    """
+    Uses an LLM to filter out keys from other_data if their information
+    is already present or contradicted by priority_text.
+
+    Args:
+        priority_text: The text derived from priority fields (title, details).
+        other_data: A dictionary of key-value pairs from non-priority fields.
+        model_name: Model to use for filtering.
+        temperature: Sampling temperature (0.0 recommended for deterministic filtering).
+
+    Returns:
+        A filtered dictionary containing only unique/non-conflicting keys.
+    """
+    if not other_data:
+        return {}
+
+    # Prepare the other_data for the prompt
+    other_items_str = "\n".join([f"- {k}: {v}" for k, v in other_data.items()])
+
+    prompt = f"""
+You are an intelligent data deduplication assistant.
+Your goal is to identify which pieces of information in 'Other Data' are REDUNDANT or CONFLICTING with 'Priority Data'.
+
+Priority Data (High Confidence):
+{priority_text}
+
+Other Data (Lower Confidence / Metadata):
+{other_items_str}
+
+Instructions:
+1. Analyze the 'Priority Data'. This is the ground truth.
+2. Look at each item in 'Other Data'.
+3. If the information in an 'Other Data' item is already clearly stated in 'Priority Data', mark it for removal.
+4. If the 'Other Data' item provides NEW, unique information not found in 'Priority Data', mark it to keep.
+5. If there is a direct conflict, trust 'Priority Data' and remove the conflicting 'Other Data' item.
+
+Return a JSON object with:
+- keys_to_keep: A list of keys from 'Other Data' that should be retained.
+- reasoning: A brief explanation.
+"""
+
+    try:
+        result = chat(
+            prompt_or_messages=[{"role": "user", "content": prompt}],
+            model=model_name,
+            response_format=KeyFilterResult,
+            temperature=temperature,
+            max_tokens=500,
+            project_name="entity-key-filter",
+        )
+
+        if result.structured and result.structured.success:
+            filtered_result: KeyFilterResult = result.structured.parsed
+            kept_keys = filtered_result.keys_to_keep
+
+            # Filter the original dictionary
+            filtered_dict = {k: v for k, v in other_data.items() if k in kept_keys}
+            logger.debug(f"Key Filter Reasoning: {filtered_result.reasoning}")
+            logger.debug(f"Kept keys: {kept_keys}")
+            return filtered_dict
+        else:
+            logger.warning(
+                "Key filtering failed structured validation. Returning original other_data."
+            )
+            return other_data
+
+    except Exception as e:
+        logger.error(f"Error during key filtering LLM call: {e}")
+        # Fallback: Return original data if LLM fails to avoid data loss
+        return other_data
+
+
+def build_entity_extraction_text(job: dict) -> str:
+    """
+    Dynamically build a rich context string for entity extraction by including
+    ALL available non-empty job fields except 'id'. Handles strings, lists, dicts,
+    and numeric types with appropriate formatting.
+
+    NEW: Filters 'other_keys' using an LLM to remove redundancy with 'priority_keys'.
+    """
+    EXCLUDED_KEYS = {"id", "entities"}
+    priority_keys = ["title", "details"]
+
+    # Separate priority and other data
+    priority_data = {}
+    other_data = {}
+
+    for key in job.keys():
+        if key in EXCLUDED_KEYS:
+            continue
+
+        value = job.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+
+        if key in priority_keys:
+            priority_data[key] = value
+        else:
+            other_data[key] = value
+
+    # Build Priority Text
+    priority_parts = []
+    for key in priority_keys:
+        value = priority_data.get(key)
+        if value:
+            label = "Overview" if key == "details" else key.replace("_", " ").title()
+            formatted = str(value).strip()
+            if key == "details":
+                priority_parts.append(f"{label}:\n{formatted}")
+            else:
+                priority_parts.append(f"{label}: {formatted}")
+
+    priority_parts_str = "\n".join(priority_parts)
+
+    # --- NEW: Filter Other Keys ---
+    # Only perform filtering if we have both priority and other data
+    if priority_parts_str and other_data:
+        logger.debug("Running conflict filter for other keys...")
+        # Use a low temperature for deterministic filtering
+        filtered_other_data = filter_conflicting_keys(
+            priority_text=priority_parts_str, other_data=other_data, temperature=0.0
+        )
+    else:
+        filtered_other_data = other_data
+
+    # Build Other Text from Filtered Data
+    other_parts = []
+    for key, value in filtered_other_data.items():
+        if value is None:
+            continue
+
+        label = key.replace("_", " ").title()
+
+        if isinstance(value, list):
+            cleaned = [
+                str(item).strip()
+                for item in value
+                if item is not None and str(item).strip()
+            ]
+            if cleaned:
+                other_parts.append(f"{label}: {', '.join(cleaned)}")
+        elif isinstance(value, dict):
+            dict_parts = []
+            for dk, dv in value.items():
+                if dv is not None and str(dv).strip():
+                    dk_label = str(dk).replace("_", " ").title()
+                    dict_parts.append(f"{dk_label}: {str(dv).strip()}")
+            if dict_parts:
+                other_parts.append(f"{label}: {' | '.join(dict_parts)}")
+        else:
+            formatted = str(value).strip()
+            if formatted:
+                other_parts.append(f"{label}: {formatted}")
+
+    other_parts_str = "\n".join(other_parts)
+
+    return ENTITIES_EXTRACTION_TEXT_TEMPLATE.format(
+        priority=priority_parts_str, others=other_parts_str
+    )
 
 
 def _build_correction_prompt(
@@ -177,3 +366,9 @@ def extract_entities_from_text(
     raise Exception(
         f"Entity extraction failed after {max_retries} retries. Last error: {last_error}"
     )
+
+
+if __name__ == "__main__":
+    from jet.ner.main._main_entity_extractor import main
+
+    main()
