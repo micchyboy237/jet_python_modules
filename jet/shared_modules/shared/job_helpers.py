@@ -1400,6 +1400,7 @@ def search_full_jobs(
     dense_weight: float = 1.0,
     sparse_weight: float = 1.0,
     k: int = 60,
+    use_rerank: bool = True,
 ) -> list[JobSearchResult]:
     """
     Search for jobs and return unique Job-Level results using Hybrid Search (RRF).
@@ -1420,6 +1421,7 @@ def search_full_jobs(
         dense_weight=dense_weight,
         sparse_weight=sparse_weight,
         k=k,
+        use_rerank=use_rerank,
     )
 
     if not hybrid_results:
