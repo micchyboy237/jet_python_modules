@@ -1535,7 +1535,7 @@ def search_full_jobs(
 
 def hybrid_search_jobs(
     query: str,
-    top_k: int | None = 20,  # UPDATED: Default changed from 10 to 20
+    top_k: int | None = 20,
     threshold: float | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
@@ -1546,14 +1546,10 @@ def hybrid_search_jobs(
     dense_weight: float = 1.0,
     sparse_weight: float = 1.0,
     k: int = 60,
-    use_rerank: bool = True,  # IMPROVED: Enabled reranking by default for better precision
+    use_rerank: bool = True,
 ) -> list[HybridSearchResult]:
     """
     Hybrid search combining Vector Search and BM25 using Reciprocal Rank Fusion (RRF).
-    Optimized to reuse existing embeddings from the database.
-
-    Args:
-        use_rerank: If True, uses a cross-encoder to rerank the top fused candidates.
     """
     import numpy as np
     from jet.adapters.llama_cpp.rrf_utils import hybrid_rrf_search as rrf_fusion
@@ -1632,13 +1628,12 @@ def hybrid_search_jobs(
     # 3. Determine RRF parameters
     effective_top_k = top_k if top_k else 20
 
-    # IMPROVED: Increase input pools to ensure diverse candidates enter fusion
-    # Using max(50, effective_top_k * 4) ensures we have enough candidates even for small top_k
+    # Dynamic pool sizes for better recall
+    # Ensure we have enough candidates even for small top_k
     dense_pool_size = max(50, effective_top_k * 4)
     sparse_pool_size = max(50, effective_top_k * 4)
 
-    # IMPROVED: Dynamic fusion limit
-    # If reranking, we fetch more candidates (e.g., 3x final) so the reranker can choose the best ones
+    # If reranking, we fetch more candidates so the reranker can choose the best ones
     if use_rerank:
         fusion_limit = effective_top_k * 3
     else:
@@ -1647,15 +1642,15 @@ def hybrid_search_jobs(
     fused_results = rrf_fusion(
         query=query,
         documents=documents,
-        dense_top_n=dense_pool_size,  # IMPROVED: Larger pool
-        sparse_top_n=sparse_pool_size,  # IMPROVED: Larger pool
-        final_top_n=fusion_limit,  # IMPROVED: Dynamic limit based on reranking
+        dense_top_n=dense_pool_size,
+        sparse_top_n=sparse_pool_size,
+        final_top_n=fusion_limit,
         k=k,
         dense_weight=dense_weight,
         sparse_weight=sparse_weight,
         embed_model=embed_model,
-        use_rerank=use_rerank,  # IMPROVED: Uses cross-encoder if enabled
-        rerank_top_n=fusion_limit,  # Pass the full fused pool to reranker
+        use_rerank=use_rerank,
+        rerank_top_n=fusion_limit,
         embeddings=dense_embeddings if use_precomputed else None,
     )
 
@@ -1687,7 +1682,7 @@ def hybrid_search_jobs(
             "rank": rrf_item["rank"],
             "id": chunk_id,
             "score": rrf_item["score"],
-            "similarity": rrf_item["score"],
+            "raw_scores": rrf_item.get("raw_scores", {}),
             "matched": {},
             "text": rrf_item["text"],
             "metadata": chunk_info["chunk_meta"],

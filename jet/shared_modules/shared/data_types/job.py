@@ -125,7 +125,7 @@ class HybridSearchResult(TypedDict, total=False):
     rank: int
     id: str
     score: float
-    similarity: float
+    raw_scores: dict[str, float]  # Shows contribution from 'dense' and 'bm25'
     matched: HybridMatchInfo
     text: str
     metadata: HybridResultMetadata
