@@ -5,7 +5,8 @@ from typing import Dict, List, Optional, Tuple, TypedDict
 
 from jet.cache.cache_manager import CacheManager
 from jet.data.utils import generate_unique_id
-from jet.wordnet.keywords.helpers import extract_query_candidates, preprocess_texts
+from jet.vectors.reranker.bm25_preprocessor import preprocess_texts
+from jet.wordnet.keywords.helpers import extract_query_candidates
 from jet.wordnet.sentence import adaptive_split, split_sentences
 from jet.wordnet.similarity import filter_highest_similarity
 from jet.wordnet.words import get_words

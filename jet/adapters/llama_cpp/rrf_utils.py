@@ -141,40 +141,22 @@ def hybrid_rrf_search(
         embed_model: The embedding model identifier.
         embeddings: Optional pre-computed embeddings for 'documents'.
     """
-    from jet.adapters.llama_cpp.embed_utils import embed
     from jet.adapters.llama_cpp.rerank_utils import rerank
-    from jet.adapters.llama_cpp.vector_utils import cosine_similarity, vector_search
+    from jet.adapters.llama_cpp.vector_utils import vector_search
     from jet.vectors.reranker.bm25 import rerank_bm25
 
     if not documents:
         return []
-    if embeddings is not None:
-        console.print("[dim]Using pre-computed embeddings for dense search...[/dim]")
-        query_emb = embed(query, model=embed_model)
-        if isinstance(query_emb, list):
-            query_emb = np.array(query_emb, dtype=np.float32)
-        similarities = cosine_similarity(query_emb, embeddings)
-        dense_results_raw = []
-        for idx, score in enumerate(similarities):
-            dense_results_raw.append(
-                {
-                    "index": idx,
-                    "score": float(score),
-                    "text": documents[idx],
-                }
-            )
-        dense_results_raw.sort(key=lambda x: x["score"], reverse=True)
-        dense_results = []
-        for rank, item in enumerate(dense_results_raw[:dense_top_n], start=1):
-            item["rank"] = rank
-            dense_results.append(item)
-    else:
-        dense_results = vector_search(
-            query=query,
-            documents=documents,
-            top_n=dense_top_n,
-            embed_model=embed_model,
-        )
+
+    # Optimized: Pass embeddings directly to vector_search if available
+    dense_results = vector_search(
+        query=query,
+        documents=documents,
+        top_n=dense_top_n,
+        embed_model=embed_model,
+        embeddings=embeddings,
+    )
+
     _, bm25_raw = rerank_bm25(query=query, documents=documents)
     sparse_results = []
     for r in bm25_raw[:sparse_top_n]:
@@ -192,6 +174,7 @@ def hybrid_rrf_search(
                 "text": r["text"],
             }
         )
+
     console.print("\n[bold cyan]Dense top results (before RRF):[/bold cyan]")
     for r in dense_results[: min(8, len(dense_results))]:
         console.print(
@@ -209,6 +192,7 @@ def hybrid_rrf_search(
             f"{r['text'][:70]}"
         )
     console.print()
+
     fused = reciprocal_rank_fusion(
         ranked_lists=[dense_results, sparse_results],
         k=k,
@@ -217,8 +201,10 @@ def hybrid_rrf_search(
         top_n=rerank_top_n or final_top_n * 3,
         id_key="text",
     )
+
     if not use_rerank:
         return fused[:final_top_n]
+
     candidate_texts = [r["text"] for r in fused]
     reranked = rerank(
         query=query,
@@ -226,6 +212,7 @@ def hybrid_rrf_search(
         top_n=final_top_n,
         method="auto",
     )
+
     final: list[RRFResult] = []
     for r in reranked:
         matched = next((f for f in fused if f["text"] == r["text"]), None)
