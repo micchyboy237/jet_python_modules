@@ -1,91 +1,45 @@
-from datetime import date, datetime
-from enum import Enum
-from typing import List, Optional
+# jet/shared_modules/shared/data_types/job_analytics.py
+from typing import List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-
-class EmploymentType(str, Enum):
-    FULL_TIME = "full_time"
-    PART_TIME = "part_time"
-    CONTRACT = "contract"
-    INTERNSHIP = "internship"
-    OTHER = "other"
-
-
-class WorkMode(str, Enum):
-    REMOTE = "remote"
-    ONSITE = "onsite"
-    HYBRID = "hybrid"
-    OTHER = "other"
-
-
-class JobSourcePlatform(str, Enum):
-    LINKEDIN = "linkedin"
-    JOBSTREET = "jobstreet"
-    ONLINEJOBS = "onlinejobs"
-    INDEED = "indeed"
-    OTHER = "other"
-
-
-class SalaryFrequency(str, Enum):
-    HOURLY = "hourly"
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    BIWEEKLY = "biweekly"
-    SEMI_MONTHLY = "semi_monthly"
-    MONTHLY = "monthly"
-    ANNUAL = "annual"
-    OTHER = "other"
-
-
-class SeniorityLevel(str, Enum):
-    INTERN = "intern"
-    JUNIOR = "junior"
-    MID = "mid"
-    SENIOR = "senior"
-    LEAD = "lead"
-    PRINCIPAL = "principal"
-    EXECUTIVE = "executive"
-    OTHER = "other"
+from pydantic import BaseModel, Field
 
 
 class JobAnalytics(BaseModel):
-    """Structured analytics-ready job record with normalized scope-of-work dimensions."""
+    # Core fields that will always exist
+    job_title: str = Field(description="Official job title/position name")
+    key_responsibilities: List[str] = Field(
+        description="Main duties and responsibilities of the role"
+    )
 
-    model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
-
-    # --- Company & Location ---
-    company_name: Optional[str] = Field(
-        None,
-        description="Name of the hiring company. e.g., 'TechNova Solutions', 'Google'",
+    # Company Information
+    company_name: Optional[str] = Field(None, description="Name of the hiring company")
+    company_summary: Optional[str] = Field(
+        None, description="Brief overview of what the company does"
     )
     nature_of_business: Optional[str] = Field(
         None,
-        description="Industry sector. e.g., 'SaaS', 'HealthTech', 'E-commerce', 'FinTech'",
+        description="Industry sector and type of business, e.g., 'SaaS', 'Healthcare', 'E-commerce'",
     )
-    country_code: Optional[str] = Field(
+    company_size: Optional[str] = Field(
         None,
-        pattern=r"^[A-Z]{2}$",
-        description="ISO 3166-1 alpha-2 country code. e.g., 'US', 'GB', 'DE', 'IN'",
-    )
-    source_platform: Optional[JobSourcePlatform] = Field(
-        None,
-        description="Normalized job board. MUST be one of: 'linkedin', 'jobstreet', 'onlinejobs', 'indeed', 'other'.",
+        description="Approximate company size, e.g., 'Startup', '50-200 employees', 'Enterprise'",
     )
 
-    # --- Dates & Type ---
-    posted_date: Optional[date] = Field(
-        None,
-        description="Date the job was first posted in ISO 8601 format (YYYY-MM-DD). e.g., '2024-05-15'",
+    # Job Overview
+    department: Optional[str] = Field(
+        None, description="Department or team within the company"
     )
-    employment_type: Optional[EmploymentType] = Field(
-        None,
-        description="Standardized employment type. MUST be one of: 'full_time', 'part_time', 'contract', 'internship', 'other'.",
+    job_description_summary: Optional[str] = Field(
+        None, description="2-3 sentence overview of the role and its purpose"
     )
-    work_mode: Optional[WorkMode] = Field(
+
+    # Location & Work Arrangement
+    job_location: Optional[str] = Field(
+        None, description="Primary work location - city, state/country"
+    )
+    remote_work_policy: Optional[str] = Field(
         None,
-        description="Standardized work mode. MUST be one of: 'remote', 'onsite', 'hybrid', 'other'.",
+        description="e.g., 'Fully Remote', 'Hybrid (2 days/week in office)', 'On-site'",
     )
 
     # --- Compensation ---
@@ -104,174 +58,65 @@ class JobAnalytics(BaseModel):
         pattern=r"^[A-Z]{3}$",
         description="ISO 4217 currency code. e.g., 'USD', 'EUR', 'GBP', 'PHP'",
     )
-    salary_frequency: Optional[SalaryFrequency] = Field(
+    salary_frequency: Optional[str] = Field(
         None,
         description="Pay frequency. MUST be one of: 'hourly', 'daily', 'weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual', 'other'.",
     )
 
-    # --- Experience & Seniority ---
-    seniority_level: Optional[SeniorityLevel] = Field(
+    # Classification
+    employment_type: Optional[str] = Field(
         None,
-        description="Career level required. MUST be one of: 'intern', 'junior', 'mid', 'senior', 'lead', 'principal', 'executive', 'other'. Note: 'Entry Level' maps to 'junior'.",
+        description="e.g., 'Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'",
     )
-    years_experience_min: Optional[float] = Field(
+    experience_level: Optional[str] = Field(
         None,
-        ge=0,
-        description="Minimum years of relevant experience required. Can be fractional. e.g., 1.5",
+        description="e.g., 'Entry Level', 'Mid-Level', 'Senior', 'Lead', 'Manager', 'Director'",
     )
-    years_experience_max: Optional[float] = Field(
+    schedule_type: Optional[str] = Field(
         None,
-        ge=0,
-        description="Maximum years of experience expected (if capped). Can be fractional. e.g., 7.5",
-    )
-    experience_description: Optional[str] = Field(
-        None,
-        description="Raw text description of experience requirements if specific years are not mentioned. e.g., 'Proven track record in...'",
+        description="e.g., 'Flexible hours', '9-to-5', 'Shift work', 'Weekend availability'",
     )
 
-    # --- Technology Stack (Categorized) ---
-    required_technologies: Optional[List[str]] = Field(
+    # Technical Requirements (lists that should be lists)
+    required_skills: Optional[List[str]] = Field(
+        None, description="Must-have technical and soft skills"
+    )
+    preferred_skills: Optional[List[str]] = Field(
+        None, description="Nice-to-have but not required skills"
+    )
+    technology_stack: Optional[List[str]] = Field(
+        None, description="Specific technologies, tools, frameworks mentioned"
+    )
+
+    # These fields might come back as strings or lists from the LLM
+    years_of_experience: Optional[str] = Field(
         None,
-        description="Mandatory technologies, tools, frameworks, and libraries. The candidate MUST have these. e.g., ['Python', 'AWS', 'React']",
+        description="Required years of experience, e.g., '3+ years', '5-7 years'",
     )
-    preferred_technologies: Optional[List[str]] = Field(
+    education_requirements: Optional[Union[str, List[str]]] = Field(
+        None, description="Required degrees or educational background"
+    )
+    certifications_required: Optional[Union[str, List[str]]] = Field(
+        None, description="Required certifications or licenses"
+    )
+    language_requirements: Optional[Union[str, List[str]]] = Field(
+        None, description="Required languages for the role"
+    )
+    qualifications: Optional[Union[str, List[str]]] = Field(
         None,
-        description="Nice-to-have technologies. Candidates with these are preferred but not required. e.g., ['Docker', 'Kubernetes']",
+        description="Combined qualifications, experience, and competency requirements",
     )
-    optional_technologies: Optional[List[str]] = Field(
+
+    # Benefits
+    employee_benefits: Optional[Union[str, List[str]]] = Field(
+        None, description="Benefits, perks, and compensation extras offered"
+    )
+
+    # Application Process
+    application_instructions: Optional[str] = Field(
         None,
-        description="Other technologies mentioned in the stack but not explicitly categorized as required or preferred.",
+        description="How to apply, including any links, emails, or special instructions",
     )
-
-    # --- Domain & Platform ---
-    job_domain: Optional[List[str]] = Field(
-        None,
-        description="Primary engineering domains. e.g., ['Backend', 'Frontend', 'Data/AI', 'DevOps', 'Mobile']",
+    application_deadline: Optional[str] = Field(
+        None, description="Application deadline if specified"
     )
-    platform_targets: Optional[List[str]] = Field(
-        None,
-        description="Target deployment platforms or environments. e.g., ['Web', 'iOS', 'Android', 'AWS', 'Linux']",
-    )
-
-    # --- Validators ---
-
-    @field_validator(
-        "source_platform",
-        "employment_type",
-        "work_mode",
-        "seniority_level",
-        mode="before",
-    )
-    @classmethod
-    def normalize_enum_strings(cls, v):
-        """Normalize common LLM output variations to match Enum values."""
-        if v is None:
-            return None
-        if isinstance(v, str):
-            cleaned = v.lower().replace("-", "_").replace(" ", "_")
-            mappings = {
-                "full_time": "full_time",
-                "fulltime": "full_time",
-                "part_time": "part_time",
-                "parttime": "part_time",
-                "remote": "remote",
-                "on_site": "onsite",
-                "on-site": "onsite",
-                "onsite": "onsite",
-                "hybrid": "hybrid",
-                "linkedin": "linkedin",
-                "job_street": "jobstreet",
-                "jobstreet": "jobstreet",
-                "online_jobs": "onlinejobs",
-                "onlinejobs": "onlinejobs",
-                "indeed": "indeed",
-                "intern": "intern",
-                "internship": "intern",
-                # Map Entry/Graduate to Junior to avoid redundancy
-                "entry": "junior",
-                "entry_level": "junior",
-                "graduate": "junior",
-                "new_grad": "junior",
-                "associate": "junior",
-                "junior": "junior",
-                "jr": "junior",
-                "jr_": "junior",
-                "mid": "mid",
-                "mid_level": "mid",
-                "mid-level": "mid",
-                "senior": "senior",
-                "sr": "senior",
-                "sr_": "senior",
-                "lead": "lead",
-                "team_lead": "lead",
-                "principal": "principal",
-                "staff": "principal",
-                "executive": "executive",
-                "c_level": "executive",
-                "cto": "executive",
-                "ceo": "executive",
-            }
-            return mappings.get(cleaned, cleaned)
-        return v
-
-    @field_validator("posted_date", mode="before")
-    @classmethod
-    def coerce_posted_date(cls, v):
-        if v is None:
-            return None
-        if isinstance(v, date) and not isinstance(v, datetime):
-            return v
-        if isinstance(v, datetime):
-            return v.date()
-        if isinstance(v, str):
-            v = v.strip()
-            if not v:
-                return None
-            try:
-                return datetime.fromisoformat(v.replace("Z", "+00:00")).date()
-            except ValueError:
-                pass
-            try:
-                return date.fromisoformat(v)
-            except ValueError:
-                raise ValueError(f"Cannot parse posted_date: {v!r}")
-        raise ValueError(f"Unsupported posted_date type: {type(v)}")
-
-    @field_validator("salary_max")
-    @classmethod
-    def validate_salary_range(cls, v, info):
-        if v is not None and info.data.get("salary_min") is not None:
-            if v < info.data["salary_min"]:
-                raise ValueError(
-                    f"salary_max ({v}) must be >= salary_min ({info.data['salary_min']})"
-                )
-        return v
-
-    @field_validator("years_experience_max")
-    @classmethod
-    def validate_experience_range(cls, v, info):
-        if v is not None and info.data.get("years_experience_min") is not None:
-            if v < info.data["years_experience_min"]:
-                raise ValueError(
-                    f"years_experience_max ({v}) must be >= years_experience_min ({info.data['years_experience_min']})"
-                )
-        return v
-
-    @field_validator(
-        "required_technologies",
-        "preferred_technologies",
-        "optional_technologies",
-        "job_domain",
-        "platform_targets",
-        mode="before",
-    )
-    @classmethod
-    def normalize_lists(cls, v):
-        if v is None:
-            return None
-        if isinstance(v, str):
-            v = [v]
-        cleaned = list(
-            dict.fromkeys(item.strip() for item in v if item and item.strip())
-        )
-        return cleaned or None
