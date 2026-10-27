@@ -39,7 +39,6 @@ Span Hierarchy:
 """
 
 import shutil
-from datetime import datetime, timedelta
 from pathlib import Path
 
 # Initialize patches before importing BERTopic
@@ -49,13 +48,12 @@ init_patch()
 
 from bertopic import BERTopic
 from hdbscan import HDBSCAN
-from jet.adapters.llama_cpp.chunking_utils import truncate_texts
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
-from jet.db.postgres.pgvector import PgVectorClient
+from jet.libs.bertopic.examples.mock import load_sample_jobs_ai_llm_python
 from jet.logger import logger
 from jet_telemetry import chain, embedding, get_trace_url, initialize_telemetry
-from shared.job_helpers import DEFAULT_JOBS_DB_NAME, load_jobs_list
+from shared.job_helpers import DEFAULT_JOBS_DB_NAME
 from sklearn.feature_extraction.text import TfidfVectorizer
 from umap import UMAP
 
@@ -80,47 +78,8 @@ def load_documents(
     dbname: str = DEFAULT_JOBS_DB_NAME,
     max_tokens=500,
 ) -> list[str]:
-    """
-    Loads job titles and details from the database for the specified number of days back.
-
-    Args:
-        days_back: Number of days to look back for jobs.
-        dbname: Name of the PostgreSQL database.
-
-    Returns:
-        A list of strings, each containing the title and details of a job.
-    """
-    logger.info(f"Loading jobs from last {days_back} days...")
-    db_client = PgVectorClient(dbname=dbname)
-    days_ago = datetime.now() - timedelta(days=days_back)
-
-    # Load jobs with basic metadata. We don't need entities for topic modeling.
-    jobs = load_jobs_list(
-        db_client=db_client, posted_after=days_ago, include_entities=False
-    )
-
-    logger.info(f"Loaded {len(jobs)} jobs from database.")
-
-    # Format documents for BERTopic: Combine Title and Details
-    docs = []
-    for j in jobs:
-        title = j.get("title", "")
-        details = j.get("details", "")
-        if title and details:
-            # Limit details length to avoid excessive noise in topic modeling
-            clean_details = details[:2000] if len(details) > 2000 else details
-            docs.append(f"{title}\n{clean_details}")
-
-    logger.info(f"Prepared {len(docs)} documents for embedding.")
-
-    truncated_docs = truncate_texts(
-        texts=docs,
-        model=EMBED_MODEL,
-        max_tokens=max_tokens,
-        strict_sentences=True,
-        show_progress=False,
-    )
-    return truncated_docs
+    docs = load_sample_jobs_ai_llm_python()
+    return docs
 
 
 @embedding(model_name=EMBED_MODEL)
