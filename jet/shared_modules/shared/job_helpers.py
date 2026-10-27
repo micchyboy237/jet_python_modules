@@ -1372,6 +1372,7 @@ class JobSearchResult(TypedDict, total=False):
     rank: int
     score: float
     distance: float
+    raw_scores: dict[str, float]
     link: str
     title: str
     company: str
@@ -1402,33 +1403,9 @@ def search_full_jobs(
 ) -> list[JobSearchResult]:
     """
     Search for jobs and return unique Job-Level results using Hybrid Search (RRF).
-
-    Replaces pure vector search with Hybrid Search (Vector + BM25) for better retrieval.
-    Supports date range and null/non-null filtering at the DB level.
-
-    Args:
-        query: Search query string.
-        top_k: Number of top results to return.
-        threshold: Minimum score threshold for results.
-        embed_model: Embedding model to use.
-        db_client: Optional PgVectorClient instance.
-        posted_after: Filter jobs posted on or after this date.
-        posted_before: Filter jobs posted on or before this date.
-        where_conditions: Additional column filters.
-        db_name: Name of the database.
-        dense_weight: Weight for dense (vector) scores in RRF.
-        sparse_weight: Weight for sparse (BM25) scores in RRF.
-        k: RRF smoothing constant.
-
-    Returns:
-        List of JobSearchResult dicts.
     """
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
-
-    # Use hybrid_search_jobs instead of search_jobs
-    # Note: hybrid_search_jobs returns HybridSearchResult which has 'text' and 'metadata'
-    # We need to map this back to JobSearchResult format
 
     hybrid_results = hybrid_search_jobs(
         query=query,
@@ -1448,8 +1425,6 @@ def search_full_jobs(
     if not hybrid_results:
         return []
 
-    # Extract unique job IDs from hybrid results to fetch full job metadata
-    # hybrid_search_jobs returns chunk-level results, so we need to deduplicate by job_id (doc_id)
     best_scores: dict[str, float] = {}
     best_result_map: dict[str, HybridSearchResult] = {}
 
@@ -1460,7 +1435,7 @@ def search_full_jobs(
             continue
 
         score = result.get("score", 0.0)
-        # Keep the highest scoring chunk for each job
+        # Keep track of the chunk with the highest RRF score for this job
         if job_id not in best_scores or score > best_scores[job_id]:
             best_scores[job_id] = score
             best_result_map[job_id] = result
@@ -1475,7 +1450,6 @@ def search_full_jobs(
     if top_k:
         sorted_job_ids = sorted_job_ids[:top_k]
 
-    # Fetch full job metadata including entities
     jobs_with_entities = load_jobs_list(
         db_client=db_client,
         include_entities=True,
@@ -1484,7 +1458,6 @@ def search_full_jobs(
         where_conditions=where_conditions,
         db_name=db_name,
     )
-
     jobs_map = {job["id"]: job for job in jobs_with_entities}
 
     final_results: list[JobSearchResult] = []
@@ -1497,15 +1470,16 @@ def search_full_jobs(
             continue
 
         score = best_scores[job_id]
-
-        # Get parent content from the best matching chunk result
         best_chunk_result = best_result_map.get(job_id, {})
-        parent_content = best_chunk_result.get("parent_content", "")
+
+        # ADDED: Extract raw_scores from the best chunk
+        raw_scores = best_chunk_result.get("raw_scores", {})
 
         result: JobSearchResult = {
             "id": job_id,
             "rank": rank,
             "score": score,
+            "raw_scores": raw_scores,  # ADDED
             "distance": round(1.0 - score, 6) if score <= 1.0 else 0.0,
             "link": job.get("link"),
             "title": job.get("title"),
@@ -1520,11 +1494,6 @@ def search_full_jobs(
             "tags": job.get("tags"),
             "entities": job.get("entities"),
         }
-
-        # Optionally attach parent content if needed by callers,
-        # though JobSearchResult TypedDict doesn't currently include it.
-        # If you want to expose it, you'd need to update the TypedDict.
-
         final_results.append(result)
 
     logger.info(
