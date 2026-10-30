@@ -10,10 +10,13 @@ from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace as otel_trace
 from pydantic import BaseModel
 
-SYSTEM_PROMPT = (
-    "You are an entity extraction assistant. Extract information strictly "
-    "according to the provided JSON schema. Return ONLY valid JSON."
-)
+SYSTEM_PROMPT = """
+You are an entity extraction assistant. Extract information strictly according to the provided JSON schema.
+
+CRITICAL:
+- ONLY extract data that fits the defined fields.
+- Return ONLY valid JSON. Do not include explanations or markdown.
+""".strip()
 
 T = TypeVar("T", bound=BaseModel)
 
