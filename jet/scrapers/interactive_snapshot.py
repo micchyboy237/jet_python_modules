@@ -3,7 +3,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import List, Optional, TypedDict
+from typing import List, TypedDict
 from urllib.parse import urlparse
 
 from fake_useragent import UserAgent
@@ -23,6 +23,7 @@ class ElementCoordinates(TypedDict):
     height: float
     tag: str
     text: str
+    events: List[str]
 
 
 class InteractiveScreenshotResult(TypedDict):
@@ -42,58 +43,18 @@ class InteractiveScreenshotResult(TypedDict):
 def highlight_interactive_elements_and_screenshot(
     url: str,
     output_dir: str = "generated",
-    timeout_ms: int = 10000,
+    timeout_ms: int = 15000,
     headless: bool = True,
     highlight_color: str = "#FF0000",
     highlight_border_width: int = 3,
-    include_buttons: bool = True,
-    include_links: bool = True,
-    include_inputs: bool = True,
-    custom_selectors: Optional[List[str]] = None,
     aria_snapshot_mode: str = "ai",
     include_aria_boxes: bool = True,
 ) -> InteractiveScreenshotResult:
     """
-    Opens a URL in a browser, highlights all interactive elements, takes a screenshot,
-    saves an ARIA snapshot, and extracts precise coordinates for each interactive element.
-
-    Args:
-        url: The URL to visit.
-        output_dir: Directory to save artifacts (defaults to "generated").
-        timeout_ms: Timeout for page loading in milliseconds.
-        headless: Whether to run browser in headless mode.
-        highlight_color: CSS color for highlighting borders.
-        highlight_border_width: Width of highlight border in pixels.
-        include_buttons: Whether to highlight button elements.
-        include_links: Whether to highlight link elements.
-        include_inputs: Whether to highlight input/textarea/select elements.
-        custom_selectors: Additional CSS selectors to highlight.
-        aria_snapshot_mode: Mode for ARIA snapshot ("ai" or "default").
-        include_aria_boxes: Whether to include bounding boxes in the ARIA snapshot YAML.
-
-    Returns:
-        InteractiveScreenshotResult with paths and metadata.
+    Opens a URL, highlights all interactive elements (including divs with JS listeners),
+    takes a screenshot, saves an ARIA snapshot, and extracts precise coordinates.
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-    # Build CSS selector for interactive elements
-    selectors = []
-    if include_buttons:
-        selectors.append("button")
-        selectors.append("[role='button']")
-        selectors.append("[role='link']")
-        selectors.append("[role='tab']")
-        selectors.append("[role='menuitem']")
-    if include_links:
-        selectors.append("a[href]")
-    if include_inputs:
-        selectors.append("input")
-        selectors.append("textarea")
-        selectors.append("select")
-    if custom_selectors:
-        selectors.extend(custom_selectors)
-
-    combined_selector = ", ".join(selectors) if selectors else "*"
 
     ua = UserAgent()
     screenshot_path = ""
@@ -105,6 +66,116 @@ def highlight_interactive_elements_and_screenshot(
     highlighted_count = 0
     element_selectors_list: List[str] = []
 
+    # Advanced JS detection using Event Listener Monkey-patching
+    detection_script = """
+    () => {
+        // 1. Monkey-patch addEventListener to track events
+        if (!window._trackedEvents) {
+            window._trackedEvents = new WeakMap();
+            const originalAddEventListener = EventTarget.prototype.addEventListener;
+            EventTarget.prototype.addEventListener = function(type, listener, options) {
+                if (!window._trackedEvents.has(this)) {
+                    window._trackedEvents.set(this, new Set());
+                }
+                window._trackedEvents.get(this).add(type);
+                return originalAddEventListener.call(this, type, listener, options);
+            };
+        }
+
+        const config = {
+            color: "%s",
+            width: %d
+        };
+
+        function getTrackedEvents(el) {
+            const events = [];
+            if (el.hasAttribute('onclick')) events.push('onclick (inline)');
+            
+            if (window._trackedEvents && window._trackedEvents.has(el)) {
+                const tracked = window._trackedEvents.get(el);
+                ['click', 'mousedown', 'mouseup', 'touchstart', 'keydown', 'keyup'].forEach(evt => {
+                    if (tracked.has(evt)) events.push(evt);
+                });
+            }
+            return events;
+        }
+
+        function isInteractive(el) {
+            const interactiveTags = ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY'];
+            if (interactiveTags.includes(el.tagName)) return true;
+            
+            const role = el.getAttribute('role');
+            if (role && ['button', 'link', 'tab', 'menuitem', 'option', 'checkbox'].includes(role)) return true;
+            
+            if (el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1') return true;
+            if (el.hasAttribute('onclick')) return true;
+            
+            // Check our tracked events
+            if (window._trackedEvents && window._trackedEvents.has(el)) {
+                const tracked = window._trackedEvents.get(el);
+                if (tracked.has('click') || tracked.has('mousedown') || tracked.has('touchstart')) return true;
+            }
+            
+            return false;
+        }
+
+        function processElement(el) {
+            if (el.dataset.highlighted === 'true') return null;
+            if (!isInteractive(el)) return null;
+            
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return null;
+
+            // Highlight
+            el.style.outline = `${config.width}px solid ${config.color}`;
+            el.style.outlineOffset = '2px';
+            el.dataset.highlighted = 'true';
+
+            // Generate Selector
+            let selector = el.tagName.toLowerCase();
+            if (el.id) selector += '#' + el.id;
+            else if (el.className) {
+                const firstClass = el.className.split(' ')[0];
+                if (firstClass) selector += '.' + firstClass;
+            }
+
+            const rect = el.getBoundingClientRect();
+            return {
+                selector: selector,
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                tag: el.tagName.toLowerCase(),
+                text: (el.innerText || el.value || '').trim().substring(0, 50),
+                events: getTrackedEvents(el)
+            };
+        }
+
+        // Process existing elements
+        const results = [];
+        document.querySelectorAll('*').forEach(el => {
+            const data = processElement(el);
+            if (data) results.push(data);
+        });
+
+        // Observe future elements
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1) {
+                        processElement(node);
+                        node.querySelectorAll('*').forEach(child => processElement(child));
+                    }
+                });
+            });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        return results;
+    }
+    """ % (highlight_color, highlight_border_width)
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=headless,
@@ -112,93 +183,35 @@ def highlight_interactive_elements_and_screenshot(
         )
         page = browser.new_page(user_agent=ua.random)
 
+        # Inject the monkey-patch BEFORE navigation so we catch early events
+        page.add_init_script("""
+            window._trackedEvents = new WeakMap();
+            const originalAddEventListener = EventTarget.prototype.addEventListener;
+            EventTarget.prototype.addEventListener = function(type, listener, options) {
+                if (!window._trackedEvents.has(this)) {
+                    window._trackedEvents.set(this, new Set());
+                }
+                window._trackedEvents.get(this).add(type);
+                return originalAddEventListener.call(this, type, listener, options);
+            };
+        """)
+
         try:
             page.goto(url, timeout=timeout_ms, wait_until="networkidle")
         except PlaywrightTimeoutError:
             logger.warning(f"Timeout loading {url}, proceeding with available content")
 
-        # Wait for page to stabilize
-        page.wait_for_timeout(1000)
+        # Extra wait for any final JS rendering
+        page.wait_for_timeout(2000)
 
-        # JavaScript to highlight elements and extract their coordinates
-        js_code = """
-        (config) => {
-            const elements = document.querySelectorAll(config.selector);
-            const results = [];
-            
-            elements.forEach((el) => {
-                // Skip hidden or disabled elements
-                const style = window.getComputedStyle(el);
-                if (style.display === 'none' || style.visibility === 'hidden') {
-                    return;
-                }
-                
-                // Get bounding box
-                const rect = el.getBoundingClientRect();
-                
-                // Generate a unique selector
-                let selector = '';
-                if (el.id) {
-                    selector = '#' + el.id;
-                } else if (el.className && typeof el.className === 'string') {
-                    const classes = el.className.split(' ').filter(c => c && !c.startsWith('css-')).slice(0, 2);
-                    if (classes.length > 0) {
-                        selector = el.tagName.toLowerCase() + '.' + classes.join('.');
-                    } else {
-                        selector = el.tagName.toLowerCase();
-                    }
-                } else {
-                    selector = el.tagName.toLowerCase();
-                }
-                
-                // Add nth-of-type if needed
-                const parent = el.parentElement;
-                if (parent) {
-                    const siblings = Array.from(parent.children).filter(sib => sib.tagName === el.tagName);
-                    if (siblings.length > 1) {
-                        const idx = siblings.indexOf(el) + 1;
-                        selector += ':nth-of-type(' + idx + ')';
-                    }
-                }
-                
-                // Apply highlight
-                const originalOutline = el.style.outline;
-                el.style.outline = config.width + 'px solid ' + config.color;
-                el.style.outlineOffset = '2px';
-                el.dataset.originalOutline = originalOutline;
-                el.dataset.highlighted = 'true';
-                
-                results.push({
-                    selector: selector,
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                    tag: el.tagName.toLowerCase(),
-                    text: (el.innerText || el.value || '').trim().substring(0, 100)
-                });
-            });
-            
-            window._highlightedSelectors = results.map(r => r.selector);
-            return results;
-        }
-        """
-
-        # Execute JS and get coordinates
-        element_data = page.evaluate(
-            js_code,
-            {
-                "selector": combined_selector,
-                "color": highlight_color,
-                "width": highlight_border_width,
-            },
-        )
+        # Execute the detection script
+        element_data = page.evaluate(detection_script)
 
         highlighted_count = len(element_data)
         element_selectors_list = [item["selector"] for item in element_data]
         coordinates_list = element_data
 
-        # Generate filenames based on URL and timestamp
+        # Generate filenames
         parsed_url = urlparse(url)
         timestamp = int(time.time())
         safe_host = parsed_url.netloc.replace(".", "_")
@@ -259,10 +272,9 @@ def highlight_interactive_elements_and_screenshot(
 
 if __name__ == "__main__":
     result = highlight_interactive_elements_and_screenshot(
-        url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote&from=searchOnDesktopSerp&vjk=b8cc43c29a4ae42f",
+        url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote",
         headless=False,
         output_dir="generated",
-        highlight_color="#FF0000",
     )
     print(f"Highlighted {result['highlighted_elements_count']} elements")
     print(f"Screenshot: {result['screenshot_path']}")
