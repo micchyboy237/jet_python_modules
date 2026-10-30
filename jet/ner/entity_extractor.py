@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from typing import Type, TypeVar
 
 from jet.adapters.llama_cpp.config import LLM_MODEL
@@ -10,6 +11,105 @@ from opentelemetry import trace as otel_trace
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def filter_jobs(jobs: list[dict], days: int, include_existing: bool) -> list[dict]:
+    filtered = []
+    cutoff_date = None
+    if days > 0:
+        cutoff_date = datetime.now().astimezone() - timedelta(days=days)
+        logger.info(
+            f"Filtering jobs posted after {cutoff_date.strftime('%Y-%m-%d %H:%M %Z')}"
+        )
+    skipped_old = skipped_existing = skipped_invalid = 0
+    for job in jobs:
+        if not include_existing and job.get("entities") is not None:
+            skipped_existing += 1
+            continue
+        if cutoff_date is not None:
+            posted_str = job.get("posted_date")
+            if not posted_str:
+                skipped_invalid += 1
+                continue
+            try:
+                posted_dt = datetime.fromisoformat(
+                    str(posted_str).replace("Z", "+00:00")
+                )
+                if posted_dt.tzinfo is None:
+                    posted_dt = posted_dt.astimezone()
+                if posted_dt < cutoff_date:
+                    skipped_old += 1
+                    continue
+            except (ValueError, TypeError) as e:
+                logger.warning(
+                    f"Skipping job '{job.get('id', '?')}' – bad date '{posted_str}': {e}"
+                )
+                skipped_invalid += 1
+                continue
+        filtered.append(job)
+    logger.debug(
+        f"Filter: {len(filtered)} eligible | {skipped_old} old | "
+        f"{skipped_existing} existing | {skipped_invalid} invalid dates"
+    )
+    return filtered
+
+
+def build_entity_extraction_text(job: dict) -> str:
+    """
+    Dynamically build a rich context string for entity extraction by including
+    ALL available non-empty job fields except 'id'. Handles strings, lists, dicts,
+    and numeric types with appropriate formatting.
+    """
+    EXCLUDED_KEYS = {"id", "entities"}
+    parts = []
+
+    # Prioritize title and details at the top for consistent LLM attention
+    priority_keys = ["title", "details"]
+    for key in priority_keys:
+        value = job.get(key)
+        if value is not None and str(value).strip():
+            label = "Overview" if key == "details" else key.replace("_", " ").title()
+            formatted = str(value).strip()
+            if key == "details":
+                parts.append(f"{label}:\n{formatted}")
+            else:
+                parts.append(f"{label}: {formatted}")
+
+    # Process all remaining keys dynamically
+    for key, value in job.items():
+        if key in EXCLUDED_KEYS or key in priority_keys:
+            continue
+        if value is None:
+            continue
+
+        label = key.replace("_", " ").title()
+
+        if isinstance(value, list):
+            cleaned = [
+                str(item).strip()
+                for item in value
+                if item is not None and str(item).strip()
+            ]
+            if cleaned:
+                parts.append(f"{label}: {', '.join(cleaned)}")
+
+        elif isinstance(value, dict):
+            # Flatten dict into readable key-value pairs
+            dict_parts = []
+            for dk, dv in value.items():
+                if dv is not None and str(dv).strip():
+                    dk_label = str(dk).replace("_", " ").title()
+                    dict_parts.append(f"{dk_label}: {str(dv).strip()}")
+            if dict_parts:
+                parts.append(f"{label}: {' | '.join(dict_parts)}")
+
+        else:
+            # Handle str, int, float, bool, date, etc.
+            formatted = str(value).strip()
+            if formatted:
+                parts.append(f"{label}: {formatted}")
+
+    return "\n".join(parts)
 
 
 @chain(name="extract-entities-chain")
