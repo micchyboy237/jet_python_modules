@@ -336,7 +336,8 @@ def load_sample_jobs(
 def load_sample_jobs_ai_llm_python() -> list[str]:
     """Load sample jobs from local for topic modeling."""
 
-    data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/generated/run_search_full_jobs/python_ai_engineer/search_results.json"
+    # data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/generated/run_search_full_jobs/python_ai_engineer/search_results.json"
+    data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/generated/run_search_full_jobs/machine_learning_engineer/search_results.json"
     data: list[dict] = load_file(data_file)["results"]
 
     docs = [f"{item['title']}\n\n{item['details']}" for item in data]
