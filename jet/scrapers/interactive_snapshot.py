@@ -35,6 +35,7 @@ class InteractiveScreenshotResult(TypedDict):
     aria_snapshot_path: str
     aria_snapshot_content: str
     coordinates_path: str
+    interactive_elements_path: str
     coordinates: List[ElementCoordinates]
     highlighted_elements_count: int
     element_selectors: List[str]
@@ -62,6 +63,7 @@ def highlight_interactive_elements_and_screenshot(
     aria_snapshot_path = ""
     aria_snapshot_content = ""
     coordinates_path = ""
+    interactive_elements_path = ""
     coordinates_list: List[ElementCoordinates] = []
     highlighted_count = 0
     element_selectors_list: List[str] = []
@@ -69,19 +71,6 @@ def highlight_interactive_elements_and_screenshot(
     # Advanced JS detection using Event Listener Monkey-patching
     detection_script = """
     () => {
-        // 1. Monkey-patch addEventListener to track events
-        if (!window._trackedEvents) {
-            window._trackedEvents = new WeakMap();
-            const originalAddEventListener = EventTarget.prototype.addEventListener;
-            EventTarget.prototype.addEventListener = function(type, listener, options) {
-                if (!window._trackedEvents.has(this)) {
-                    window._trackedEvents.set(this, new Set());
-                }
-                window._trackedEvents.get(this).add(type);
-                return originalAddEventListener.call(this, type, listener, options);
-            };
-        }
-
         const config = {
             color: "%s",
             width: %d
@@ -201,8 +190,8 @@ def highlight_interactive_elements_and_screenshot(
         except PlaywrightTimeoutError:
             logger.warning(f"Timeout loading {url}, proceeding with available content")
 
-        # Extra wait for any final JS rendering
-        page.wait_for_timeout(2000)
+        # Reduced wait duration
+        page.wait_for_timeout(500)
 
         # Execute the detection script
         element_data = page.evaluate(detection_script)
@@ -255,6 +244,34 @@ def highlight_interactive_elements_and_screenshot(
 
             logger.success(f"Element coordinates saved: {coordinates_path}")
 
+        # Save interactive elements summary
+        if coordinates_list:
+            interactive_elements_filename = (
+                f"{safe_host}_{timestamp}_interactive_elements.json"
+            )
+            interactive_elements_path = os.path.join(
+                output_dir, interactive_elements_filename
+            )
+
+            # Create a cleaner summary for the interactive elements file
+            summary_data = [
+                {
+                    "selector": el["selector"],
+                    "tag": el["tag"],
+                    "text": el["text"],
+                    "events": el["events"],
+                    "position": {"x": el["x"], "y": el["y"]},
+                }
+                for el in coordinates_list
+            ]
+
+            with open(interactive_elements_path, "w", encoding="utf-8") as f:
+                json.dump(summary_data, f, indent=2)
+
+            logger.success(
+                f"Interactive elements summary saved: {interactive_elements_path}"
+            )
+
         browser.close()
 
     return InteractiveScreenshotResult(
@@ -264,6 +281,7 @@ def highlight_interactive_elements_and_screenshot(
         aria_snapshot_path=aria_snapshot_path,
         aria_snapshot_content=aria_snapshot_content,
         coordinates_path=coordinates_path,
+        interactive_elements_path=interactive_elements_path,
         coordinates=coordinates_list,
         highlighted_elements_count=highlighted_count,
         element_selectors=element_selectors_list,
@@ -273,10 +291,11 @@ def highlight_interactive_elements_and_screenshot(
 if __name__ == "__main__":
     result = highlight_interactive_elements_and_screenshot(
         url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote",
-        headless=False,
         output_dir="generated",
+        headless=False,
     )
     print(f"Highlighted {result['highlighted_elements_count']} elements")
     print(f"Screenshot: {result['screenshot_path']}")
     print(f"ARIA Snapshot: {result['aria_snapshot_path']}")
     print(f"Coordinates: {result['coordinates_path']}")
+    print(f"Interactive Elements: {result['interactive_elements_path']}")
