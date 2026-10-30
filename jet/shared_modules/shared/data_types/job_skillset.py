@@ -18,9 +18,15 @@ class SkillItem(BaseModel):
 
 
 class JobSkillset(BaseModel):
-    years_of_experience: Optional[str] = Field(
+    min_years_experience: Optional[int] = Field(
         None,
-        description="Required experience duration. e.g., '3+ years', '5-7 years', 'Entry Level'",
+        description="Minimum required years of experience. e.g., 3, 5, 0 for entry level",
+        ge=0,  # Ensures non-negative values
+    )
+    max_years_experience: Optional[int] = Field(
+        None,
+        description="Maximum years of experience (if applicable). Leave None if no upper limit.",
+        ge=0,  # Ensures non-negative values
     )
     # Consolidated Skills List
     skills: Optional[List[SkillItem]] = Field(

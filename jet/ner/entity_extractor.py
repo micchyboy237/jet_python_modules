@@ -10,6 +10,11 @@ from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace as otel_trace
 from pydantic import BaseModel
 
+SYSTEM_PROMPT = (
+    "You are an entity extraction assistant. Extract information strictly "
+    "according to the provided JSON schema. Return ONLY valid JSON."
+)
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -150,18 +155,13 @@ def extract_entities_from_text(
         )
         span.set_attribute("input.text_length", len(text))
 
-    system_prompt = (
-        "You are an entity extraction assistant. Extract information strictly "
-        "according to the provided JSON schema. Return ONLY valid JSON."
-    )
-
     try:
         current_service = get_service_name()
 
         # Use the observed chat utility which handles streaming, parsing, and tracing
         result = chat(
             prompt_or_messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": text},
             ],
             model=model_name,

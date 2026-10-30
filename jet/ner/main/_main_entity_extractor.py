@@ -5,7 +5,7 @@ from pathlib import Path
 
 from jet.ner.entity_extractor import extract_entities_from_text
 from rich.console import Console
-from shared.data_types.job_analytics import JobAnalytics
+from shared.data_types.job_skillset import JobSkillset
 
 console = Console()
 
@@ -30,7 +30,7 @@ def main():
 
     # Extract entities from job description
     result = extract_entities_from_text(
-        text=text, model_class=JobAnalytics, temperature=0.3
+        text=text, model_class=JobSkillset, temperature=0.3
     )
 
     # Print results to console
@@ -55,7 +55,7 @@ def main():
     )
 
     # Save model schema
-    schema = JobAnalytics.model_json_schema()
+    schema = JobSkillset.model_json_schema()
     schema_path.write_text(json.dumps(schema, indent=2))
     console.print(
         f"[green]✓[/green] Saved model schema: [link=file://{schema_path}]{schema_path.name}[/link]"
@@ -72,7 +72,7 @@ def main():
         f.write(f"Entity Extraction Results\n")
         f.write(f"{'=' * 50}\n")
         f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-        f.write(f"Model: JobAnalytics\n")
+        f.write(f"Model: JobSkillset\n")
         f.write(f"Temperature: 0.0\n\n")
 
         data = result.model_dump()
