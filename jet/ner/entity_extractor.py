@@ -11,12 +11,15 @@ from opentelemetry import trace as otel_trace
 from pydantic import BaseModel
 
 SYSTEM_PROMPT = """
-You are an entity extraction assistant. Extract information strictly according to the provided JSON schema.
+You are an entity extraction assistant. Extract information strictly according to the provided JSON schema. 
 
-CRITICAL:
-- ONLY extract data that fits the defined fields.
-- Return ONLY valid JSON. Do not include explanations or markdown.
-""".strip()
+CRITICAL INSTRUCTIONS:
+1. COMPREHENSIVE EXTRACTION: You MUST extract EVERY relevant item mentioned in the text. Do not summarize or omit items.
+2. TOOLS FOCUS: For 'tools_required' and 'tools_preferred', extract ALL specific software, languages, frameworks, libraries, and platforms mentioned (e.g., Python, React, AWS, Docker, Postman). 
+3. FIELD ADHERENCE: Only include data that fits the specific definition of each field. 
+4. IGNORE IRRELEVANT INFO: Ignore company history, salary, benefits, or generic fluff.
+5. OUTPUT FORMAT: Return ONLY valid JSON. Do not include explanations or markdown.
+"""
 
 T = TypeVar("T", bound=BaseModel)
 
