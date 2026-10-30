@@ -6,6 +6,7 @@ from jet.adapters.llama_cpp.config import EMBED_DIMS, EMBED_MODEL
 
 # Import jet adapters for embedding and configuration
 from jet.adapters.llama_cpp.embed_utils import embed
+from jet.libs.bertopic.examples.doc_samples import DOCS_LG
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -36,86 +37,7 @@ class JetEmbedder(BaseEmbedder):
         return result
 
 
-docs = [
-    # --- Cluster 1: Technology & AI (Short & Medium) ---
-    "Python is a versatile programming language used in data science.",
-    "Machine learning algorithms are transforming healthcare diagnostics.",
-    "The new GPU architecture offers significant performance improvements for training large language models.",
-    "Cloud computing allows businesses to scale their infrastructure dynamically.",
-    "Cybersecurity threats are evolving rapidly with the rise of IoT devices.",
-    "Artificial intelligence is not just about automation; it's about augmentation of human capabilities.",
-    "The latest smartphone features a revolutionary camera system powered by computational photography.",
-    "Quantum computing promises to solve complex problems that are currently intractable for classical computers.",
-    "Open-source software has become the backbone of modern web development.",
-    "Data privacy regulations like GDPR are changing how companies handle user information.",
-    # --- Cluster 2: Finance & Economy (Medium & Long) ---
-    "The stock market experienced a significant downturn due to rising interest rates and inflation concerns.",
-    "Investors are increasingly looking towards ESG (Environmental, Social, and Governance) funds for sustainable returns.",
-    "Cryptocurrency volatility remains a major barrier to its adoption as a stable store of value.",
-    "Central banks are carefully balancing inflation control with economic growth stimulation.",
-    "Personal finance management apps are helping millennials track their spending and savings goals more effectively.",
-    "The housing market shows signs of cooling down after years of unprecedented price increases.",
-    "Global supply chain disruptions continue to impact manufacturing costs and consumer prices.",
-    "Venture capital funding for startups has decreased significantly in the current economic climate.",
-    "Understanding compound interest is crucial for long-term wealth accumulation.",
-    "The debate over federal tax policy continues to divide economists and policymakers.",
-    # --- Cluster 3: Health & Wellness (Varying Lengths) ---
-    "Regular exercise and a balanced diet are key to maintaining good health.",
-    "Mental health awareness is growing, leading to more resources for those struggling with anxiety and depression.",
-    "Recent studies suggest that intermittent fasting may have benefits for metabolic health.",
-    "Sleep hygiene is often overlooked but is critical for cognitive function and overall well-being.",
-    "The importance of gut health and the microbiome is becoming a central focus in nutritional science.",
-    "Yoga and meditation can significantly reduce stress levels and improve flexibility.",
-    "Vaccination remains one of the most effective public health interventions in history.",
-    "Chronic inflammation is linked to many diseases, including heart disease and diabetes.",
-    "Telemedicine has expanded access to healthcare for rural and underserved populations.",
-    "Hydration is essential for physical performance and cognitive clarity.",
-    # --- Cluster 4: Sports & Entertainment (Short & Punchy) ---
-    "The underdog team won the championship in a stunning upset last night.",
-    "Box office records were broken by the latest superhero movie release.",
-    "Professional athletes are increasingly using data analytics to improve their performance.",
-    "The music festival attracted thousands of fans from around the world.",
-    "Esports is now recognized as a legitimate professional sport with massive viewership.",
-    "The tennis star announced their retirement after a illustrious career spanning two decades.",
-    "Streaming services are changing how we consume television and film content.",
-    "Local community sports programs provide vital social connections for youth.",
-    "The concert tour sold out in minutes, demonstrating the artist's enduring popularity.",
-    "Fantasy sports leagues have become a multi-billion dollar industry.",
-    # --- Cluster 5: Cooking & Food (Descriptive) ---
-    "Sourdough bread requires patience and practice but yields a delicious, tangy result.",
-    "Plant-based diets are gaining popularity for both health and environmental reasons.",
-    "The secret to a perfect risotto is slowly adding warm broth while stirring constantly.",
-    "Spices from different cultures can transform simple ingredients into exotic dishes.",
-    "Food waste is a significant global issue that individuals can help mitigate through better planning.",
-    "Fermentation is an ancient technique that preserves food and enhances its nutritional value.",
-    "The farm-to-table movement emphasizes fresh, locally sourced ingredients.",
-    "Baking is a science where precise measurements are crucial for success.",
-    "Street food offers a window into the authentic culinary traditions of a region.",
-    "Meal prepping on Sundays can save time and money during the busy work week.",
-    # --- Similar/Overlapping Topics (AI Ethics vs General AI) ---
-    "Ethical considerations in AI development include bias, fairness, and transparency.",
-    "How do we ensure that artificial intelligence systems make fair decisions?",
-    "The black box nature of deep learning models raises concerns about accountability.",
-    "AI should be designed to augment human decision-making, not replace it entirely.",
-    "Regulatory frameworks for AI are still in their infancy globally.",
-    # --- Similar/Overlapping Topics (Stock Market vs Personal Finance) ---
-    "Diversifying your investment portfolio is a fundamental principle of risk management.",
-    "Many people struggle to create a budget that accounts for unexpected expenses.",
-    "Retirement planning should start early to take advantage of compounding growth.",
-    "Market timing is notoriously difficult, even for professional investors.",
-    "Financial literacy education should be mandatory in high schools.",
-    # --- Outliers (Random, Nonsensical, or Unique) ---
-    "The purple elephant danced on the moon while eating cheese.",
-    "Why do we park in driveways and drive on parkways?",
-    "A single drop of water holds the reflection of the entire sky.",
-    "The quick brown fox jumps over the lazy dog repeatedly.",
-    "Silence is the loudest sound in an empty room.",
-    "Bananas are berries, but strawberries are not.",
-    "The concept of time is relative to the observer's velocity.",
-    "I wonder if clouds look down on us and think we are the weird ones.",
-    "The number 42 is the answer to life, the universe, and everything.",
-    "Sometimes, the best solution is to do nothing at all.",
-]
+docs = DOCS_LG
 
 console.print(
     Panel.fit(
