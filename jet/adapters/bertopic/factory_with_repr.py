@@ -221,7 +221,7 @@ def create_bertopic_embedder(
 def create_topic_model(
     embedder: Optional[BaseEmbedder] = None,
     min_topic_size: int = 3,
-    top_n_words: int = 8,
+    top_n_words: int = 10,
     remove_stop_words: bool = True,
     use_keybert: bool = True,
     use_mmr: bool = True,
@@ -303,7 +303,7 @@ def extract_topics(
     documents: List[str],
     embedder: Optional[BaseEmbedder] = None,
     min_topic_size: int = 3,
-    top_n_words: int = 8,
+    top_n_words: int = 10,
     remove_stop_words: bool = True,
     use_keybert: bool = True,
     use_mmr: bool = True,
