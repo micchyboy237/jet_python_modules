@@ -17,6 +17,7 @@ class ElementCoordinates(TypedDict):
     """Coordinates and dimensions of an element."""
 
     selector: str
+    xpath: str  # Added xpath property
     x: float
     y: float
     width: float
@@ -76,10 +77,36 @@ def highlight_interactive_elements_and_screenshot(
             width: %d
         };
 
+        // Function to generate XPath for an element
+        function getXPath(element) {
+            if (element.id) {
+                return '//*[@id="' + element.id + '"]';
+            }
+
+            if (element === document.body) {
+                return '/html/body';
+            }
+
+            let ix = 0;
+            const siblings = element.parentNode.childNodes;
+
+            for (let i = 0; i < siblings.length; i++) {
+                const sibling = siblings[i];
+
+                if (sibling === element) {
+                    return getXPath(element.parentNode) + '/' + element.tagName.toLowerCase() + '[' + (ix + 1) + ']';
+                }
+
+                if (sibling.nodeType === 1 && sibling.tagName === element.tagName) {
+                    ix++;
+                }
+            }
+        }
+
         function getTrackedEvents(el) {
             const events = [];
             if (el.hasAttribute('onclick')) events.push('onclick (inline)');
-            
+
             if (window._trackedEvents && window._trackedEvents.has(el)) {
                 const tracked = window._trackedEvents.get(el);
                 ['click', 'mousedown', 'mouseup', 'touchstart', 'keydown', 'keyup'].forEach(evt => {
@@ -92,26 +119,26 @@ def highlight_interactive_elements_and_screenshot(
         function isInteractive(el) {
             const interactiveTags = ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY'];
             if (interactiveTags.includes(el.tagName)) return true;
-            
+
             const role = el.getAttribute('role');
             if (role && ['button', 'link', 'tab', 'menuitem', 'option', 'checkbox'].includes(role)) return true;
-            
+
             if (el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1') return true;
             if (el.hasAttribute('onclick')) return true;
-            
+
             // Check our tracked events
             if (window._trackedEvents && window._trackedEvents.has(el)) {
                 const tracked = window._trackedEvents.get(el);
                 if (tracked.has('click') || tracked.has('mousedown') || tracked.has('touchstart')) return true;
             }
-            
+
             return false;
         }
 
         function processElement(el) {
             if (el.dataset.highlighted === 'true') return null;
             if (!isInteractive(el)) return null;
-            
+
             const style = window.getComputedStyle(el);
             if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return null;
 
@@ -128,9 +155,13 @@ def highlight_interactive_elements_and_screenshot(
                 if (firstClass) selector += '.' + firstClass;
             }
 
+            // Generate XPath
+            const xpath = getXPath(el);
+
             const rect = el.getBoundingClientRect();
             return {
                 selector: selector,
+                xpath: xpath,
                 x: Math.round(rect.x),
                 y: Math.round(rect.y),
                 width: Math.round(rect.width),
@@ -281,7 +312,7 @@ if __name__ == "__main__":
 
     result = highlight_interactive_elements_and_screenshot(
         url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote",
-        output_dir=str(output_dir),
+        output_dir="generated",
         headless=False,
     )
     print(f"Highlighted {result['highlighted_elements_count']} elements")
