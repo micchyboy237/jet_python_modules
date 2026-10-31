@@ -1,7 +1,7 @@
 import json
 import math
 from datetime import datetime
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 import numpy as np
 from jet.adapters.llama_cpp.config import EMBED_MODEL
@@ -22,6 +22,8 @@ from shared.data_types.job import (
     VectorSearchResult,
 )
 from tqdm import tqdm
+
+SearchMode = Literal["vector", "hybrid", "full_hybrid"]
 
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 DEFAULT_JOBS_DB_NAME = "jobs_db3"
@@ -1400,108 +1402,191 @@ def search_full_jobs(
     dense_weight: float = 1.0,
     sparse_weight: float = 1.0,
     k: int = 60,
-    use_rerank: bool = True,
+    mode: SearchMode = "hybrid",  # Default to standard hybrid
 ) -> list[JobSearchResult]:
     """
-    Search for jobs and return unique Job-Level results using Hybrid Search (RRF).
+    Search for jobs and return unique Job-Level results.
+
+    Args:
+        mode:
+            - "vector": Pure vector similarity search.
+            - "hybrid": Vector + BM25 (RRF).
+            - "full_hybrid": Vector + BM25 (RRF) + Cross-Encoder Reranking.
     """
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
-    hybrid_results = hybrid_search_jobs(
-        query=query,
-        top_k=top_k,
-        threshold=threshold,
-        embed_model=embed_model,
-        db_client=db_client,
-        posted_after=posted_after,
-        posted_before=posted_before,
-        where_conditions=where_conditions,
-        db_name=db_name,
-        dense_weight=dense_weight,
-        sparse_weight=sparse_weight,
-        k=k,
-        use_rerank=use_rerank,
-    )
+    # Determine parameters based on mode
+    use_rerank = mode == "full_hybrid"
 
-    if not hybrid_results:
-        return []
+    # If mode is "vector", we might want to bypass hybrid_search_jobs entirely
+    # and call search_jobs directly for efficiency, but hybrid_search_jobs
+    # can handle it if we set sparse_weight to 0 or handle it internally.
+    # For now, let's assume hybrid_search_jobs handles "vector" by ignoring sparse
+    # if we pass specific flags, or we branch here.
 
-    best_scores: dict[str, float] = {}
-    best_result_map: dict[str, HybridSearchResult] = {}
+    if mode == "vector":
+        # Use the existing pure vector search function
+        vector_results = search_jobs(
+            query=query,
+            top_k=top_k,
+            threshold=threshold,
+            embed_model=embed_model,
+            db_client=db_client,
+            posted_after=posted_after,
+            posted_before=posted_before,
+            where_conditions=where_conditions,
+            db_name=db_name,
+        )
 
-    for result in hybrid_results:
-        chunk_meta = result.get("metadata", {})
-        job_id = chunk_meta.get("doc_id")
-        if not job_id:
-            continue
+        # Convert VectorSearchResult to JobSearchResult format
+        # Note: search_jobs returns enriched chunks. We need to deduplicate by job_id.
+        best_scores: dict[str, float] = {}
+        best_result_map: dict[str, VectorSearchResult] = {}
 
-        score = result.get("score", 0.0)
-        # Keep track of the chunk with the highest RRF score for this job
-        if job_id not in best_scores or score > best_scores[job_id]:
-            best_scores[job_id] = score
-            best_result_map[job_id] = result
+        for res in vector_results:
+            chunk_meta = res.get("chunk_meta", {})
+            job_id = chunk_meta.get("doc_id")
+            if not job_id:
+                continue
 
-    if not best_scores:
-        return []
+            score = res.get("score", 0.0)
+            if job_id not in best_scores or score > best_scores[job_id]:
+                best_scores[job_id] = score
+                best_result_map[job_id] = res
 
-    sorted_job_ids = sorted(
-        best_scores.keys(), key=lambda jid: best_scores[job_id], reverse=True
-    )
+        sorted_job_ids = sorted(
+            best_scores.keys(), key=lambda jid: best_scores[jid], reverse=True
+        )
+        if top_k:
+            sorted_job_ids = sorted_job_ids[:top_k]
 
-    if top_k:
-        sorted_job_ids = sorted_job_ids[:top_k]
+        jobs_with_entities = load_jobs_list(
+            db_client=db_client,
+            include_entities=True,
+            posted_after=posted_after,
+            posted_before=posted_before,
+            where_conditions=where_conditions,
+            db_name=db_name,
+        )
+        jobs_map = {job["id"]: job for job in jobs_with_entities}
 
-    jobs_with_entities = load_jobs_list(
-        db_client=db_client,
-        include_entities=True,
-        posted_after=posted_after,
-        posted_before=posted_before,
-        where_conditions=where_conditions,
-        db_name=db_name,
-    )
-    jobs_map = {job["id"]: job for job in jobs_with_entities}
+        final_results: list[JobSearchResult] = []
+        for rank, job_id in enumerate(sorted_job_ids, start=1):
+            job = jobs_map.get(job_id)
+            if not job:
+                continue
 
-    final_results: list[JobSearchResult] = []
-    for rank, job_id in enumerate(sorted_job_ids, start=1):
-        job = jobs_map.get(job_id)
-        if not job:
-            logger.warning(
-                f"Job {job_id} found in hybrid search but missing in public.jobs"
-            )
-            continue
+            result: JobSearchResult = {
+                "id": job_id,
+                "rank": rank,
+                "score": best_scores[job_id],
+                "raw_scores": {},
+                "distance": round(1.0 - best_scores[job_id], 6),
+                "link": job.get("link"),
+                "title": job.get("title"),
+                "company": job.get("company"),
+                "posted_date": job.get("posted_date"),
+                "keywords": job.get("keywords"),
+                "details": job.get("details"),
+                "domain": job.get("domain"),
+                "salary": job.get("salary"),
+                "job_type": job.get("job_type"),
+                "hours_per_week": job.get("hours_per_week"),
+                "tags": job.get("tags"),
+                "entities": job.get("entities"),
+            }
+            final_results.append(result)
 
-        score = best_scores[job_id]
-        best_chunk_result = best_result_map.get(job_id, {})
+        return final_results
 
-        # ADDED: Extract raw_scores from the best chunk
-        raw_scores = best_chunk_result.get("raw_scores", {})
+    else:
+        # Hybrid or Full Hybrid
+        hybrid_results = hybrid_search_jobs(
+            query=query,
+            top_k=top_k,
+            threshold=threshold,
+            embed_model=embed_model,
+            db_client=db_client,
+            posted_after=posted_after,
+            posted_before=posted_before,
+            where_conditions=where_conditions,
+            db_name=db_name,
+            dense_weight=dense_weight,
+            sparse_weight=sparse_weight,
+            k=k,
+            use_rerank=use_rerank,
+        )
 
-        result: JobSearchResult = {
-            "id": job_id,
-            "rank": rank,
-            "score": score,
-            "raw_scores": raw_scores,  # ADDED
-            "distance": round(1.0 - score, 6) if score <= 1.0 else 0.0,
-            "link": job.get("link"),
-            "title": job.get("title"),
-            "company": job.get("company"),
-            "posted_date": job.get("posted_date"),
-            "keywords": job.get("keywords"),
-            "details": job.get("details"),
-            "domain": job.get("domain"),
-            "salary": job.get("salary"),
-            "job_type": job.get("job_type"),
-            "hours_per_week": job.get("hours_per_week"),
-            "tags": job.get("tags"),
-            "entities": job.get("entities"),
-        }
-        final_results.append(result)
+        if not hybrid_results:
+            return []
 
-    logger.info(
-        f"Hybrid Deduplicated search: {len(final_results)} unique jobs from {len(hybrid_results)} chunks"
-    )
-    return final_results
+        best_scores: dict[str, float] = {}
+        best_result_map: dict[str, HybridSearchResult] = {}
+        for result in hybrid_results:
+            chunk_meta = result.get("metadata", {})
+            job_id = chunk_meta.get("doc_id")
+            if not job_id:
+                continue
+            score = result.get("score", 0.0)
+            if job_id not in best_scores or score > best_scores[job_id]:
+                best_scores[job_id] = score
+                best_result_map[job_id] = result
+
+        if not best_scores:
+            return []
+
+        sorted_job_ids = sorted(
+            best_scores.keys(), key=lambda jid: best_scores[job_id], reverse=True
+        )
+        if top_k:
+            sorted_job_ids = sorted_job_ids[:top_k]
+
+        jobs_with_entities = load_jobs_list(
+            db_client=db_client,
+            include_entities=True,
+            posted_after=posted_after,
+            posted_before=posted_before,
+            where_conditions=where_conditions,
+            db_name=db_name,
+        )
+        jobs_map = {job["id"]: job for job in jobs_with_entities}
+        final_results: list[JobSearchResult] = []
+        for rank, job_id in enumerate(sorted_job_ids, start=1):
+            job = jobs_map.get(job_id)
+            if not job:
+                logger.warning(
+                    f"Job {job_id} found in hybrid search but missing in public.jobs"
+                )
+                continue
+            score = best_scores[job_id]
+            best_chunk_result = best_result_map.get(job_id, {})
+            raw_scores = best_chunk_result.get("raw_scores", {})
+            result: JobSearchResult = {
+                "id": job_id,
+                "rank": rank,
+                "score": score,
+                "raw_scores": raw_scores,
+                "distance": round(1.0 - score, 6) if score <= 1.0 else 0.0,
+                "link": job.get("link"),
+                "title": job.get("title"),
+                "company": job.get("company"),
+                "posted_date": job.get("posted_date"),
+                "keywords": job.get("keywords"),
+                "details": job.get("details"),
+                "domain": job.get("domain"),
+                "salary": job.get("salary"),
+                "job_type": job.get("job_type"),
+                "hours_per_week": job.get("hours_per_week"),
+                "tags": job.get("tags"),
+                "entities": job.get("entities"),
+            }
+            final_results.append(result)
+
+        logger.info(
+            f"Search mode '{mode}': {len(final_results)} unique jobs from {len(hybrid_results) if mode != 'vector' else 'vector'} chunks"
+        )
+        return final_results
 
 
 def hybrid_search_jobs(
@@ -1517,7 +1602,7 @@ def hybrid_search_jobs(
     dense_weight: float = 1.0,
     sparse_weight: float = 1.0,
     k: int = 60,
-    use_rerank: bool = True,
+    use_rerank: bool = False,
 ) -> list[HybridSearchResult]:
     """
     Hybrid search combining Vector Search and BM25 using Reciprocal Rank Fusion (RRF).
