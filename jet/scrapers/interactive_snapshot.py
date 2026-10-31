@@ -387,7 +387,7 @@ if __name__ == "__main__":
 
     result = highlight_interactive_elements_and_screenshot(
         url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote",
-        output_dir="generated",
+        output_dir=str(output_dir),
         headless=False,
         root_selector="body",  # Example: only scan within <main> element
     )
