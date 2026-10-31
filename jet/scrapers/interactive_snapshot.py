@@ -35,8 +35,8 @@ class InteractiveScreenshotResult(TypedDict):
     aria_snapshot_path: str
     aria_snapshot_content: str
     coordinates_path: str
-    interactive_elements_path: str
     coordinates: List[ElementCoordinates]
+    interactive_elements_path: str
     highlighted_elements_count: int
     element_selectors: List[str]
 
@@ -190,7 +190,7 @@ def highlight_interactive_elements_and_screenshot(
         except PlaywrightTimeoutError:
             logger.warning(f"Timeout loading {url}, proceeding with available content")
 
-        # Reduced wait duration
+        # Reduced wait for final JS rendering
         page.wait_for_timeout(500)
 
         # Execute the detection script
@@ -245,28 +245,12 @@ def highlight_interactive_elements_and_screenshot(
             logger.success(f"Element coordinates saved: {coordinates_path}")
 
         # Save interactive elements summary
-        if coordinates_list:
-            interactive_elements_filename = (
-                f"{safe_host}_{timestamp}_interactive_elements.json"
-            )
-            interactive_elements_path = os.path.join(
-                output_dir, interactive_elements_filename
-            )
-
-            # Create a cleaner summary for the interactive elements file
-            summary_data = [
-                {
-                    "selector": el["selector"],
-                    "tag": el["tag"],
-                    "text": el["text"],
-                    "events": el["events"],
-                    "position": {"x": el["x"], "y": el["y"]},
-                }
-                for el in coordinates_list
-            ]
+        if element_data:
+            interactive_filename = f"{safe_host}_{timestamp}_elements.json"
+            interactive_elements_path = os.path.join(output_dir, interactive_filename)
 
             with open(interactive_elements_path, "w", encoding="utf-8") as f:
-                json.dump(summary_data, f, indent=2)
+                json.dump(element_data, f, indent=2)
 
             logger.success(
                 f"Interactive elements summary saved: {interactive_elements_path}"
@@ -281,21 +265,27 @@ def highlight_interactive_elements_and_screenshot(
         aria_snapshot_path=aria_snapshot_path,
         aria_snapshot_content=aria_snapshot_content,
         coordinates_path=coordinates_path,
-        interactive_elements_path=interactive_elements_path,
         coordinates=coordinates_list,
+        interactive_elements_path=interactive_elements_path,
         highlighted_elements_count=highlighted_count,
         element_selectors=element_selectors_list,
     )
 
 
 if __name__ == "__main__":
+    import shutil
+
+    output_dir = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(output_dir, ignore_errors=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     result = highlight_interactive_elements_and_screenshot(
         url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote",
-        output_dir="generated",
+        output_dir=str(output_dir),
         headless=False,
     )
     print(f"Highlighted {result['highlighted_elements_count']} elements")
     print(f"Screenshot: {result['screenshot_path']}")
     print(f"ARIA Snapshot: {result['aria_snapshot_path']}")
     print(f"Coordinates: {result['coordinates_path']}")
-    print(f"Interactive Elements: {result['interactive_elements_path']}")
+    print(f"Elements JSON: {result['interactive_elements_path']}")
