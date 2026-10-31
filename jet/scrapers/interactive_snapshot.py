@@ -28,7 +28,7 @@ class ElementCoordinates(TypedDict):
     events: List[str]
 
 
-class InteractiveScreenshotResult(TypedDict):
+class InteractiveSnapshotResult(TypedDict):
     """Result of taking an interactive element screenshot."""
 
     url: str
@@ -43,32 +43,32 @@ class InteractiveScreenshotResult(TypedDict):
     element_selectors: List[str]
 
 
+def hex_to_rgba(hex_color: str, alpha: float = 0.15) -> str:
+    """Convert hex color to rgba string with specified alpha."""
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) == 3:
+        hex_color = "".join([c * 2 for c in hex_color])
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
 def highlight_interactive_elements_and_screenshot(
     url: str,
     output_dir: str = "generated",
     timeout_ms: int = 15000,
     headless: bool = True,
     highlight_color: str = "#FF0000",
-    highlight_border_width: int = 3,
+    highlight_border_width: int = 2,
+    highlight_alpha: float = 0.15,
     aria_snapshot_mode: str = "ai",
     include_aria_boxes: bool = True,
-    root_selector: str = "html",  # CSS selector for root element
-) -> InteractiveScreenshotResult:
+    root_selector: str = "html",
+) -> InteractiveSnapshotResult:
     """
-    Opens a URL, highlights all interactive elements (including divs with JS listeners),
+    Opens a URL, highlights all interactive elements with a readable overlay,
     takes a screenshot, saves an ARIA snapshot, and extracts precise coordinates.
-
-    Args:
-        url: The URL to scrape
-        output_dir: Directory to save output files
-        timeout_ms: Page load timeout in milliseconds
-        headless: Whether to run browser in headless mode
-        highlight_color: Color for highlighting interactive elements
-        highlight_border_width: Width of highlight border in pixels
-        aria_snapshot_mode: Mode for ARIA snapshot generation
-        include_aria_boxes: Whether to include bounding boxes in ARIA snapshot
-        root_selector: CSS selector for root element. All interactive elements
-                      will be searched within this root. Default is "html".
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -83,16 +83,19 @@ def highlight_interactive_elements_and_screenshot(
     highlighted_count = 0
     element_selectors_list: List[str] = []
 
-    # Advanced JS detection using Event Listener Monkey-patching
+    # Convert hex to rgba for the background fill
+    bg_color = hex_to_rgba(highlight_color, highlight_alpha)
+
+    # Inject config via string formatting to avoid Playwright argument serialization issues
     detection_script = """
     (rootSelector) => {
         const config = {
             color: "%s",
+            bgColor: "%s",
             width: %d
         };
 
         // Function to generate XPath for an element relative to root
-        // Only uses tag names with indices, no IDs or classes
         function getXPath(element, rootElement) {
             if (element === rootElement) {
                 return element.tagName.toLowerCase();
@@ -102,7 +105,6 @@ def highlight_interactive_elements_and_screenshot(
                 return '';
             }
             
-            // Check if we've reached above the root
             if (!rootElement.contains(element)) {
                 return '';
             }
@@ -150,7 +152,6 @@ def highlight_interactive_elements_and_screenshot(
             if (el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1') return true;
             if (el.hasAttribute('onclick')) return true;
             
-            // Check our tracked events
             if (window._trackedEvents && window._trackedEvents.has(el)) {
                 const tracked = window._trackedEvents.get(el);
                 if (tracked.has('click') || tracked.has('mousedown') || tracked.has('touchstart')) return true;
@@ -166,12 +167,34 @@ def highlight_interactive_elements_and_screenshot(
             const style = window.getComputedStyle(el);
             if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return null;
 
-            // Highlight
+            // --- IMPROVED HIGHLIGHTING LOGIC ---
+            
+            // 1. Get existing border radius to match the shape
+            const existingRadius = style.borderRadius;
+            
+            // 2. Apply styles
             el.style.outline = `${config.width}px solid ${config.color}`;
-            el.style.outlineOffset = '2px';
+            el.style.outlineOffset = '0px'; 
+            
+            // Use !important to override existing background colors on buttons/links
+            el.style.setProperty('background-color', config.bgColor, 'important');
+            
+            // Ensure the highlight doesn't break layout
+            el.style.boxSizing = 'border-box';
+            
+            // Match the element's existing rounding for a cleaner look
+            if (existingRadius && existingRadius !== '0px') {
+                 el.style.borderRadius = existingRadius;
+            } else {
+                 el.style.borderRadius = '4px'; 
+            }
+            
+            // Ensure it sits on top
+            el.style.zIndex = '9999';
+            
             el.dataset.highlighted = 'true';
 
-            // Generate Selector (relative to document, can use id/class for readability)
+            // Generate Selector
             let selector = el.tagName.toLowerCase();
             if (el.id) selector += '#' + el.id;
             else if (el.className) {
@@ -179,7 +202,7 @@ def highlight_interactive_elements_and_screenshot(
                 if (firstClass) selector += '.' + firstClass;
             }
 
-            // Generate XPath relative to root - ONLY uses tags with indices
+            // Generate XPath relative to root
             const xpath = getXPath(el, rootElement);
 
             const rect = el.getBoundingClientRect();
@@ -235,7 +258,7 @@ def highlight_interactive_elements_and_screenshot(
 
         return results;
     }
-    """ % (highlight_color, highlight_border_width)
+    """ % (highlight_color, bg_color, highlight_border_width)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -244,7 +267,7 @@ def highlight_interactive_elements_and_screenshot(
         )
         page = browser.new_page(user_agent=ua.random)
 
-        # Inject the monkey-patch BEFORE navigation so we catch early events
+        # Inject the monkey-patch BEFORE navigation
         page.add_init_script("""
             window._trackedEvents = new WeakMap();
             const originalAddEventListener = EventTarget.prototype.addEventListener;
@@ -265,7 +288,7 @@ def highlight_interactive_elements_and_screenshot(
         # Reduced wait for final JS rendering
         page.wait_for_timeout(500)
 
-        # Execute the detection script with root selector
+        # Execute the detection script with ONLY root selector as argument
         element_data = page.evaluate(detection_script, root_selector)
 
         highlighted_count = len(element_data)
@@ -364,7 +387,7 @@ def highlight_interactive_elements_and_screenshot(
 
         browser.close()
 
-    return InteractiveScreenshotResult(
+    return InteractiveSnapshotResult(
         url=url,
         screenshot_path=screenshot_path,
         screenshot_base64=screenshot_base64,
@@ -389,7 +412,9 @@ if __name__ == "__main__":
         url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote",
         output_dir=str(output_dir),
         headless=False,
-        root_selector="body",  # Example: only scan within <main> element
+        root_selector="body",
+        highlight_color="#007BFF",  # Using a blue that is often easier on the eyes than red
+        highlight_alpha=0.2,  # 20% opacity fill
     )
     print(f"Highlighted {result['highlighted_elements_count']} elements")
     print(f"Screenshot: {result['screenshot_path']}")
