@@ -3,7 +3,8 @@ import base64
 import os
 import shutil
 import sys
-from typing import AsyncIterator, Iterator, List, Literal, Optional, TypedDict
+import time
+from typing import AsyncIterator, Iterator, List, Literal, Optional, TypedDict, Union
 
 from fake_useragent import UserAgent
 from jet.cache.redis.types import RedisConfigParams
@@ -14,7 +15,7 @@ from jet.scrapers.browser.config import (
 )
 from jet.utils.inspect_utils import get_entry_file_dir
 from playwright.async_api import Browser as AsyncBrowser
-from playwright.async_api import BrowserContext, async_playwright
+from playwright.async_api import BrowserContext, Frame, async_playwright
 from playwright.async_api import Page as AsyncPage
 from playwright.sync_api import Browser as SyncBrowser
 from playwright.sync_api import Page as SyncPage
@@ -25,7 +26,6 @@ from tqdm.asyncio import tqdm_asyncio
 
 REDIS_CONFIG = RedisConfigParams(port=6379)
 browser_page = None
-
 ScrollStrategy = Literal["none", "once", "until_stable"]
 ScrollMode = Literal["jump", "increment"]
 ScrapeStatus = Literal["started", "completed", "failed_no_html", "failed_error"]
@@ -305,11 +305,6 @@ async def scrape_async_limited(
     return results
 
 
-# ============================================================================
-# NEW PARALLEL SCRAPING FUNCTIONS (similar to playwright_utils.py)
-# ============================================================================
-
-
 async def scroll_to_bottom(
     page,
     *,
@@ -322,14 +317,12 @@ async def scroll_to_bottom(
     """Scroll to bottom of page with various strategies."""
     if strategy == "none":
         return
-
     logger.debug(f"Starting scroll_to_bottom ({strategy}, mode={mode})")
     start_time = asyncio.get_event_loop().time()
     last_height = await page.evaluate("document.documentElement.scrollHeight")
     STABILIZE_THRESHOLD_PX = 150
     no_change_count = 0
     MAX_NO_CHANGE = 4
-
     for attempt in range(1, max_attempts + 1):
         if (
             overall_timeout_ms
@@ -338,42 +331,34 @@ async def scroll_to_bottom(
         ):
             logger.warning("Scroll timeout reached")
             break
-
         if mode == "jump":
             await page.evaluate(
                 "window.scrollTo(0, document.documentElement.scrollHeight)"
             )
         else:
             await page.evaluate("window.scrollBy(0, window.innerHeight * 0.9)")
-
         await page.wait_for_timeout(delay_ms)
-
         if strategy == "once":
             break
-
         metrics = await page.evaluate("""() => ({
             scrollHeight: document.documentElement.scrollHeight,
             scrollY: window.scrollY,
             innerHeight: window.innerHeight
         })""")
-
         new_height = metrics["scrollHeight"]
         view_bottom = metrics["scrollY"] + metrics["innerHeight"]
         bottom_reached = view_bottom >= (new_height - STABILIZE_THRESHOLD_PX)
         height_changed = new_height != last_height
-
         logger.debug(
             f"Attempt {attempt}/{max_attempts} | "
             f"scrollY={metrics['scrollY']}, viewBottom={view_bottom}, "
             f"scrollHeight={new_height}, bottom_reached={bottom_reached}, "
             f"height_changed={height_changed}"
         )
-
         if not height_changed:
             no_change_count += 1
         else:
             no_change_count = 0
-
         if mode == "increment":
             if bottom_reached:
                 if height_changed:
@@ -394,12 +379,163 @@ async def scroll_to_bottom(
                     f"Scroll stabilized (height only) after {attempt} attempts"
                 )
                 break
-
         last_height = new_height
     else:
         logger.info(
             f"Reached max scroll attempts ({max_attempts}) without stabilization"
         )
+
+
+# ============================================================================
+# Cloudflare Auto-Verification Helpers (Refactored from cloudflare_scraper_basic)
+# ============================================================================
+
+CF_INTERSTITIAL_URLS = [
+    "challenges.cloudflare.com",
+    "/cdn-cgi/challenge-platform/",
+]
+
+CF_TURNSTILE_SELECTORS = [
+    "[data-sitekey]",
+    ".cf-turnstile",
+    '[class*="turnstile"]',
+    'iframe[src*="challenges.cloudflare.com"]',
+]
+
+
+async def _cf_is_interstitial(page: AsyncPage) -> bool:
+    """Check if page is a Cloudflare interstitial challenge."""
+    try:
+        current_url = page.url
+        if any(url in current_url for url in CF_INTERSTITIAL_URLS):
+            return True
+        cf_params = await page.evaluate("window.cfParams")
+        if cf_params:
+            return True
+        return False
+    except Exception:
+        return False
+
+
+async def _cf_has_turnstile_widget(queryable: Union[AsyncPage, Frame]) -> bool:
+    """Check if page contains a Cloudflare Turnstile widget."""
+    try:
+        for selector in CF_TURNSTILE_SELECTORS:
+            elements = queryable.locator(selector)
+            if await elements.count() > 0:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+async def _cf_detect_challenge_type(page: AsyncPage) -> Optional[str]:
+    """Detect the type of Cloudflare challenge present."""
+    if await _cf_is_interstitial(page):
+        return "interstitial"
+    for frame in page.frames:
+        if await _cf_has_turnstile_widget(frame):
+            return "turnstile"
+    return None
+
+
+async def _cf_solve_interstitial(page: AsyncPage, timeout: int = 30) -> bool:
+    """Solve Cloudflare interstitial challenge by waiting for auto-resolution."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if not await _cf_is_interstitial(page):
+            return True
+        try:
+            verify_button = page.locator(
+                'button:has-text("Verify"), input[type="submit"]'
+            )
+            if await verify_button.count() > 0:
+                await verify_button.first.click()
+                await asyncio.sleep(2)
+        except Exception:
+            pass
+        await asyncio.sleep(1)
+    return False
+
+
+async def _cf_solve_turnstile(page: AsyncPage, timeout: int = 10) -> bool:
+    """Solve Cloudflare Turnstile challenge by clicking the checkbox."""
+    cf_iframe = None
+    for frame in page.frames:
+        if "challenges.cloudflare.com" in frame.url:
+            cf_iframe = frame
+            break
+
+    if not cf_iframe:
+        return False
+
+    try:
+        checkbox = cf_iframe.locator('input[type="checkbox"], .cf-turnstile input')
+        await checkbox.wait_for(state="visible", timeout=timeout * 1000)
+        await checkbox.first.click()
+        logger.debug("Clicked Turnstile checkbox")
+        await asyncio.sleep(3)
+
+        # Check success
+        success_elements = cf_iframe.locator('#success, [aria-label*="success"]')
+        if await success_elements.count() > 0:
+            return True
+
+        # Fallback check
+        await asyncio.sleep(2)
+        return not await _cf_has_turnstile_widget(page)
+    except Exception:
+        return False
+
+
+async def auto_solve_cloudflare(page: AsyncPage, timeout: int = 30) -> bool:
+    """
+    Automatically detect and solve Cloudflare challenges on the current page.
+
+    Args:
+        page: The Playwright page object.
+        timeout: Maximum time in seconds to wait for solving.
+
+    Returns:
+        True if no challenge was found or if it was solved successfully.
+        False if solving failed.
+    """
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=10000)
+    except Exception:
+        pass
+
+    challenge_type = await _cf_detect_challenge_type(page)
+
+    if not challenge_type:
+        return True
+
+    logger.info(
+        f"Detected Cloudflare {challenge_type} challenge. Attempting to solve..."
+    )
+
+    if challenge_type == "interstitial":
+        success = await _cf_solve_interstitial(page, timeout=timeout)
+    elif challenge_type == "turnstile":
+        success = await _cf_solve_turnstile(page, timeout=timeout)
+    else:
+        return False
+
+    if success:
+        logger.info("Cloudflare challenge solved successfully.")
+        try:
+            await page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass
+        return True
+    else:
+        logger.warning("Failed to solve Cloudflare challenge.")
+        return False
+
+
+# ============================================================================
+# End Cloudflare Helpers
+# ============================================================================
 
 
 async def _scrape_single_url(
@@ -416,10 +552,10 @@ async def _scrape_single_url(
     scroll_mode: ScrollMode = "increment",
     wait_for_js: bool = True,
     use_cache: bool = False,
+    auto_solve_cloudflare_flag: bool = False,
 ) -> ScrapeResult:
     """Scrape a single URL with full feature set."""
     cache_key = f"html:{url}"
-
     if use_cache:
         cached_content = cache.get(cache_key)
         if cached_content:
@@ -448,10 +584,13 @@ async def _scrape_single_url(
                 logger.debug(f"Navigating to {url}, attempt {attempt + 1}")
                 await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
 
+                # Auto-solve Cloudflare if enabled
+                if auto_solve_cloudflare_flag:
+                    await auto_solve_cloudflare(page)
+
                 if wait_for_js:
                     logger.debug(f"Waiting for JS content on {url}")
                     await page.wait_for_timeout(3500)
-
                 if scroll_strategy != "none":
                     await scroll_to_bottom(
                         page,
@@ -461,12 +600,10 @@ async def _scrape_single_url(
                         mode=scroll_mode,
                         overall_timeout_ms=scroll_timeout_ms,
                     )
-
                 html_content = await page.content()
                 screenshot = None
                 if with_screenshot:
                     screenshot = await page.screenshot(full_page=True)
-
                 if use_cache:
                     cache_data = {"content": html_content}
                     if screenshot:
@@ -478,14 +615,12 @@ async def _scrape_single_url(
                         )
                     cache.set(cache_key, cache_data, ttl=3600)
                     logger.debug(f"Cached content for {url}")
-
                 return {
                     "url": url,
                     "status": "completed",
                     "html": html_content,
                     "screenshot": screenshot,
                 }
-
             except Exception as e:
                 logger.error(
                     f"Error fetching {url}: {str(e)} (Attempt {attempt + 1}/{max_retries + 1})"
@@ -512,7 +647,6 @@ async def _scrape_single_url(
                         "html": None,
                         "screenshot": None,
                     }
-
             finally:
                 if page:
                     try:
@@ -523,7 +657,6 @@ async def _scrape_single_url(
                         RuntimeError,
                     ) as e:
                         logger.debug(f"Failed to close page for {url}: {str(e)}")
-
     except asyncio.CancelledError:
         logger.info(f"Scrape task for {url} cancelled")
         if page:
@@ -534,7 +667,6 @@ async def _scrape_single_url(
                     f"Failed to close page for {url} during cancellation: {str(e)}"
                 )
         raise
-
     except Exception as e:
         logger.error(f"Unexpected error in scrape_url for {url}: {str(e)}")
         return {"url": url, "status": "failed_error", "html": None, "screenshot": None}
@@ -556,15 +688,14 @@ async def ascrape_urls(
     wait_for_js: bool = True,
     use_cache: bool = False,
     context: Optional[BrowserContext] = None,
+    auto_solve_cloudflare: bool = False,
 ) -> AsyncIterator[ScrapeResult]:
     """
     Asynchronously scrape a list of URLs with parallel execution.
-
     Opens one tab per URL (bounded by num_parallel). If `context` is provided,
     it is reused as-is (no browser is launched or closed by this function).
     If `context` is None, a browser/context is launched for this call only
     and torn down before returning.
-
     Args:
         urls: List of URLs to scrape.
         num_parallel: Number of parallel browser tasks (default: 10).
@@ -582,7 +713,7 @@ async def ascrape_urls(
         use_cache: Whether to use Redis caching.
         context: Optional existing BrowserContext to reuse. When provided, no browser
             is launched or closed by this call.
-
+        auto_solve_cloudflare: If True, automatically detect and solve Cloudflare challenges.
     Yields:
         ScrapeResult: Dictionary containing URL, status, HTML content, and optional screenshot.
     """
@@ -621,11 +752,12 @@ async def ascrape_urls(
                     max_retries=max_retries,
                     with_screenshot=with_screenshot,
                     wait_for_js=wait_for_js,
-                    use_cache=False,  # Cache already checked above
+                    use_cache=False,
                     scroll_strategy=scroll_strategy,
                     scroll_max_attempts=scroll_max_attempts,
                     scroll_delay_ms=scroll_delay_ms,
                     scroll_mode=scroll_mode,
+                    auto_solve_cloudflare_flag=auto_solve_cloudflare,
                 )
                 if pbar:
                     pbar.update(1)
@@ -647,7 +779,6 @@ async def ascrape_urls(
     owns_context = context is None
     playwright_instance = None
     browser = None
-
     try:
         if owns_context:
             playwright_instance = await async_playwright().start()
@@ -721,9 +852,7 @@ async def ascrape_urls(
                         completed_count += 1
                         if limit and completed_count >= limit:
                             return
-
         await asyncio.gather(*tasks, return_exceptions=True)
-
     finally:
         if owns_context:
             if context:
@@ -761,12 +890,11 @@ def scrape_urls(
     wait_for_js: bool = True,
     use_cache: bool = False,
     context: Optional[BrowserContext] = None,
+    auto_solve_cloudflare: bool = False,
 ) -> Iterator[ScrapeResult]:
     """
     Synchronously scrape a list of URLs using Playwright with parallel execution.
-
     This is a synchronous wrapper around ascrape_urls that manages the event loop.
-
     Args:
         urls: List of URLs to scrape.
         num_parallel: Number of parallel browser tasks (default: 10).
@@ -784,7 +912,7 @@ def scrape_urls(
         use_cache: Whether to use Redis caching.
         context: Optional existing BrowserContext to reuse. When provided, no browser
             is launched or closed by this call.
-
+        auto_solve_cloudflare: If True, automatically detect and solve Cloudflare challenges.
     Yields:
         ScrapeResult: Dictionary containing URL, status, HTML content, and optional screenshot.
     """
@@ -807,17 +935,17 @@ def scrape_urls(
             wait_for_js=wait_for_js,
             use_cache=use_cache,
             context=context,
+            auto_solve_cloudflare=auto_solve_cloudflare,
         ):
             results.append(result)
         return results
 
     loop = asyncio.get_event_loop()
-    if loop.is_running():
+    if loop.is_running:
         logger.warning(
             "Cannot run synchronous scraping in an already running event loop."
         )
         raise RuntimeError("Synchronous scraping requires a non-running event loop.")
-
     try:
         results = loop.run_until_complete(run_scrape())
         for result in results:
