@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, TypedDict
 from urllib.parse import urlparse
 
+from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 from jet.logger import logger
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
@@ -17,7 +18,7 @@ class ElementCoordinates(TypedDict):
     """Coordinates and dimensions of an element."""
 
     selector: str
-    xpath: str  # Added xpath property
+    xpath: str  # Full path starting from root using only tags
     x: float
     y: float
     width: float
@@ -51,10 +52,23 @@ def highlight_interactive_elements_and_screenshot(
     highlight_border_width: int = 3,
     aria_snapshot_mode: str = "ai",
     include_aria_boxes: bool = True,
+    root_selector: str = "html",  # CSS selector for root element
 ) -> InteractiveScreenshotResult:
     """
     Opens a URL, highlights all interactive elements (including divs with JS listeners),
     takes a screenshot, saves an ARIA snapshot, and extracts precise coordinates.
+
+    Args:
+        url: The URL to scrape
+        output_dir: Directory to save output files
+        timeout_ms: Page load timeout in milliseconds
+        headless: Whether to run browser in headless mode
+        highlight_color: Color for highlighting interactive elements
+        highlight_border_width: Width of highlight border in pixels
+        aria_snapshot_mode: Mode for ARIA snapshot generation
+        include_aria_boxes: Whether to include bounding boxes in ARIA snapshot
+        root_selector: CSS selector for root element. All interactive elements
+                      will be searched within this root. Default is "html".
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -71,42 +85,52 @@ def highlight_interactive_elements_and_screenshot(
 
     # Advanced JS detection using Event Listener Monkey-patching
     detection_script = """
-    () => {
+    (rootSelector) => {
         const config = {
             color: "%s",
             width: %d
         };
 
-        // Function to generate XPath for an element
-        function getXPath(element) {
-            if (element.id) {
-                return '//*[@id="' + element.id + '"]';
+        // Function to generate XPath for an element relative to root
+        // Only uses tag names with indices, no IDs or classes
+        function getXPath(element, rootElement) {
+            if (element === rootElement) {
+                return element.tagName.toLowerCase();
             }
-
-            if (element === document.body) {
-                return '/html/body';
+            
+            if (!element || !element.parentNode) {
+                return '';
             }
-
+            
+            // Check if we've reached above the root
+            if (!rootElement.contains(element)) {
+                return '';
+            }
+            
             let ix = 0;
             const siblings = element.parentNode.childNodes;
-
+            
             for (let i = 0; i < siblings.length; i++) {
                 const sibling = siblings[i];
-
+                
                 if (sibling === element) {
-                    return getXPath(element.parentNode) + '/' + element.tagName.toLowerCase() + '[' + (ix + 1) + ']';
+                    const parentXPath = getXPath(element.parentNode, rootElement);
+                    if (parentXPath === '') return '';
+                    return parentXPath + '/' + element.tagName.toLowerCase() + '[' + (ix + 1) + ']';
                 }
-
+                
                 if (sibling.nodeType === 1 && sibling.tagName === element.tagName) {
                     ix++;
                 }
             }
+            
+            return '';
         }
 
         function getTrackedEvents(el) {
             const events = [];
             if (el.hasAttribute('onclick')) events.push('onclick (inline)');
-
+            
             if (window._trackedEvents && window._trackedEvents.has(el)) {
                 const tracked = window._trackedEvents.get(el);
                 ['click', 'mousedown', 'mouseup', 'touchstart', 'keydown', 'keyup'].forEach(evt => {
@@ -119,26 +143,26 @@ def highlight_interactive_elements_and_screenshot(
         function isInteractive(el) {
             const interactiveTags = ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY'];
             if (interactiveTags.includes(el.tagName)) return true;
-
+            
             const role = el.getAttribute('role');
             if (role && ['button', 'link', 'tab', 'menuitem', 'option', 'checkbox'].includes(role)) return true;
-
+            
             if (el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1') return true;
             if (el.hasAttribute('onclick')) return true;
-
+            
             // Check our tracked events
             if (window._trackedEvents && window._trackedEvents.has(el)) {
                 const tracked = window._trackedEvents.get(el);
                 if (tracked.has('click') || tracked.has('mousedown') || tracked.has('touchstart')) return true;
             }
-
+            
             return false;
         }
 
-        function processElement(el) {
+        function processElement(el, rootElement) {
             if (el.dataset.highlighted === 'true') return null;
             if (!isInteractive(el)) return null;
-
+            
             const style = window.getComputedStyle(el);
             if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return null;
 
@@ -147,7 +171,7 @@ def highlight_interactive_elements_and_screenshot(
             el.style.outlineOffset = '2px';
             el.dataset.highlighted = 'true';
 
-            // Generate Selector
+            // Generate Selector (relative to document, can use id/class for readability)
             let selector = el.tagName.toLowerCase();
             if (el.id) selector += '#' + el.id;
             else if (el.className) {
@@ -155,8 +179,8 @@ def highlight_interactive_elements_and_screenshot(
                 if (firstClass) selector += '.' + firstClass;
             }
 
-            // Generate XPath
-            const xpath = getXPath(el);
+            // Generate XPath relative to root - ONLY uses tags with indices
+            const xpath = getXPath(el, rootElement);
 
             const rect = el.getBoundingClientRect();
             return {
@@ -172,25 +196,42 @@ def highlight_interactive_elements_and_screenshot(
             };
         }
 
-        // Process existing elements
+        // Find root element
+        let rootElement;
+        if (rootSelector === 'html' || rootSelector === 'body') {
+            rootElement = document.querySelector(rootSelector);
+        } else {
+            rootElement = document.querySelector(rootSelector);
+        }
+        
+        if (!rootElement) {
+            console.warn(`Root element not found for selector: ${rootSelector}`);
+            rootElement = document.documentElement;
+        }
+
+        // Process existing elements within root
         const results = [];
-        document.querySelectorAll('*').forEach(el => {
-            const data = processElement(el);
+        rootElement.querySelectorAll('*').forEach(el => {
+            const data = processElement(el, rootElement);
             if (data) results.push(data);
         });
 
-        // Observe future elements
+        // Observe future elements within root
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
                 mutation.addedNodes.forEach((node) => {
-                    if (node.nodeType === 1) {
-                        processElement(node);
-                        node.querySelectorAll('*').forEach(child => processElement(child));
+                    if (node.nodeType === 1 && rootElement.contains(node)) {
+                        processElement(node, rootElement);
+                        node.querySelectorAll('*').forEach(child => {
+                            if (rootElement.contains(child)) {
+                                processElement(child, rootElement);
+                            }
+                        });
                     }
                 });
             });
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(rootElement, { childList: true, subtree: true });
 
         return results;
     }
@@ -224,12 +265,37 @@ def highlight_interactive_elements_and_screenshot(
         # Reduced wait for final JS rendering
         page.wait_for_timeout(500)
 
-        # Execute the detection script
-        element_data = page.evaluate(detection_script)
+        # Execute the detection script with root selector
+        element_data = page.evaluate(detection_script, root_selector)
 
         highlighted_count = len(element_data)
         element_selectors_list = [item["selector"] for item in element_data]
         coordinates_list = element_data
+
+        # Get the HTML content and process it with BeautifulSoup based on root
+        try:
+            html_content = page.content()
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            # Find root element in parsed HTML
+            if root_selector == "html":
+                root_element = soup.html
+            elif root_selector == "body":
+                root_element = soup.body
+            else:
+                root_element = soup.select_one(root_selector)
+
+            if root_element:
+                # Extract only the root element's HTML
+                filtered_html = str(root_element)
+            else:
+                logger.warning(
+                    f"Root element '{root_selector}' not found in HTML, using full HTML"
+                )
+                filtered_html = html_content
+        except Exception as e:
+            logger.warning(f"Failed to process HTML with BeautifulSoup: {e}")
+            filtered_html = html_content
 
         # Generate filenames
         parsed_url = urlparse(url)
@@ -287,6 +353,15 @@ def highlight_interactive_elements_and_screenshot(
                 f"Interactive elements summary saved: {interactive_elements_path}"
             )
 
+        # Save filtered HTML based on root selector
+        html_filename = f"{safe_host}_{timestamp}_filtered.html"
+        html_path = os.path.join(output_dir, html_filename)
+
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(filtered_html)
+
+        logger.success(f"Filtered HTML saved: {html_path}")
+
         browser.close()
 
     return InteractiveScreenshotResult(
@@ -314,6 +389,7 @@ if __name__ == "__main__":
         url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote",
         output_dir="generated",
         headless=False,
+        root_selector="body",  # Example: only scan within <main> element
     )
     print(f"Highlighted {result['highlighted_elements_count']} elements")
     print(f"Screenshot: {result['screenshot_path']}")
