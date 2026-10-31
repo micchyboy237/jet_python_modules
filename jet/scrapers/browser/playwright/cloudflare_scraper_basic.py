@@ -5,6 +5,11 @@ Cloudflare CAPTCHA Bypass Scraper (Basic Multi-URL)
 A reusable scraper that handles Cloudflare Turnstile and Interstitial challenges
 using standard DOM interaction and stealth techniques.
 
+Core Logic Basis:
+- Inspired by techinz/playwright-captcha for Cloudflare-specific detection and solving.
+- Uses standard Playwright locators to find Turnstile widgets and Interstitial iframes.
+- Implements click-based solving for Turnstile checkboxes and waiting logic for Interstitials.
+
 Features:
 - Processes multiple URLs in a single browser session (same tab).
 - Organizes output into subdirectories: pages/url_<index>/

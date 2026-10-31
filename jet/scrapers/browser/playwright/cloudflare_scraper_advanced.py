@@ -5,6 +5,11 @@ Cloudflare CAPTCHA Bypass Scraper (Advanced Multi-URL)
 An enhanced scraper incorporating advanced evasion and solving techniques
 from D3-vin/Turnstile-Solver-NEW for higher success rates on strict protections.
 
+Core Logic Basis:
+- Incorporates route-interception logic from D3-vin/Turnstile-Solver-NEW.
+- Uses "stub page" injection for faster Turnstile solving without loading full site resources.
+- Implements cf_clearance cookie harvesting for IUAM (Under Attack Mode) challenges.
+
 Features:
 - Processes multiple URLs in a single browser session (same tab).
 - Organizes output into subdirectories: pages/url_<index>/
