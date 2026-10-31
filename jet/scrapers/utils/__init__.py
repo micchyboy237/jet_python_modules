@@ -45,5 +45,6 @@ from .base import (
     validate_headers,
 )
 from .filter_links import filter_links
+from .html_cleaner import clean_html_by_tags
 from .replace_links import replace_links
 from .scrape_links import scrape_links
