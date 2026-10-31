@@ -1256,14 +1256,14 @@ def search_jobs(
     Search for jobs based on a query string and return ranked results with data.
     Searches against CHILD embeddings in DEFAULT_TABLE_CHUNKS, resolves to
     PARENT content from {DEFAULT_TABLE_PARENTS} for full-context retrieval.
-
     FIX: Pre-filters candidate job IDs at the DB level before performing vector search
     to ensure HNSW only considers relevant (e.g., recent) jobs.
+    FIX: Increases SQL LIMIT to fetch more chunks than the final job limit to ensure
+    enough unique jobs are captured during aggregation.
     """
     if not db_client:
         db_client = PgVectorClient(dbname=db_name)
 
-    # 1. Pre-filter: Get valid job IDs based on date/where conditions
     matching_jobs = load_jobs_list(
         db_client=db_client,
         include_entities=False,
@@ -1272,9 +1272,7 @@ def search_jobs(
         where_conditions=where_conditions,
         db_name=db_name,
     )
-
     valid_doc_ids = [job["id"] for job in matching_jobs]
-
     if not valid_doc_ids:
         logger.warning("Pre-filter returned 0 candidate jobs.")
         return []
@@ -1283,33 +1281,32 @@ def search_jobs(
         f"Pre-filtered to {len(valid_doc_ids)} candidate job IDs for vector search"
     )
 
-    # 2. Generate Embedding
     query_embedding = generate_embeddings([query], embed_model)[0]
 
-    # 3. Perform Vector Search with ID Restriction
+    # Calculate a larger pool size for chunks to ensure we get enough unique jobs.
+    # If top_k is 20, we might need 100+ chunks if many chunks belong to the same job.
+    effective_top_k = top_k if top_k else 20
+    chunk_limit = max(effective_top_k * 5, 100)
+
     with db_client.conn.cursor() as cur:
-        # Use the HNSW index but restrict to valid_doc_ids
-        # Note: Using ANY(%s) allows Postgres to filter chunks before/during index scan
         cur.execute(
             """
-            SELECT id, header, parent_header, content, posted_date, chunk_meta, 
-                   embedding <=> %s::vector as distance 
-            FROM job_chunks 
+            SELECT id, header, parent_header, content, posted_date, chunk_meta,
+            embedding <=> %s::vector as distance
+            FROM job_chunks
             WHERE chunk_meta->>'doc_id' = ANY(%s)
-            ORDER BY distance 
+            ORDER BY distance
             LIMIT %s
             """,
-            (f"[{', '.join(map(str, query_embedding))}]", valid_doc_ids, top_k),
+            (f"[{', '.join(map(str, query_embedding))}]", valid_doc_ids, chunk_limit),
         )
         raw_results = cur.fetchall()
 
-    # 4. Process Results
     results = []
     for row in raw_results:
-        score = 1.0 - row["distance"]  # Convert distance to similarity score
+        score = 1.0 - row["distance"]
         if threshold and score < threshold:
             continue
-
         results.append(
             {
                 "id": row["id"],
@@ -1326,12 +1323,10 @@ def search_jobs(
     if not results:
         return []
 
-    # 5. Resolve Parents and Enrich
     parent_map = _resolve_parents_from_children(results, db_client)
-
     job_metadata_map = {job["id"]: job for job in matching_jobs}
-    enriched_results = []
 
+    enriched_results = []
     for result in tqdm(results, desc="Enriching results"):
         chunk_meta = result.get("chunk_meta", {})
         job_id = chunk_meta.get("doc_id", result.get("id", ""))
@@ -1341,6 +1336,7 @@ def search_jobs(
             metadata = _load_metadata_from_table(db_client, job_id)
 
         entity_row = load_job_entities(job_id, db_client=db_client)
+
         parent_id = chunk_meta.get("parent_id")
         parent_content = parent_map.get(parent_id, result.get("content", ""))
 
@@ -1402,7 +1398,7 @@ def search_full_jobs(
     dense_weight: float = 1.0,
     sparse_weight: float = 1.0,
     k: int = 60,
-    mode: SearchMode = "hybrid",  # Default to standard hybrid
+    mode: SearchMode = "vector",
 ) -> list[JobSearchResult]:
     """
     Search for jobs and return unique Job-Level results.
