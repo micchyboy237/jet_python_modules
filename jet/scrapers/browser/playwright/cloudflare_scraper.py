@@ -33,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from fake_useragent import UserAgent
 from playwright_stealth import Stealth  # Updated import
 
 from playwright.async_api import Frame, Page, async_playwright
@@ -224,16 +225,34 @@ class CloudflareSolver:
 class StealthConfigurator:
     """Configures browser for stealth mode using Mattwmaster58/playwright_stealth."""
 
-    USER_AGENTS = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    ]
+    def __init__(self):
+        """Initialize with fake_useragent for dynamic UA generation."""
+        try:
+            self.ua_generator = UserAgent()
+            logger.info("fake_useragent initialized successfully")
+        except Exception as e:
+            logger.warning(
+                f"Failed to initialize fake_useragent: {e}. Falling back to static UAs."
+            )
+            self.ua_generator = None
+            # Fallback static list if fake_useragent fails
+            self.fallback_uas = [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            ]
 
-    @staticmethod
-    def get_random_user_agent() -> str:
-        """Get a random user agent string."""
-        return random.choice(StealthConfigurator.USER_AGENTS)
+    def get_random_user_agent(self) -> str:
+        """Get a random user agent string using fake_useragent or fallback."""
+        if self.ua_generator:
+            try:
+                # Use chrome user agents to match Playwright's Chromium engine
+                return self.ua_generator.chrome
+            except Exception as e:
+                logger.warning(f"Error generating UA with fake_useragent: {e}")
+
+        # Fallback to static list
+        return random.choice(self.fallback_uas)
 
     @staticmethod
     def get_browser_args() -> Dict[str, Any]:
