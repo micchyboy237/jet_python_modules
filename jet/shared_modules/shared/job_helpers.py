@@ -1286,6 +1286,7 @@ def search_jobs(
     # Calculate a larger pool size for chunks to ensure we get enough unique jobs.
     # If top_k is 20, we might need 100+ chunks if many chunks belong to the same job.
     effective_top_k = top_k if top_k else 20
+    effective_top_k = effective_top_k * 2
     chunk_limit = max(effective_top_k * 5, 100)
 
     with db_client.conn.cursor() as cur:
