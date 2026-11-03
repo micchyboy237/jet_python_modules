@@ -65,3 +65,6 @@ VISION_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL")
 # OpenTelemetry
 PHOENIX_BASE_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 PHOENIX_REST_API = os.getenv("LLM_OBS_PHOENIX_REST_API", "http://localhost:6006/v1")
+
+# Search Engine
+SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8888")
