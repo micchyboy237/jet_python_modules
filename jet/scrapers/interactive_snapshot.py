@@ -1,3 +1,4 @@
+import argparse
 import base64
 import json
 import os
@@ -401,20 +402,104 @@ def highlight_interactive_elements_and_screenshot(
     )
 
 
+def get_args(argv=None) -> argparse.Namespace:
+    """Parse command-line arguments for the interactive snapshot script."""
+
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Open a URL, highlight interactive elements, take a screenshot, "
+            "and save an ARIA snapshot plus element coordinates."
+        ),
+    )
+
+    parser.add_argument(
+        "url",
+        type=str,
+        help="URL to load and analyze.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        default=OUTPUT_DIR,
+        help="Directory to write output files to (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--timeout-ms",
+        type=int,
+        default=15000,
+        help="Navigation timeout in milliseconds (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--headless",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Run browser in headless mode (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--highlight-color",
+        type=str,
+        default="#FF0000",
+        help="Hex color used to outline interactive elements (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--highlight-border-width",
+        type=int,
+        default=2,
+        help="Border width in pixels for highlights (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--highlight-alpha",
+        type=float,
+        default=0.15,
+        help="Alpha value (0-1) for the highlight fill (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--aria-snapshot-mode",
+        type=str,
+        default="ai",
+        choices=["ai", "raw", "default"],
+        help="Mode passed to page.aria_snapshot (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--include-aria-boxes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include bounding boxes in the ARIA snapshot (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--root-selector",
+        type=str,
+        default="html",
+        help="CSS selector for the root element to scan (default: %(default)s).",
+    )
+
+    return parser.parse_args(argv)
+
+
 if __name__ == "__main__":
     import shutil
+    from pathlib import Path
 
-    output_dir = Path(__file__).parent / "generated" / Path(__file__).stem
+    args = get_args()
+
+    output_dir = Path(args.output_dir)
     shutil.rmtree(output_dir, ignore_errors=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     result = highlight_interactive_elements_and_screenshot(
-        url="https://ph.indeed.com/jobs?q=Machine+Learning+Engineer&l=Remote",
+        url=args.url,
         output_dir=str(output_dir),
-        headless=False,
-        root_selector="body",
-        highlight_color="#007BFF",  # Using a blue that is often easier on the eyes than red
-        highlight_alpha=0.2,  # 20% opacity fill
+        timeout_ms=args.timeout_ms,
+        headless=args.headless,
+        highlight_color=args.highlight_color,
+        highlight_border_width=args.highlight_border_width,
+        highlight_alpha=args.highlight_alpha,
+        aria_snapshot_mode=args.aria_snapshot_mode,
+        include_aria_boxes=args.include_aria_boxes,
+        root_selector=args.root_selector,
     )
     print(f"Highlighted {result['highlighted_elements_count']} elements")
     print(f"Screenshot: {result['screenshot_path']}")
