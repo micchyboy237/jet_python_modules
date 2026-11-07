@@ -212,7 +212,7 @@ class TextsClusterer:
             min_cluster_size=self.min_cluster_size,
             min_samples=max(1, self.min_cluster_size // 2),
             metric="euclidean",
-            cluster_selection_epsilon=0.25,
+            cluster_selection_epsilon=0.1,
         )
         self.labels = self.clusterer.fit_predict(self.embeddings)
         try:

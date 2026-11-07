@@ -2,6 +2,7 @@ import logging
 import time
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
+import requests
 from jet.adapters.llama_cpp.config import (
     EMBED_BASE_HOST,
     EMBED_BASE_URL,
@@ -121,6 +122,117 @@ def get_llama_cpp_candidate_urls() -> List[str]:
         default_url = get_llama_cpp_base_url()
         urls.append(default_url)
     return urls
+
+
+def is_host_available(url: str, timeout: float = 2.0) -> bool:
+    """
+    Fast check if a host is running by hitting the root endpoint.
+
+    Args:
+        url: Base URL of the host (no trailing /v1)
+        timeout: Connection timeout in seconds (default: 2.0)
+
+    Returns:
+        bool: True if host is reachable, False otherwise
+    """
+    try:
+        # Try root endpoint first (fastest)
+        response = requests.get(f"{url}/", timeout=timeout)
+        return response.status_code < 500  # Accept any non-server-error response
+    except requests.exceptions.ConnectionError:
+        logger.debug("Host %s is not reachable (connection error)", url)
+        return False
+    except requests.exceptions.Timeout:
+        logger.debug("Host %s timed out after %.1fs", url, timeout)
+        return False
+    except Exception as e:
+        logger.debug("Host %s check failed: %s", url, str(e))
+        return False
+
+
+def check_endpoint_health(url: str, timeout: float = 2.0) -> Dict[str, Any]:
+    """
+    Check if specific endpoints are responding on a host.
+
+    Args:
+        url: Base URL of the host (no trailing /v1)
+        timeout: Connection timeout in seconds (default: 2.0)
+
+    Returns:
+        Dict with health status for each endpoint
+    """
+    health_status = {
+        "root": False,
+        "v1_models": False,
+        "health": False,
+    }
+
+    # Check root endpoint
+    try:
+        response = requests.get(f"{url}/", timeout=timeout)
+        health_status["root"] = response.status_code < 500
+    except Exception:
+        pass
+
+    # Check /v1/models endpoint
+    try:
+        response = requests.get(f"{url}/v1/models", timeout=timeout)
+        health_status["v1_models"] = response.status_code < 500
+    except Exception:
+        pass
+
+    # Check /health endpoint (common in many services)
+    try:
+        response = requests.get(f"{url}/health", timeout=timeout)
+        health_status["health"] = response.status_code < 500
+    except Exception:
+        pass
+
+    return health_status
+
+
+def get_healthy_hosts(urls: List[str], timeout: float = 2.0) -> List[str]:
+    """
+    Filter URLs to only include hosts that are reachable and have working endpoints.
+
+    Args:
+        urls: List of base URLs to check
+        timeout: Connection timeout in seconds (default: 2.0)
+
+    Returns:
+        List of healthy URLs
+    """
+    healthy_urls = []
+
+    for url in urls:
+        # Fast check: is host reachable?
+        if not is_host_available(url, timeout):
+            logger.info("Skipping unreachable host: %s", url)
+            continue
+
+        # Detailed check: are endpoints working?
+        health = check_endpoint_health(url, timeout)
+
+        # At minimum, we need the /v1/models endpoint to work
+        if health["v1_models"]:
+            healthy_urls.append(url)
+            logger.debug(
+                "Host %s is healthy (root=%s, v1_models=%s, health=%s)",
+                url,
+                health["root"],
+                health["v1_models"],
+                health["health"],
+            )
+        else:
+            logger.warning(
+                "Host %s is reachable but /v1/models endpoint failed (root=%s, v1_models=%s, health=%s)",
+                url,
+                health["root"],
+                health["v1_models"],
+                health["health"],
+            )
+
+    return healthy_urls
 
 
 def get_model_hf_id(model_key: LLAMACPP_KEYS) -> LLAMACPP_VALUES:
@@ -365,11 +477,18 @@ def get_models(base_url: Optional[str] = None) -> ModelsResponse:
                   only this single host is queried, matching prior behavior
                   for callers that already know exactly which host to hit.
     """
-    urls = (
-        [get_llama_cpp_base_url(override=base_url)]
-        if base_url
-        else get_llama_cpp_candidate_urls()
-    )
+    if base_url:
+        urls = [get_llama_cpp_base_url(override=base_url)]
+    else:
+        # Get all candidate URLs
+        all_urls = get_llama_cpp_candidate_urls()
+        # Filter to only healthy hosts (fast skip for unreachable hosts)
+        urls = get_healthy_hosts(all_urls)
+
+        if not urls:
+            logger.warning("No healthy hosts found among candidates: %s", all_urls)
+            # Fallback to trying the default URL anyway
+            urls = [get_llama_cpp_base_url()]
 
     merged: Dict[str, Dict[str, Any]] = {}
     for url in urls:
@@ -476,72 +595,117 @@ if __name__ == "__main__":
     console = Console()
 
     console.print(f"[bold blue]{'=' * 60}[/bold blue]")
-    console.print("[bold blue]Server: llm[/bold blue]")
+    console.print("[bold blue]Server Health Check & Model Discovery[/bold blue]")
     console.print(f"[bold blue]{'=' * 60}[/bold blue]")
 
     try:
-        # Fetch models per-URL so we can display the source URL for each model
+        # First, show health check results
         urls = get_llama_cpp_candidate_urls()
-        all_loaded_models: List[Dict[str, Any]] = []
-        seen_ids: set[str] = set()
+        console.print(f"\n[bold]Checking {len(urls)} candidate host(s)...[/bold]\n")
 
+        healthy_urls = []
         for url in urls:
-            response = get_loaded_models(base_url=url)
-            for model in response["data"]:
-                if model["id"] not in seen_ids:
-                    model["_source_url"] = url
-                    all_loaded_models.append(model)
-                    seen_ids.add(model["id"])
+            console.print(f"[cyan]→ Checking {url}[/cyan]")
 
-        model_count = len(all_loaded_models)
+            # Fast availability check
+            is_available = is_host_available(url)
+            if not is_available:
+                console.print(f"  [red]✗ Host unreachable[/red]")
+                continue
 
-        if model_count == 0:
-            console.print("  [yellow]⚠️ No loaded models found[/yellow]")
-        else:
-            console.print(f"  [green]✅ Found {model_count} loaded model(s):[/green]")
-
-            # Create a table for better readability
-            table = Table(
-                title="Loaded Models", show_header=True, header_style="bold magenta"
+            # Detailed endpoint check
+            health = check_endpoint_health(url)
+            console.print(
+                f"  Root endpoint: {'[green]✓[/green]' if health['root'] else '[red]✗[/red]'}"
             )
-            table.add_column("ID", style="cyan")
-            table.add_column("Type", style="green")
-            table.add_column("Context Size", style="blue")
-            table.add_column("Train Context", style="blue")
-            table.add_column("Embedding Size", style="blue")
-            table.add_column("URL", style="yellow")
+            console.print(
+                f"  /v1/models: {'[green]✓[/green]' if health['v1_models'] else '[red]✗[/red]'}"
+            )
+            console.print(
+                f"  /health: {'[green]✓[/green]' if health['health'] else '[yellow]N/A[/yellow]'}"
+            )
 
-            for model in all_loaded_models:
-                model_id = model["id"]
-                model_type = model["model_type"]
-                source_url = model.get("_source_url", "N/A")
+            if health["v1_models"]:
+                healthy_urls.append(url)
+                console.print(f"  [green]✓ Host is healthy[/green]")
+            else:
+                console.print(f"  [red]✗ Host unhealthy (missing /v1/models)[/red]")
 
-                # Get context and embedding size
-                try:
-                    ctx_embd_size = get_model_ctx_embd_size(
-                        model_id, base_url=source_url
-                    )
-                    n_ctx = ctx_embd_size["ctx"]
-                    n_ctx_train = ctx_embd_size["ctx_train"]
-                    n_embd = ctx_embd_size["embd_dims"]
-                except ValueError as e:
-                    console.print(
-                        f"  [red]❌ Failed to get context/embedding size for {model_id}: {e}[/red]"
-                    )
-                    n_ctx = "N/A"
-                    n_ctx_train = "N/A"
-                    n_embd = "N/A"
+        console.print(
+            f"\n[bold green]Found {len(healthy_urls)} healthy host(s)[/bold green]\n"
+        )
 
-                table.add_row(
-                    model_id,
-                    model_type,
-                    str(n_ctx),
-                    str(n_ctx_train),
-                    str(n_embd),
-                    source_url,
+        if not healthy_urls:
+            console.print("  [yellow]⚠️ No healthy hosts found[/yellow]")
+        else:
+            # Fetch models from healthy hosts only
+            all_loaded_models: List[Dict[str, Any]] = []
+            seen_ids: set[str] = set()
+
+            for url in healthy_urls:
+                console.print(f"[cyan]Fetching models from {url}...[/cyan]")
+                response = get_loaded_models(base_url=url)
+
+                model_count = len(response["data"])
+                console.print(f"  Found {model_count} loaded model(s)")
+
+                for model in response["data"]:
+                    if model["id"] not in seen_ids:
+                        model["_source_url"] = url
+                        all_loaded_models.append(model)
+                        seen_ids.add(model["id"])
+
+            total_count = len(all_loaded_models)
+            console.print(f"\n[bold]Total unique loaded models: {total_count}[/bold]\n")
+
+            if total_count == 0:
+                console.print("  [yellow]⚠️ No loaded models found[/yellow]")
+            else:
+                # Create a table for better readability
+                table = Table(
+                    title="Loaded Models", show_header=True, header_style="bold magenta"
                 )
+                table.add_column("ID", style="cyan")
+                table.add_column("Type", style="green")
+                table.add_column("Context Size", style="blue")
+                table.add_column("Train Context", style="blue")
+                table.add_column("Embedding Size", style="blue")
+                table.add_column("URL", style="yellow")
 
-            console.print(table)
+                for model in all_loaded_models:
+                    model_id = model["id"]
+                    model_type = model["model_type"]
+                    source_url = model.get("_source_url", "N/A")
+
+                    # Get context and embedding size
+                    try:
+                        ctx_embd_size = get_model_ctx_embd_size(
+                            model_id, base_url=source_url
+                        )
+                        n_ctx = ctx_embd_size["ctx"]
+                        n_ctx_train = ctx_embd_size["ctx_train"]
+                        n_embd = ctx_embd_size["embd_dims"]
+                    except ValueError as e:
+                        console.print(
+                            f"  [red]❌ Failed to get context/embedding size for {model_id}: {e}[/red]"
+                        )
+                        n_ctx = "N/A"
+                        n_ctx_train = "N/A"
+                        n_embd = "N/A"
+
+                    table.add_row(
+                        model_id,
+                        model_type,
+                        str(n_ctx),
+                        str(n_ctx_train),
+                        str(n_embd),
+                        source_url,
+                    )
+
+                console.print(table)
 
     except Exception as e:
-        console.print(f"  [red]❌ Failed to fetch models: {e}[/red]")
+        console.print(f"  [red]❌ Failed: {e}[/red]")
+        import traceback
+
+        console.print(traceback.format_exc())
