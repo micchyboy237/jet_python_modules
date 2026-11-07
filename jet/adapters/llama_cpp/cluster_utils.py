@@ -66,6 +66,7 @@ class TextsClusterer:
         self.probabilities = None
         self.centroids = {}
         self.cluster_consistency = {}
+        self.coordinates_2d = None  # Store 2D coordinates here
 
     def _initialize_model_params(self):
         """Fetch model metadata to set embedding dim and safe token limits."""
@@ -191,6 +192,10 @@ class TextsClusterer:
         print(f"\nFound {n_clusters} clusters with {n_noise} noise points")
 
         self._calculate_centroids()
+
+        # Generate 2D coordinates for visualization
+        self._generate_2d_coordinates()
+
         return {
             "labels": self.labels,
             "embeddings": self.embeddings,
@@ -255,6 +260,24 @@ class TextsClusterer:
             else:
                 self.centroids[label] = raw_centroid
 
+    def _generate_2d_coordinates(self):
+        """Generate 2D coordinates using t-SNE for visualization."""
+        if self.embeddings is None or len(self.embeddings) < 2:
+            self.coordinates_2d = np.zeros(
+                (len(self.embeddings) if self.embeddings is not None else 0, 2)
+            )
+            return
+
+        print("Generating 2D projection for visualization...")
+        # Use max_iter for sklearn >= 1.2
+        tsne = TSNE(
+            n_components=2,
+            random_state=42,
+            perplexity=min(5, len(self.embeddings) - 1),
+            max_iter=1000,
+        )
+        self.coordinates_2d = tsne.fit_transform(self.embeddings)
+
     def get_cluster_texts(self, texts: List[str]) -> Dict[int, List[str]]:
         if self.labels is None:
             raise ValueError("Must call fit_predict first")
@@ -293,10 +316,21 @@ class TextsClusterer:
             else:
                 cluster_distances = [0.0] * len(cluster_texts)
 
-            combined = list(zip(cluster_texts, cluster_probs, cluster_distances))
+            # Get 2D coordinates for these texts
+            cluster_coords = []
+            if self.coordinates_2d is not None:
+                cluster_coords = [
+                    self.coordinates_2d[i].tolist() for i in cluster_indices
+                ]
+
+            combined = list(
+                zip(cluster_texts, cluster_probs, cluster_distances, cluster_coords)
+            )
+            # Sort by probability descending
             combined.sort(key=lambda x: x[1], reverse=True)
-            sorted_texts, sorted_probs, sorted_dists = (
-                zip(*combined) if combined else ([], [], [])
+
+            sorted_texts, sorted_probs, sorted_dists, sorted_coords = (
+                zip(*combined) if combined else ([], [], [], [])
             )
 
             label_name = (
@@ -310,6 +344,7 @@ class TextsClusterer:
                 "all_texts": list(sorted_texts),
                 "probabilities": [float(p) for p in sorted_probs],
                 "distances_to_centroid": [float(d) for d in sorted_dists],
+                "coordinates_2d": [list(c) for c in sorted_coords],  # Added coordinates
             }
             if cluster_id in self.centroids:
                 analysis[label_name]["centroid_vector_sample"] = self.centroids[
@@ -321,19 +356,9 @@ class TextsClusterer:
         return analysis
 
     def plot_clusters(self, texts: List[str], output_path: Path):
-        """Generate a 2D scatter plot of the clusters using t-SNE."""
-        if self.embeddings is None:
+        """Generate a 2D scatter plot of the clusters using stored coordinates."""
+        if self.coordinates_2d is None:
             return
-
-        print("Generating 2D projection for visualization...")
-        # Use max_iter instead of n_iter for sklearn >= 1.2 [[1]]
-        tsne = TSNE(
-            n_components=2,
-            random_state=42,
-            perplexity=min(5, len(texts) - 1),
-            max_iter=1000,
-        )
-        embeddings_2d = tsne.fit_transform(self.embeddings)
 
         plt.figure(figsize=(12, 8))
         unique_labels = np.unique(self.labels)
@@ -343,8 +368,8 @@ class TextsClusterer:
 
         for i, label in enumerate(unique_labels):
             mask = self.labels == label
-            x = embeddings_2d[mask, 0]
-            y = embeddings_2d[mask, 1]
+            x = self.coordinates_2d[mask, 0]
+            y = self.coordinates_2d[mask, 1]
 
             label_name = "Noise" if label == -1 else f"Cluster {label}"
             plt.scatter(x, y, c=[colors[i]], label=label_name, alpha=0.7, s=100)
