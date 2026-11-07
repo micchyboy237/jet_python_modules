@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 import hdbscan
 import matplotlib
 
-matplotlib.use("Agg")  # Use non-interactive backend for saving files
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from jet.adapters.llama_cpp.config import (
@@ -27,6 +27,7 @@ from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
 from sklearn.cluster import SpectralClustering
 from sklearn.manifold import TSNE
+from sklearn.metrics import silhouette_samples
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 
@@ -66,7 +67,8 @@ class TextsClusterer:
         self.probabilities = None
         self.centroids = {}
         self.cluster_consistency = {}
-        self.coordinates_2d = None  # Store 2D coordinates here
+        self.coordinates_2d = None
+        self.silhouette_scores = None
 
     def _initialize_model_params(self):
         """Fetch model metadata to set embedding dim and safe token limits."""
@@ -192,9 +194,8 @@ class TextsClusterer:
         print(f"\nFound {n_clusters} clusters with {n_noise} noise points")
 
         self._calculate_centroids()
-
-        # Generate 2D coordinates for visualization
         self._generate_2d_coordinates()
+        self._calculate_silhouette_scores()
 
         return {
             "labels": self.labels,
@@ -269,7 +270,6 @@ class TextsClusterer:
             return
 
         print("Generating 2D projection for visualization...")
-        # Use max_iter for sklearn >= 1.2
         tsne = TSNE(
             n_components=2,
             random_state=42,
@@ -277,6 +277,33 @@ class TextsClusterer:
             max_iter=1000,
         )
         self.coordinates_2d = tsne.fit_transform(self.embeddings)
+
+    def _calculate_silhouette_scores(self):
+        """Calculate Silhouette Score for each sample."""
+        # Filter out noise points (-1) for silhouette calculation
+        mask = self.labels != -1
+        if np.sum(mask) < 2:
+            self.silhouette_scores = np.zeros(len(self.labels))
+            return
+
+        # Silhouette score requires at least 2 clusters
+        unique_labels = np.unique(self.labels[mask])
+        if len(unique_labels) < 2:
+            self.silhouette_scores = np.zeros(len(self.labels))
+            return
+
+        try:
+            # Calculate scores only for clustered points
+            sample_scores = silhouette_samples(
+                self.embeddings[mask], self.labels[mask], metric="cosine"
+            )
+
+            # Create full array with 0 for noise points
+            self.silhouette_scores = np.zeros(len(self.labels))
+            self.silhouette_scores[mask] = sample_scores
+        except Exception as e:
+            print(f"Warning: Could not calculate silhouette scores: {e}")
+            self.silhouette_scores = np.zeros(len(self.labels))
 
     def get_cluster_texts(self, texts: List[str]) -> Dict[int, List[str]]:
         if self.labels is None:
@@ -316,22 +343,37 @@ class TextsClusterer:
             else:
                 cluster_distances = [0.0] * len(cluster_texts)
 
-            # Get 2D coordinates for these texts
             cluster_coords = []
             if self.coordinates_2d is not None:
                 cluster_coords = [
                     self.coordinates_2d[i].tolist() for i in cluster_indices
                 ]
 
+            cluster_silhouettes = []
+            if self.silhouette_scores is not None:
+                cluster_silhouettes = [
+                    float(self.silhouette_scores[i]) for i in cluster_indices
+                ]
+
             combined = list(
-                zip(cluster_texts, cluster_probs, cluster_distances, cluster_coords)
+                zip(
+                    cluster_texts,
+                    cluster_probs,
+                    cluster_distances,
+                    cluster_coords,
+                    cluster_silhouettes,
+                )
             )
             # Sort by probability descending
             combined.sort(key=lambda x: x[1], reverse=True)
 
-            sorted_texts, sorted_probs, sorted_dists, sorted_coords = (
-                zip(*combined) if combined else ([], [], [], [])
-            )
+            (
+                sorted_texts,
+                sorted_probs,
+                sorted_dists,
+                sorted_coords,
+                sorted_silhouettes,
+            ) = zip(*combined) if combined else ([], [], [], [], [])
 
             label_name = (
                 "Noise/Outliers" if cluster_id == -1 else f"Cluster {cluster_id}"
@@ -344,7 +386,8 @@ class TextsClusterer:
                 "all_texts": list(sorted_texts),
                 "probabilities": [float(p) for p in sorted_probs],
                 "distances_to_centroid": [float(d) for d in sorted_dists],
-                "coordinates_2d": [list(c) for c in sorted_coords],  # Added coordinates
+                "coordinates_2d": [list(c) for c in sorted_coords],
+                "silhouette_scores": [float(s) for s in sorted_silhouettes],
             }
             if cluster_id in self.centroids:
                 analysis[label_name]["centroid_vector_sample"] = self.centroids[
@@ -362,8 +405,6 @@ class TextsClusterer:
 
         plt.figure(figsize=(12, 8))
         unique_labels = np.unique(self.labels)
-
-        # Create a color map
         colors = plt.cm.rainbow(np.linspace(0, 1, len(unique_labels)))
 
         for i, label in enumerate(unique_labels):
@@ -374,7 +415,6 @@ class TextsClusterer:
             label_name = "Noise" if label == -1 else f"Cluster {label}"
             plt.scatter(x, y, c=[colors[i]], label=label_name, alpha=0.7, s=100)
 
-            # Annotate points with text preview
             for j, idx in enumerate(np.where(mask)[0]):
                 preview = (
                     texts[idx][:20] + "..." if len(texts[idx]) > 20 else texts[idx]
@@ -446,7 +486,6 @@ def main():
     results = clusterer.fit_predict(texts)
     analysis = clusterer.get_detailed_analysis(texts)
 
-    # Print Analysis
     print("\n" + "=" * 60)
     print("DETAILED CLUSTER ANALYSIS:")
     print("=" * 60)
@@ -459,25 +498,26 @@ def main():
             f"  Count: {info['count']} | Consistency: {info.get('consistency_score', 0):.3f}"
         )
         print(f"  Top Members:")
-        for idx, (text, prob, dist) in enumerate(
+        for idx, (text, prob, dist, sil) in enumerate(
             zip(
-                info["all_texts"], info["probabilities"], info["distances_to_centroid"]
+                info["all_texts"],
+                info["probabilities"],
+                info["distances_to_centroid"],
+                info["silhouette_scores"],
             ),
             1,
         ):
             preview = text[:80] + "..." if len(text) > 80 else text
-            print(f"    {idx}. [P:{prob:.2f}] [D:{dist:.2f}] {preview}")
+            print(f"    {idx}. [P:{prob:.2f}] [S:{sil:.2f}] {preview}")
 
     if noise_cluster:
         print(f"\nNoise/Outliers ({noise_cluster['Noise/Outliers']['count']} items):")
         for text in noise_cluster["Noise/Outliers"]["all_texts"]:
             print(f"  - {text[:80]}...")
 
-    # Generate Plot
     plot_file = out_path / "clusters_plot.png"
     clusterer.plot_clusters(texts, plot_file)
 
-    # Save JSONs
     class NumpyEncoder(json.JSONEncoder):
         def default(self, obj):
             if isinstance(obj, np.integer):
