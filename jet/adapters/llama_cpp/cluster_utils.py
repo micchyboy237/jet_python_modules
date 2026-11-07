@@ -27,7 +27,7 @@ import json
 import shutil
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
 
 import hdbscan
 import matplotlib
@@ -56,6 +56,59 @@ shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# --- Type Definitions & Aliases ---
+
+ClustersType = Dict[int, List[str]]
+CentroidsType = Dict[int, np.ndarray]
+ConsistencyType = Dict[int, float]
+
+
+class TextStats(TypedDict):
+    lengths: np.ndarray
+    mean: float
+    median: float
+    max: int
+
+
+class FitPredictResult(TypedDict):
+    labels: np.ndarray
+    embeddings: np.ndarray
+    text_lengths: np.ndarray
+    n_clusters: int
+    n_noise: int
+    probabilities: Optional[np.ndarray]
+
+
+class ClusterAnalysisItem(TypedDict, total=False):
+    count: int
+    avg_length: float
+    min_length: int
+    max_length: int
+    all_texts: List[str]
+    probabilities: List[float]
+    distances_to_centroid: List[float]
+    coordinates_2d: List[List[float]]
+    silhouette_scores: List[float]
+    centroid_vector_sample: List[float]
+    consistency_score: float
+
+
+DetailedAnalysis = Dict[str, ClusterAnalysisItem]
+
+
+class ClusterDetailSummary(TypedDict):
+    count: int
+    consistency_score: float
+    avg_silhouette_score: float
+    misplaced_items_count: int
+    is_noise: bool
+
+
+class SummaryData(TypedDict):
+    summary: Dict[str, int]
+    cluster_details: Dict[str, ClusterDetailSummary]
+
+
 class TextsClusterer:
     """Clusters texts of varying lengths using configured Llama.cpp embeddings."""
 
@@ -76,18 +129,18 @@ class TextsClusterer:
         )
         self.doc_prefix = doc_prefix if doc_prefix is not None else EMBED_DOC_PREFIX
 
-        self.embedding_dim = None
-        self.max_tokens_safe = max_tokens_safe
+        self.embedding_dim: Optional[int] = None
+        self.max_tokens_safe: Optional[int] = max_tokens_safe
         self._initialize_model_params()
 
-        self.embeddings = None
-        self.labels = None
-        self.text_lengths = None
-        self.probabilities = None
-        self.centroids = {}
-        self.cluster_consistency = {}
-        self.coordinates_2d = None
-        self.silhouette_scores = None
+        self.embeddings: Optional[np.ndarray] = None
+        self.labels: Optional[np.ndarray] = None
+        self.text_lengths: Optional[np.ndarray] = None
+        self.probabilities: Optional[np.ndarray] = None
+        self.centroids: CentroidsType = {}
+        self.cluster_consistency: ConsistencyType = {}
+        self.coordinates_2d: Optional[np.ndarray] = None
+        self.silhouette_scores: Optional[np.ndarray] = None
 
     def _initialize_model_params(self):
         """Fetch model metadata to set embedding dim and safe token limits."""
@@ -117,13 +170,13 @@ class TextsClusterer:
             if self.max_tokens_safe is None:
                 self.max_tokens_safe = 450
 
-    def _get_text_stats(self, texts: List[str]) -> Dict:
+    def _get_text_stats(self, texts: List[str]) -> TextStats:
         lengths = [len(text.split()) for text in texts]
         return {
             "lengths": np.array(lengths),
-            "mean": np.mean(lengths),
-            "median": np.median(lengths),
-            "max": np.max(lengths),
+            "mean": float(np.mean(lengths)),
+            "median": float(np.median(lengths)),
+            "max": int(np.max(lengths)),
         }
 
     def _encode_with_prefix(self, text: str, is_query: bool = False) -> np.ndarray:
@@ -161,7 +214,7 @@ class TextsClusterer:
             avg_embedding = avg_embedding / norm
         return avg_embedding
 
-    def fit_predict(self, texts: List[str]) -> Dict[str, any]:
+    def fit_predict(self, texts: List[str]) -> FitPredictResult:
         if not texts:
             raise ValueError("Input texts list is empty")
 
@@ -324,19 +377,19 @@ class TextsClusterer:
             print(f"Warning: Could not calculate silhouette scores: {e}")
             self.silhouette_scores = np.zeros(len(self.labels))
 
-    def get_cluster_texts(self, texts: List[str]) -> Dict[int, List[str]]:
+    def get_cluster_texts(self, texts: List[str]) -> ClustersType:
         if self.labels is None:
             raise ValueError("Must call fit_predict first")
-        clusters = {}
+        clusters: ClustersType = {}
         for text, label in zip(texts, self.labels):
             if label not in clusters:
                 clusters[label] = []
             clusters[label].append(text)
         return clusters
 
-    def get_detailed_analysis(self, texts: List[str]) -> Dict:
+    def get_detailed_analysis(self, texts: List[str]) -> DetailedAnalysis:
         clusters = self.get_cluster_texts(texts)
-        analysis = {}
+        analysis: DetailedAnalysis = {}
 
         # UPDATED: Sort keys numerically, ensuring Noise (-1) is always last
         all_keys = list(clusters.keys())
@@ -405,7 +458,8 @@ class TextsClusterer:
             label_name = (
                 "Noise/Outliers" if cluster_id == -1 else f"Cluster {cluster_id}"
             )
-            analysis[label_name] = {
+
+            item: ClusterAnalysisItem = {
                 "count": len(cluster_texts),
                 "avg_length": float(np.mean(lengths)),
                 "min_length": int(min(lengths)),
@@ -416,13 +470,15 @@ class TextsClusterer:
                 "coordinates_2d": [list(c) for c in sorted_coords],
                 "silhouette_scores": [float(s) for s in sorted_silhouettes],
             }
+
             if cluster_id in self.centroids:
-                analysis[label_name]["centroid_vector_sample"] = self.centroids[
-                    cluster_id
-                ][:5].tolist()
-                analysis[label_name]["consistency_score"] = (
-                    self.cluster_consistency.get(cluster_id, 0.0)
+                item["centroid_vector_sample"] = self.centroids[cluster_id][:5].tolist()
+                item["consistency_score"] = self.cluster_consistency.get(
+                    cluster_id, 0.0
                 )
+
+            analysis[label_name] = item
+
         return analysis
 
     def plot_clusters(self, texts: List[str], output_path: Path):
@@ -476,7 +532,7 @@ def main():
         help=f"Directory to save results.",
     )
     parser.add_argument(
-        "-m",
+        "-s",
         "--min-cluster-size",
         type=int,
         default=2,
@@ -490,7 +546,7 @@ def main():
         help="Cluster selection epsilon (lower=strict, higher=loose).",
     )
     parser.add_argument(
-        "-n",
+        "-m",
         "--model",
         type=str,
         default=EMBED_MODEL,
@@ -531,9 +587,9 @@ def main():
     noise_cluster = {k: v for k, v in analysis.items() if k == "Noise/Outliers"}
 
     # UPDATED: Sort by extracting the integer from "Cluster X"
-    def get_cluster_id(name):
+    def get_cluster_id(name: str) -> float:
         try:
-            return int(name.split(" ")[1])
+            return float(name.split(" ")[1])
         except (IndexError, ValueError):
             return float("inf")
 
@@ -580,7 +636,7 @@ def main():
         json.dump(analysis, f, indent=2, cls=NumpyEncoder, ensure_ascii=False)
 
     # --- Enhanced Summary Generation ---
-    cluster_details = {}
+    cluster_details: Dict[str, ClusterDetailSummary] = {}
     total_misplaced = 0
 
     for cluster_name, info in analysis.items():
@@ -600,7 +656,7 @@ def main():
             "is_noise": is_noise,
         }
 
-    summary_data = {
+    summary_data: SummaryData = {
         "summary": {
             "n_clusters": results["n_clusters"],
             "n_noise": results["n_noise"],
