@@ -74,6 +74,7 @@ class TextsClusterer:
         self.text_lengths = None
         self.probabilities = None
         self.centroids = {}
+        self.cluster_consistency = {}
 
     def _initialize_model_params(self):
         """Fetch model metadata to set embedding dim and safe token limits."""
@@ -311,9 +312,10 @@ class TextsClusterer:
         return confidence_scores
 
     def _calculate_centroids(self):
-        """Calculate centroid vector for each cluster."""
+        """Calculate centroid vector and consistency score for each cluster."""
         unique_labels = np.unique(self.labels)
         self.centroids = {}
+        self.cluster_consistency = {}
 
         for label in unique_labels:
             if label == -1:
@@ -322,15 +324,21 @@ class TextsClusterer:
             cluster_mask = self.labels == label
             cluster_embeddings = self.embeddings[cluster_mask]
 
-            # Mean vector
-            centroid = np.mean(cluster_embeddings, axis=0)
+            # Mean vector (raw centroid)
+            raw_centroid = np.mean(cluster_embeddings, axis=0)
 
-            # Normalize centroid for consistency
-            norm = np.linalg.norm(centroid)
-            if norm > 0:
-                centroid = centroid / norm
+            # Calculate magnitude before normalization (Consistency Score)
+            # Higher magnitude means vectors are more aligned/similar
+            magnitude = np.linalg.norm(raw_centroid)
+            self.cluster_consistency[label] = float(magnitude)
 
-            self.centroids[label] = centroid
+            # Normalize centroid for direction-based comparisons
+            if magnitude > 0:
+                normalized_centroid = raw_centroid / magnitude
+            else:
+                normalized_centroid = raw_centroid
+
+            self.centroids[label] = normalized_centroid
 
     def get_cluster_texts(self, texts: List[str]) -> Dict[int, List[str]]:
         """Group texts by cluster labels."""
@@ -402,11 +410,14 @@ class TextsClusterer:
                 "distances_to_centroid": [float(d) for d in sorted_dists],
             }
 
-            # Add centroid info if available
+            # Add centroid info and consistency score if available
             if cluster_id in self.centroids:
                 analysis[label_name]["centroid_vector_sample"] = self.centroids[
                     cluster_id
-                ][:5].tolist()  # First 5 dims for brevity
+                ][:5].tolist()
+                analysis[label_name]["consistency_score"] = (
+                    self.cluster_consistency.get(cluster_id, 0.0)
+                )
 
         return analysis
 
@@ -486,6 +497,8 @@ def main():
         print(f"  Count: {info['count']}")
         print(f"  Length range: {info['min_length']} - {info['max_length']} words")
         print(f"  Average length: {info['avg_length']:.1f} words")
+        if "consistency_score" in info:
+            print(f"  Consistency Score: {info['consistency_score']:.3f}")
         print(f"  Top Members (sorted by probability):")
         for idx, (text, prob, dist) in enumerate(
             zip(
