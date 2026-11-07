@@ -8,6 +8,7 @@ Dynamically configures dimensions and safety thresholds based on model metadata.
 import warnings
 from typing import Dict, List, Optional
 
+import hdbscan
 import numpy as np
 from jet.adapters.llama_cpp.config import (
     EMBED_DOC_PREFIX,
@@ -16,13 +17,13 @@ from jet.adapters.llama_cpp.config import (
 )
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
-from sklearn.cluster import HDBSCAN, SpectralClustering
+from sklearn.cluster import SpectralClustering
 from sklearn.preprocessing import normalize
 
 warnings.filterwarnings("ignore")
 
 
-class MixedLengthClusterer:
+class TextsClusterer:
     """Clusters texts of varying lengths using configured Llama.cpp embeddings."""
 
     def __init__(
@@ -61,6 +62,7 @@ class MixedLengthClusterer:
         self.embeddings = None
         self.labels = None
         self.text_lengths = None
+        self.probabilities = None
 
     def _initialize_model_params(self):
         """Fetch model metadata to set embedding dim and safe token limits."""
@@ -209,25 +211,36 @@ class MixedLengthClusterer:
         self.embeddings = np.array(embeddings_list)
 
         # Normalize all embeddings for cosine similarity based clustering
+        # Note: For normalized vectors, Euclidean distance is equivalent to Cosine distance
         self.embeddings = normalize(self.embeddings)
 
         n_texts = len(texts)
-        if n_texts < 50:
-            print("Using Spectral Clustering for small dataset...")
-            n_clusters_est = max(2, min(5, n_texts // 3))
+
+        # UPDATED: Always use HDBSCAN (standalone library) - works well even with small datasets
+        # Only fallback to Spectral for extremely tiny datasets (< 10)
+        if n_texts < 10:
+            print("Using Spectral Clustering for very small dataset...")
+            n_clusters_est = max(2, min(3, n_texts // 2))
             try:
                 self.clusterer = SpectralClustering(
                     n_clusters=n_clusters_est,
                     affinity="nearest_neighbors",
-                    n_neighbors=min(10, n_texts - 1),
+                    n_neighbors=min(5, n_texts - 1),
                     assign_labels="kmeans",
                     random_state=42,
                 )
                 self.labels = self.clusterer.fit_predict(self.embeddings)
+
+                # Calculate custom confidence scores since Spectral has no probs
+                self.probabilities = self._calculate_custom_confidence(
+                    self.embeddings, self.labels
+                )
+                print("Calculated custom confidence scores for SpectralClustering")
             except Exception as e:
                 print(f"Spectral failed ({e}), falling back to HDBSCAN")
                 self._run_hdbscan()
         else:
+            # Use standalone hdbscan library which provides real probabilities
             self._run_hdbscan()
 
         unique_labels = set(self.labels)
@@ -241,18 +254,71 @@ class MixedLengthClusterer:
             "text_lengths": self.text_lengths,
             "n_clusters": n_clusters,
             "n_noise": n_noise,
+            "probabilities": self.probabilities,
         }
 
     def _run_hdbscan(self):
-        """Helper to run HDBSCAN configuration."""
+        """Helper to run HDBSCAN configuration using standalone hdbscan library."""
         print("Using HDBSCAN for density-based clustering...")
-        self.clusterer = HDBSCAN(
+
+        # UPDATED: Use 'euclidean' metric because BallTree/KDTree in sklearn
+        # do not support 'cosine' directly [[6]].
+        # Since embeddings are normalized, Euclidean distance preserves cosine similarity rankings.
+        self.clusterer = hdbscan.HDBSCAN(
             min_cluster_size=self.min_cluster_size,
             min_samples=max(1, self.min_cluster_size // 2),
-            metric="cosine",
+            metric="euclidean",  # Changed from 'cosine' to 'euclidean'
             cluster_selection_epsilon=0.25,
         )
         self.labels = self.clusterer.fit_predict(self.embeddings)
+
+        # Extract membership probabilities (always available in standalone hdbscan)
+        # Clustered samples have probabilities proportional to persistence [[4]]
+        # Noisy samples have probability zero [[4]]
+        try:
+            self.probabilities = self.clusterer.probabilities_
+            print(
+                f"Extracted membership probabilities for {len(self.probabilities)} points"
+            )
+        except Exception as e:
+            print(f"Warning: Could not extract probabilities: {e}")
+            self.probabilities = np.zeros(len(self.labels))
+
+    def _calculate_custom_confidence(
+        self, embeddings: np.ndarray, labels: np.ndarray
+    ) -> np.ndarray:
+        """
+        Calculate custom confidence scores for SpectralClustering results.
+        Uses distance to cluster centroid as a proxy for membership strength.
+        """
+        from sklearn.metrics.pairwise import cosine_similarity
+
+        unique_labels = np.unique(labels)
+        confidence_scores = np.zeros(len(labels))
+
+        for label in unique_labels:
+            if label == -1:
+                continue  # Skip noise
+
+            # Get indices for this cluster
+            cluster_mask = labels == label
+            cluster_embeddings = embeddings[cluster_mask]
+
+            # Calculate centroid
+            centroid = np.mean(cluster_embeddings, axis=0)
+            centroid_norm = np.linalg.norm(centroid)
+            if centroid_norm > 0:
+                centroid = centroid / centroid_norm
+
+            # Calculate cosine similarity to centroid for each point in cluster
+            similarities = cosine_similarity(
+                cluster_embeddings, centroid.reshape(1, -1)
+            ).flatten()
+
+            # Convert similarity (0 to 1) to confidence score
+            confidence_scores[cluster_mask] = np.maximum(similarities, 0)
+
+        return confidence_scores
 
     def get_cluster_texts(self, texts: List[str]) -> Dict[int, List[str]]:
         """Group texts by cluster labels."""
@@ -266,20 +332,40 @@ class MixedLengthClusterer:
         return clusters
 
     def get_detailed_analysis(self, texts: List[str]) -> Dict:
-        """Get detailed cluster analysis including length distribution."""
+        """Get detailed cluster analysis including length distribution and outliers."""
         clusters = self.get_cluster_texts(texts)
         analysis = {}
-        for cluster_id, cluster_texts in clusters.items():
+
+        # Sort keys so Noise (-1) is handled last or specifically labeled
+        sorted_keys = sorted(clusters.keys(), key=lambda x: (x == -1, x))
+
+        for cluster_id in sorted_keys:
+            cluster_texts = clusters[cluster_id]
             lengths = [len(t.split()) for t in cluster_texts]
-            label_name = (
-                f"Cluster {cluster_id}" if cluster_id != -1 else "Noise/Outliers"
-            )
+
+            # Get indices of texts in this cluster
+            cluster_indices = [
+                i for i, label in enumerate(self.labels) if label == cluster_id
+            ]
+
+            # Get probabilities for this cluster
+            if self.probabilities is not None:
+                cluster_probs = [self.probabilities[i] for i in cluster_indices]
+            else:
+                cluster_probs = [0.0] * len(cluster_texts)
+
+            if cluster_id == -1:
+                label_name = "Noise/Outliers"
+            else:
+                label_name = f"Cluster {cluster_id}"
+
             analysis[label_name] = {
                 "count": len(cluster_texts),
                 "avg_length": np.mean(lengths),
                 "min_length": min(lengths),
                 "max_length": max(lengths),
-                "sample_texts": cluster_texts[:2],
+                "all_texts": cluster_texts,
+                "probabilities": cluster_probs,
             }
         return analysis
 
@@ -320,6 +406,12 @@ Industrial IoT optimizes manufacturing processes through real-time monitoring.""
 Containerization with Docker ensures consistent environments across development and production.""",
         "The battery life is terrible, lasting only 3 hours.",
         "Excellent value for money with premium features included.",
+        # Added some distinct/outlier-like texts to demonstrate outlier detection
+        "Sushi is best eaten fresh with soy sauce.",
+        "The cat sat on the mat.",
+        "Quantum entanglement defies classical intuition.",
+        "Bananas are rich in potassium.",
+        "The quick brown fox jumps over the lazy dog.",
     ]
 
     print("=" * 60)
@@ -327,7 +419,7 @@ Containerization with Docker ensures consistent environments across development 
     print("=" * 60)
 
     # Initialize with defaults from config
-    clusterer = MixedLengthClusterer(
+    clusterer = TextsClusterer(
         min_cluster_size=2,
         # max_tokens_safe=None will trigger dynamic calculation
     )
@@ -339,15 +431,39 @@ Containerization with Docker ensures consistent environments across development 
     print("\n" + "=" * 60)
     print("DETAILED CLUSTER ANALYSIS:")
     print("=" * 60)
-    for cluster_name, info in sorted(analysis.items()):
+
+    # Separate regular clusters and noise for better display order
+    regular_clusters = {k: v for k, v in analysis.items() if k != "Noise/Outliers"}
+    noise_cluster = {k: v for k, v in analysis.items() if k == "Noise/Outliers"}
+
+    # Print regular clusters first
+    for cluster_name, info in sorted(regular_clusters.items()):
         print(f"\n{cluster_name}:")
         print(f"  Count: {info['count']}")
         print(f"  Length range: {info['min_length']} - {info['max_length']} words")
         print(f"  Average length: {info['avg_length']:.1f} words")
-        print(f"  Sample texts:")
-        for text in info["sample_texts"]:
+        print(f"  All texts:")
+        for idx, (text, prob) in enumerate(
+            zip(info["all_texts"], info["probabilities"]), 1
+        ):
             preview = text[:100] + "..." if len(text) > 100 else text
-            print(f"    • {preview}")
+            # Display probability score
+            print(f"    {idx}. [{prob:.3f}] {preview}")
+
+    # Print Noise/Outliers last if they exist
+    if noise_cluster:
+        for cluster_name, info in noise_cluster.items():
+            print(f"\n{cluster_name}:")
+            print(f"  Count: {info['count']}")
+            print(f"  Length range: {info['min_length']} - {info['max_length']} words")
+            print(f"  Average length: {info['avg_length']:.1f} words")
+            print(f"  All texts:")
+            for idx, (text, prob) in enumerate(
+                zip(info["all_texts"], info["probabilities"]), 1
+            ):
+                preview = text[:100] + "..." if len(text) > 100 else text
+                # Display probability score (will be 0.000 for noise)
+                print(f"    {idx}. [{prob:.3f}] {preview}")
 
     print(f"\n{'=' * 60}")
     print(f"SUMMARY: {results['n_clusters']} clusters, {results['n_noise']} outliers")
