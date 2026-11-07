@@ -16,7 +16,7 @@ Usage Examples:
        python cluster_utils.py -i input_texts.json -m 5 -e 0.1
 
     3. Loose clustering (broader topics, less noise):
-       python cluster_utils.py -i input_texts.json -m 2 -e 0.75
+       python cluster_utils.py -i input_texts.json -m 2 -e 0.5
 
     4. Custom output directory and model:
        python cluster_utils.py -i input_texts.json -o ./my_results -n nomic-embed:2-moe
