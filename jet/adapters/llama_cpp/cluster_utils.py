@@ -1,8 +1,25 @@
 """
 Clustering for mixed-length texts (words, sentences, and documents).
-Uses configured Llama.cpp embedding models for semantic understanding.
-Handles varying lengths by normalizing embeddings and chunking long texts.
-Dynamically configures dimensions and safety thresholds based on model metadata.
+
+Features:
+    - Semantic Understanding: Uses configured Llama.cpp embedding models.
+    - Mixed-Length Handling: Normalizes embeddings and chunks long texts dynamically.
+    - Dynamic Configuration: Adjusts dimensions and safety thresholds based on model metadata.
+    - Advanced Metrics: Provides membership probabilities, silhouette scores, and consistency scores.
+    - Visualization: Generates 2D t-SNE plots and saves detailed JSON analysis.
+
+Usage Examples:
+    1. Basic usage with default settings:
+       python cluster_utils.py -i input_texts.json
+
+    2. Strict clustering (tighter groups, more noise):
+       python cluster_utils.py -i input_texts.json -m 5 -e 0.1
+
+    3. Loose clustering (broader topics, less noise):
+       python cluster_utils.py -i input_texts.json -m 2 -e 0.5
+
+    4. Custom output directory and model:
+       python cluster_utils.py -i input_texts.json -o ./my_results -n nomic-embed:2-moe
 """
 
 import argparse
@@ -49,9 +66,11 @@ class TextsClusterer:
         max_tokens_safe: Optional[int] = None,
         query_prefix: Optional[str] = None,
         doc_prefix: Optional[str] = None,
+        cluster_selection_epsilon: float = 0.25,
     ):
         self.model_name = model_name
         self.min_cluster_size = min_cluster_size
+        self.cluster_selection_epsilon = cluster_selection_epsilon
         self.query_prefix = (
             query_prefix if query_prefix is not None else EMBED_QUERY_PREFIX
         )
@@ -212,7 +231,7 @@ class TextsClusterer:
             min_cluster_size=self.min_cluster_size,
             min_samples=max(1, self.min_cluster_size // 2),
             metric="euclidean",
-            cluster_selection_epsilon=0.1,
+            cluster_selection_epsilon=self.cluster_selection_epsilon,
         )
         self.labels = self.clusterer.fit_predict(self.embeddings)
         try:
@@ -318,7 +337,13 @@ class TextsClusterer:
     def get_detailed_analysis(self, texts: List[str]) -> Dict:
         clusters = self.get_cluster_texts(texts)
         analysis = {}
-        sorted_keys = sorted(clusters.keys(), key=lambda x: (x == -1, x))
+
+        # UPDATED: Sort keys numerically, ensuring Noise (-1) is always last
+        all_keys = list(clusters.keys())
+        regular_keys = [k for k in all_keys if k != -1]
+        regular_keys.sort()  # Sorts 0, 1, 2, 3, 10... correctly
+
+        sorted_keys = regular_keys + ([-1] if -1 in all_keys else [])
 
         for cluster_id in sorted_keys:
             cluster_texts = clusters[cluster_id]
@@ -456,6 +481,13 @@ def main():
         help="Minimum cluster size for HDBSCAN.",
     )
     parser.add_argument(
+        "-e",
+        "--epsilon",
+        type=float,
+        default=0.25,
+        help="Cluster selection epsilon (lower=strict, higher=loose).",
+    )
+    parser.add_argument(
         "-n",
         "--model",
         type=str,
@@ -481,7 +513,9 @@ def main():
     print("=" * 60)
 
     clusterer = TextsClusterer(
-        model_name=args.model, min_cluster_size=args.min_cluster_size
+        model_name=args.model,
+        min_cluster_size=args.min_cluster_size,
+        cluster_selection_epsilon=args.epsilon,
     )
     results = clusterer.fit_predict(texts)
     analysis = clusterer.get_detailed_analysis(texts)
@@ -489,10 +523,22 @@ def main():
     print("\n" + "=" * 60)
     print("DETAILED CLUSTER ANALYSIS:")
     print("=" * 60)
+
+    # Separate regular clusters and noise
     regular_clusters = {k: v for k, v in analysis.items() if k != "Noise/Outliers"}
     noise_cluster = {k: v for k, v in analysis.items() if k == "Noise/Outliers"}
 
-    for cluster_name, info in sorted(regular_clusters.items()):
+    # UPDATED: Sort by extracting the integer from "Cluster X"
+    def get_cluster_id(name):
+        try:
+            return int(name.split(" ")[1])
+        except (IndexError, ValueError):
+            return float("inf")
+
+    sorted_cluster_names = sorted(regular_clusters.keys(), key=get_cluster_id)
+
+    for cluster_name in sorted_cluster_names:
+        info = regular_clusters[cluster_name]
         print(f"\n{cluster_name}:")
         print(
             f"  Count: {info['count']} | Consistency: {info.get('consistency_score', 0):.3f}"
