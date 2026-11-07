@@ -5,7 +5,11 @@ Handles varying lengths by normalizing embeddings and chunking long texts.
 Dynamically configures dimensions and safety thresholds based on model metadata.
 """
 
+import argparse
+import json
+import shutil
 import warnings
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import hdbscan
@@ -18,9 +22,15 @@ from jet.adapters.llama_cpp.config import (
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
 from sklearn.cluster import SpectralClustering
+from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 
 warnings.filterwarnings("ignore")
+
+# Define output directory relative to this script
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class TextsClusterer:
@@ -63,6 +73,7 @@ class TextsClusterer:
         self.labels = None
         self.text_lengths = None
         self.probabilities = None
+        self.centroids = {}
 
     def _initialize_model_params(self):
         """Fetch model metadata to set embedding dim and safe token limits."""
@@ -73,7 +84,6 @@ class TextsClusterer:
             # Set embedding dimension
             self.embedding_dim = model_info["embd_dims"]
             if not self.embedding_dim or self.embedding_dim == 0:
-                # Fallback if metadata doesn't provide it, though rare for valid models
                 print(
                     "Warning: Could not determine embedding dimension from metadata. Defaulting to 768."
                 )
@@ -85,10 +95,7 @@ class TextsClusterer:
             if self.max_tokens_safe is None:
                 n_ctx = model_info["ctx"]
                 if n_ctx and n_ctx > 0:
-                    # Estimate words per token (~1.3 words/token is a common conservative estimate)
-                    # Reserve some context for prefixes and overhead
                     estimated_words = int(n_ctx / 1.3)
-                    # Set safe limit to 80% of estimated capacity to allow for chunking/prefixes
                     self.max_tokens_safe = max(50, int(estimated_words * 0.8))
                     print(
                         f"Calculated max_tokens_safe: {self.max_tokens_safe} (based on ctx={n_ctx})"
@@ -122,7 +129,6 @@ class TextsClusterer:
         Encode text with appropriate prefix using jet.embed_utils.
         """
         prefix = self.query_prefix if is_query else self.doc_prefix
-
         word_count = len(text.split())
 
         # If text is short enough, encode directly
@@ -142,8 +148,6 @@ class TextsClusterer:
         and averaging the vectors to preserve global meaning.
         """
         words = text.split()
-        # Use max_tokens_safe as chunk size, but ensure it's not too large for a single API call
-        # Typically llama.cpp handles batches well, but for chunking logic we want manageable pieces
         chunk_size = min(self.max_tokens_safe, 400)
 
         chunks = []
@@ -158,12 +162,11 @@ class TextsClusterer:
         if not chunks:
             return np.zeros(self.embedding_dim)
 
-        # embed_batch handles parallelization and batching internally
         chunk_embeddings = embed(
             chunks,
             model=self.model_name,
             return_format="numpy",
-            show_progress=False,  # Disable progress bar for internal chunking
+            show_progress=False,
         )
 
         # Average the embeddings
@@ -211,13 +214,9 @@ class TextsClusterer:
         self.embeddings = np.array(embeddings_list)
 
         # Normalize all embeddings for cosine similarity based clustering
-        # Note: For normalized vectors, Euclidean distance is equivalent to Cosine distance
         self.embeddings = normalize(self.embeddings)
 
         n_texts = len(texts)
-
-        # UPDATED: Always use HDBSCAN (standalone library) - works well even with small datasets
-        # Only fallback to Spectral for extremely tiny datasets (< 10)
         if n_texts < 10:
             print("Using Spectral Clustering for very small dataset...")
             n_clusters_est = max(2, min(3, n_texts // 2))
@@ -230,8 +229,6 @@ class TextsClusterer:
                     random_state=42,
                 )
                 self.labels = self.clusterer.fit_predict(self.embeddings)
-
-                # Calculate custom confidence scores since Spectral has no probs
                 self.probabilities = self._calculate_custom_confidence(
                     self.embeddings, self.labels
                 )
@@ -240,13 +237,15 @@ class TextsClusterer:
                 print(f"Spectral failed ({e}), falling back to HDBSCAN")
                 self._run_hdbscan()
         else:
-            # Use standalone hdbscan library which provides real probabilities
             self._run_hdbscan()
 
         unique_labels = set(self.labels)
         n_clusters = len([l for l in unique_labels if l != -1])
         n_noise = sum(1 for l in self.labels if l == -1)
         print(f"\nFound {n_clusters} clusters with {n_noise} noise points")
+
+        # Calculate centroids for all clusters
+        self._calculate_centroids()
 
         return {
             "labels": self.labels,
@@ -261,20 +260,15 @@ class TextsClusterer:
         """Helper to run HDBSCAN configuration using standalone hdbscan library."""
         print("Using HDBSCAN for density-based clustering...")
 
-        # UPDATED: Use 'euclidean' metric because BallTree/KDTree in sklearn
-        # do not support 'cosine' directly [[6]].
-        # Since embeddings are normalized, Euclidean distance preserves cosine similarity rankings.
         self.clusterer = hdbscan.HDBSCAN(
             min_cluster_size=self.min_cluster_size,
             min_samples=max(1, self.min_cluster_size // 2),
-            metric="euclidean",  # Changed from 'cosine' to 'euclidean'
+            metric="euclidean",
             cluster_selection_epsilon=0.25,
         )
         self.labels = self.clusterer.fit_predict(self.embeddings)
 
-        # Extract membership probabilities (always available in standalone hdbscan)
-        # Clustered samples have probabilities proportional to persistence [[4]]
-        # Noisy samples have probability zero [[4]]
+        # Extract membership probabilities
         try:
             self.probabilities = self.clusterer.probabilities_
             print(
@@ -291,16 +285,13 @@ class TextsClusterer:
         Calculate custom confidence scores for SpectralClustering results.
         Uses distance to cluster centroid as a proxy for membership strength.
         """
-        from sklearn.metrics.pairwise import cosine_similarity
-
         unique_labels = np.unique(labels)
         confidence_scores = np.zeros(len(labels))
 
         for label in unique_labels:
             if label == -1:
-                continue  # Skip noise
+                continue
 
-            # Get indices for this cluster
             cluster_mask = labels == label
             cluster_embeddings = embeddings[cluster_mask]
 
@@ -310,15 +301,36 @@ class TextsClusterer:
             if centroid_norm > 0:
                 centroid = centroid / centroid_norm
 
-            # Calculate cosine similarity to centroid for each point in cluster
+            # Calculate cosine similarity to centroid
             similarities = cosine_similarity(
                 cluster_embeddings, centroid.reshape(1, -1)
             ).flatten()
 
-            # Convert similarity (0 to 1) to confidence score
             confidence_scores[cluster_mask] = np.maximum(similarities, 0)
 
         return confidence_scores
+
+    def _calculate_centroids(self):
+        """Calculate centroid vector for each cluster."""
+        unique_labels = np.unique(self.labels)
+        self.centroids = {}
+
+        for label in unique_labels:
+            if label == -1:
+                continue
+
+            cluster_mask = self.labels == label
+            cluster_embeddings = self.embeddings[cluster_mask]
+
+            # Mean vector
+            centroid = np.mean(cluster_embeddings, axis=0)
+
+            # Normalize centroid for consistency
+            norm = np.linalg.norm(centroid)
+            if norm > 0:
+                centroid = centroid / norm
+
+            self.centroids[label] = centroid
 
     def get_cluster_texts(self, texts: List[str]) -> Dict[int, List[str]]:
         """Group texts by cluster labels."""
@@ -332,11 +344,11 @@ class TextsClusterer:
         return clusters
 
     def get_detailed_analysis(self, texts: List[str]) -> Dict:
-        """Get detailed cluster analysis including length distribution and outliers."""
+        """Get detailed cluster analysis including length distribution, outliers, and centroids."""
         clusters = self.get_cluster_texts(texts)
         analysis = {}
 
-        # Sort keys so Noise (-1) is handled last or specifically labeled
+        # Sort keys so Noise (-1) is handled last
         sorted_keys = sorted(clusters.keys(), key=lambda x: (x == -1, x))
 
         for cluster_id in sorted_keys:
@@ -354,6 +366,27 @@ class TextsClusterer:
             else:
                 cluster_probs = [0.0] * len(cluster_texts)
 
+            # Calculate distance to centroid for each text
+            cluster_distances = []
+            if cluster_id in self.centroids:
+                centroid = self.centroids[cluster_id]
+                cluster_embeddings = self.embeddings[cluster_indices]
+                # Cosine distance = 1 - cosine_similarity
+                sims = cosine_similarity(
+                    cluster_embeddings, centroid.reshape(1, -1)
+                ).flatten()
+                cluster_distances = [float(1 - s) for s in sims]
+            else:
+                cluster_distances = [0.0] * len(cluster_texts)
+
+            # Create list of tuples (text, prob, distance) and sort by prob descending
+            combined = list(zip(cluster_texts, cluster_probs, cluster_distances))
+            combined.sort(key=lambda x: x[1], reverse=True)
+
+            sorted_texts, sorted_probs, sorted_dists = (
+                zip(*combined) if combined else ([], [], [])
+            )
+
             if cluster_id == -1:
                 label_name = "Noise/Outliers"
             else:
@@ -361,10 +394,152 @@ class TextsClusterer:
 
             analysis[label_name] = {
                 "count": len(cluster_texts),
-                "avg_length": np.mean(lengths),
-                "min_length": min(lengths),
-                "max_length": max(lengths),
-                "all_texts": cluster_texts,
-                "probabilities": cluster_probs,
+                "avg_length": float(np.mean(lengths)),
+                "min_length": int(min(lengths)),
+                "max_length": int(max(lengths)),
+                "all_texts": list(sorted_texts),
+                "probabilities": [float(p) for p in sorted_probs],
+                "distances_to_centroid": [float(d) for d in sorted_dists],
             }
+
+            # Add centroid info if available
+            if cluster_id in self.centroids:
+                analysis[label_name]["centroid_vector_sample"] = self.centroids[
+                    cluster_id
+                ][:5].tolist()  # First 5 dims for brevity
+
         return analysis
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Cluster mixed-length texts using Llama.cpp embeddings."
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=str,
+        required=True,
+        help="Path to JSON file containing an array of strings.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=str,
+        default=str(OUTPUT_DIR),
+        help=f"Directory to save results. Defaults to {OUTPUT_DIR}",
+    )
+    parser.add_argument(
+        "-m",
+        "--min-cluster-size",
+        type=int,
+        default=2,
+        help="Minimum cluster size for HDBSCAN.",
+    )
+    parser.add_argument(
+        "-n",
+        "--model",
+        type=str,
+        default=EMBED_MODEL,
+        help="Model name to use for embeddings.",
+    )
+
+    args = parser.parse_args()
+
+    # Ensure output directory exists
+    out_path = Path(args.output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    # Load input data
+    try:
+        with open(args.input, "r") as f:
+            texts = json.load(f)
+        if not isinstance(texts, list):
+            raise ValueError("JSON root must be an array of strings.")
+        if not all(isinstance(t, str) for t in texts):
+            raise ValueError("All items in the JSON array must be strings.")
+    except Exception as e:
+        print(f"Error loading input file: {e}")
+        return
+
+    print("=" * 60)
+    print("Mixed-Length Text Clustering Demo (Llama.cpp)")
+    print("=" * 60)
+
+    clusterer = TextsClusterer(
+        model_name=args.model,
+        min_cluster_size=args.min_cluster_size,
+    )
+
+    results = clusterer.fit_predict(texts)
+    analysis = clusterer.get_detailed_analysis(texts)
+
+    print("\n" + "=" * 60)
+    print("DETAILED CLUSTER ANALYSIS:")
+    print("=" * 60)
+
+    regular_clusters = {k: v for k, v in analysis.items() if k != "Noise/Outliers"}
+    noise_cluster = {k: v for k, v in analysis.items() if k == "Noise/Outliers"}
+
+    for cluster_name, info in sorted(regular_clusters.items()):
+        print(f"\n{cluster_name}:")
+        print(f"  Count: {info['count']}")
+        print(f"  Length range: {info['min_length']} - {info['max_length']} words")
+        print(f"  Average length: {info['avg_length']:.1f} words")
+        print(f"  Top Members (sorted by probability):")
+        for idx, (text, prob, dist) in enumerate(
+            zip(
+                info["all_texts"], info["probabilities"], info["distances_to_centroid"]
+            ),
+            1,
+        ):
+            preview = text[:100] + "..." if len(text) > 100 else text
+            print(f"    {idx}. [Prob: {prob:.3f}] [Dist: {dist:.3f}] {preview}")
+
+    if noise_cluster:
+        for cluster_name, info in noise_cluster.items():
+            print(f"\n{cluster_name}:")
+            print(f"  Count: {info['count']}")
+            print(f"  All texts:")
+            for idx, text in enumerate(info["all_texts"], 1):
+                preview = text[:100] + "..." if len(text) > 100 else text
+                print(f"    {idx}. {preview}")
+
+    print(f"\n{'=' * 60}")
+    print(f"SUMMARY: {results['n_clusters']} clusters, {results['n_noise']} outliers")
+    print(f"{'=' * 60}")
+
+    # Save results to JSON files
+    class NumpyEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return super().default(obj)
+
+    # 1. Save Detailed Analysis
+    analysis_file = out_path / "analysis.json"
+    with open(analysis_file, "w") as f:
+        json.dump(analysis, f, indent=2, cls=NumpyEncoder)
+    print(f"\nDetailed analysis saved to {analysis_file}")
+
+    # 2. Save Summary
+    summary_data = {
+        "summary": {
+            "n_clusters": results["n_clusters"],
+            "n_noise": results["n_noise"],
+            "total_texts": len(texts),
+        },
+        "cluster_sizes": {k: v["count"] for k, v in analysis.items()},
+    }
+    summary_file = out_path / "summary.json"
+    with open(summary_file, "w") as f:
+        json.dump(summary_data, f, indent=2, cls=NumpyEncoder)
+    print(f"Summary saved to {summary_file}")
+
+
+if __name__ == "__main__":
+    main()
