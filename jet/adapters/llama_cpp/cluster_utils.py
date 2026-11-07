@@ -389,8 +389,10 @@ class TextsClusterer:
                     cluster_silhouettes,
                 )
             )
-            # Sort by probability descending
-            combined.sort(key=lambda x: x[1], reverse=True)
+
+            # UPDATED: Sort by Silhouette Score descending (primary), then Probability (secondary)
+            # x[4] is silhouette score, x[1] is probability
+            combined.sort(key=lambda x: (x[4], x[1]), reverse=True)
 
             (
                 sorted_texts,
@@ -543,7 +545,7 @@ def main():
         print(
             f"  Count: {info['count']} | Consistency: {info.get('consistency_score', 0):.3f}"
         )
-        print(f"  Top Members:")
+        print(f"  Top Members (sorted by Silhouette Score):")
         for idx, (text, prob, dist, sil) in enumerate(
             zip(
                 info["all_texts"],
@@ -554,7 +556,7 @@ def main():
             1,
         ):
             preview = text[:80] + "..." if len(text) > 80 else text
-            print(f"    {idx}. [P:{prob:.2f}] [S:{sil:.2f}] {preview}")
+            print(f"    {idx}. [S:{sil:.2f}] [P:{prob:.2f}] {preview}")
 
     if noise_cluster:
         print(f"\nNoise/Outliers ({noise_cluster['Noise/Outliers']['count']} items):")
@@ -575,7 +577,7 @@ def main():
             return super().default(obj)
 
     with open(out_path / "analysis.json", "w") as f:
-        json.dump(analysis, f, indent=2, cls=NumpyEncoder)
+        json.dump(analysis, f, indent=2, cls=NumpyEncoder, ensure_ascii=False)
 
     # --- Enhanced Summary Generation ---
     cluster_details = {}
@@ -609,7 +611,7 @@ def main():
     }
 
     with open(out_path / "summary.json", "w") as f:
-        json.dump(summary_data, f, indent=2, cls=NumpyEncoder)
+        json.dump(summary_data, f, indent=2, cls=NumpyEncoder, ensure_ascii=False)
 
     print(f"\nResults saved to {out_path}")
 
