@@ -531,14 +531,37 @@ def main():
     with open(out_path / "analysis.json", "w") as f:
         json.dump(analysis, f, indent=2, cls=NumpyEncoder)
 
+    # --- Enhanced Summary Generation ---
+    cluster_details = {}
+    total_misplaced = 0
+
+    for cluster_name, info in analysis.items():
+        is_noise = cluster_name == "Noise/Outliers"
+        sil_scores = info.get("silhouette_scores", [])
+
+        # Calculate metrics
+        misplaced_count = sum(1 for s in sil_scores if s < 0)
+        avg_silhouette = float(np.mean(sil_scores)) if sil_scores else 0.0
+        total_misplaced += misplaced_count
+
+        cluster_details[cluster_name] = {
+            "count": info["count"],
+            "consistency_score": info.get("consistency_score", 0.0),
+            "avg_silhouette_score": round(avg_silhouette, 4),
+            "misplaced_items_count": misplaced_count,
+            "is_noise": is_noise,
+        }
+
     summary_data = {
         "summary": {
             "n_clusters": results["n_clusters"],
             "n_noise": results["n_noise"],
             "total_texts": len(texts),
+            "total_misplaced_items": total_misplaced,
         },
-        "cluster_sizes": {k: v["count"] for k, v in analysis.items()},
+        "cluster_details": cluster_details,
     }
+
     with open(out_path / "summary.json", "w") as f:
         json.dump(summary_data, f, indent=2, cls=NumpyEncoder)
 
