@@ -60,29 +60,9 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain"
     },
     {
-        "name": "langchain-text-splitters",
-        "version": "1.1.2",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters"
-    },
-    {
-        "name": "langgraph-checkpoint",
-        "version": "4.2.0",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/checkpoint"
-    },
-    {
-        "name": "langgraph-prebuilt",
-        "version": "1.1.0",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/prebuilt"
-    },
-    {
         "name": "llama-index-embeddings-openai-like",
         "version": "0.4.0",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/embeddings/llama-index-embeddings-openai-like"
-    },
-    {
-        "name": "llama-index-llms-openai-like",
-        "version": "0.8.0",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/llms/llama-index-llms-openai-like"
     },
     {
         "name": "llama-index-memory-mem0",
@@ -108,20 +88,5 @@
         "name": "searxng",
         "version": "2026.8.4+c63835bd2",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/apps/searxng"
-    },
-    {
-        "name": "ten_vad",
-        "version": "1.0.6.8",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/ten-vad"
-    },
-    {
-        "name": "unstructured_inference",
-        "version": "1.6.13",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured-inference"
-    },
-    {
-        "name": "wtpsplit",
-        "version": "2.2.1",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/wtpsplit"
     }
 ]

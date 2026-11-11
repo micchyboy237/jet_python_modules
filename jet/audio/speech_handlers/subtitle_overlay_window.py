@@ -428,6 +428,9 @@ class SubtitleOverlay(
         speaker_match_type = notification.get("speaker_match_type", "")
         diarization = notification.get("diarization", {})
         segment_number = notification.get("num", 0)
+        speaker_gender = notification.get("speaker_gender", "unknown")
+        male_prob = notification.get("male_probability", 0.0)
+        female_prob = notification.get("female_probability", 0.0)
         self._entries.append(
             {
                 "ja": ja,
@@ -452,6 +455,9 @@ class SubtitleOverlay(
                 "speaker_confidence": speaker_confidence,
                 "speaker_match_type": speaker_match_type,
                 "diarization": diarization,
+                "speaker_gender": speaker_gender,
+                "male_probability": male_prob,
+                "female_probability": female_prob,
             }
         )
         self._last_html = None

@@ -10,16 +10,9 @@ jet-telemetry==1.0.0
 keybert==0.9.0
 langchain-chroma==1.1.0
 langchain-classic==1.0.8
-langchain-text-splitters==1.1.2
-langgraph-checkpoint==4.2.0
-langgraph-prebuilt==1.1.0
 llama-index-embeddings-openai-like==0.4.0
-llama-index-llms-openai-like==0.8.0
 llama-index-memory-mem0==2.1.0
 llama-index-retrievers-bm25==0.8.0
 markdown-it-py==4.2.0
 nova-vad==1.0.0
 searxng==2026.8.4+c63835bd2
-ten_vad==1.0.6.8
-unstructured_inference==1.6.13
-wtpsplit==2.2.1

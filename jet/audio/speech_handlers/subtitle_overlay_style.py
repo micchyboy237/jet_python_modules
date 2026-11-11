@@ -1,3 +1,5 @@
+# jet_python_modules/jet/audio/speech_handlers/subtitle_overlay_style.py
+
 """
 Color/rating helpers, CSS constants, and entry-formatting for SubtitleOverlay.
 Extracted from subtitle_overlay_window.py to keep the window class under 150 lines.
@@ -96,6 +98,36 @@ def _speaker_confidence_color(confidence: Optional[float]) -> str:
     return "#f85149"
 
 
+# --- NEW: Gender Helpers ---
+def _gender_color(gender: Optional[str]) -> str:
+    """Return theme color based on detected gender."""
+    if not gender:
+        return "#8b949e"  # Gray for unknown/none
+    g = gender.lower()
+    if g == "male":
+        return "#58a6ff"  # Blue
+    elif g == "female":
+        return "#f778ba"  # Pink/Magenta
+    else:
+        return "#8b949e"  # Gray
+
+
+def _gender_icon(gender: Optional[str]) -> str:
+    """Return icon based on detected gender."""
+    if not gender:
+        return "❓"
+    g = gender.lower()
+    if g == "male":
+        return "👨"
+    elif g == "female":
+        return "👩"
+    else:
+        return "❓"
+
+
+# -------------------------
+
+
 def _format_entry(
     index: int,
     entry: dict,
@@ -108,20 +140,23 @@ def _format_entry(
     ja = entry.get("ja", "").strip()
     en = entry.get("en", "").strip()
     text_display = en if hide_japanese else f"{ja}\n{en}".strip()
+
     start: float = entry.get("start", 0.0)
     end: float = entry.get("end", 0.0)
     end_reason = entry.get("end_reason") or "true_silence"
     segment_dir: Optional[Path] = (
         Path(entry["segment_dir"]) if entry.get("segment_dir") else None
     )
+
     gap: Optional[float] = None
     if prev_entry is not None:
         prev_end_time_utc = prev_entry.get("end_time_utc")
         prev_end_sec = prev_entry.get("end")
         current_start_time_utc = entry.get("start_time_utc")
         current_start_sec = entry.get("start")
+
         if current_start_time_utc and prev_end_time_utc:
-            from datetime import datetime  # local import kept to avoid circular deps
+            from datetime import datetime
 
             try:
                 start_dt = datetime.fromisoformat(current_start_time_utc)
@@ -129,19 +164,24 @@ def _format_entry(
                 gap = (start_dt - end_dt).total_seconds()
             except (ValueError, TypeError):
                 pass
+
         if gap is None and current_start_sec is not None and prev_end_sec is not None:
             gap = current_start_sec - prev_end_sec
+
     gap_str = f"{gap:.2f}s" if gap is not None else "—"
     duration = end - start
+
     vad_score: Optional[float] = entry.get("vad_score")
     vad_score_str = f"{vad_score:.3f}" if isinstance(vad_score, float) else "N/A"
     vad_score_color = _balanced_vad_score_color(vad_score)
     vad_rating = _balanced_vad_score_rating(vad_score)
+
     speech_pctg: Optional[float] = entry.get("speech_frames_pctg")
     speech_pctg_str = (
         f"{speech_pctg:.1f}%" if isinstance(speech_pctg, (int, float)) else "N/A"
     )
     speech_pctg_color = _speech_pctg_color(speech_pctg)
+
     transcribed_pctg = entry.get("transcribed_duration_pctg")
     trans_pctg_str = (
         f"{float(transcribed_pctg):.1f}%"
@@ -151,6 +191,7 @@ def _format_entry(
     trans_pctg_color = _speech_pctg_color(
         float(transcribed_pctg) if isinstance(transcribed_pctg, (int, float)) else None
     )
+
     composite_score: Optional[float] = entry.get("vad_composite_score")
     composite_str = (
         f"{composite_score:.3f}" if isinstance(composite_score, (int, float)) else "N/A"
@@ -158,9 +199,11 @@ def _format_entry(
     composite_color = _composite_score_color(
         float(composite_score) if isinstance(composite_score, (int, float)) else None
     )
+
     quality_label: Optional[str] = entry.get("vad_quality_label")
     quality_str = quality_label or "N/A"
     quality_color = _quality_label_color(quality_label)
+
     speaker_label = entry.get("speaker_label", "")
     speaker_confidence: Optional[float] = entry.get("speaker_confidence")
     speaker_conf_str = (
@@ -168,6 +211,27 @@ def _format_entry(
     )
     speaker_conf_color = _speaker_confidence_color(speaker_confidence)
     speaker_match_type = entry.get("speaker_match_type", "")
+
+    # --- NEW: Gender Data ---
+    speaker_gender = entry.get("speaker_gender", "unknown")
+    male_prob = entry.get("male_probability", 0.0)
+    female_prob = entry.get("female_probability", 0.0)
+
+    gender_icon = _gender_icon(speaker_gender)
+    gender_col = _gender_color(speaker_gender)
+
+    # Format probability string only if gender is known
+    if speaker_gender and speaker_gender.lower() != "unknown":
+        if speaker_gender.lower() == "male":
+            prob_val = male_prob
+        else:
+            prob_val = female_prob
+        # Do not cut decimal places as requested
+        gender_prob_str = f" {prob_val}"
+    else:
+        gender_prob_str = ""
+    # ------------------------
+
     copy_link = (
         f'<a href="copy:{index}" style="color:#58a6ff; text-decoration:none;">📋</a>'
     )
@@ -183,6 +247,7 @@ def _format_entry(
         if segment_dir and (segment_dir / "sound.wav").exists()
         else ""
     )
+
     speaker_badge = ""
     if speaker_label:
         speaker_badge = (
@@ -193,11 +258,24 @@ def _format_entry(
             f'<span style="color:{speaker_conf_color};">{speaker_conf_str}</span>'
             f"</span>"
         )
+
+    # --- NEW: Gender Badge after Duration ---
+    gender_badge = ""
+    if speaker_gender and speaker_gender.lower() != "unknown":
+        gender_badge = (
+            f' • <span style="'
+            f"background:{gender_col}; color:#ffffff; font-family:monospace; "
+            f"font-size:9px; font-weight:bold; padding:1px 4px; "
+            f'border-radius:3px;">{gender_icon}{gender_prob_str}</span>'
+        )
+    # ----------------------------------------
+
     header_html = (
         f'<b style="font-size:10px;">{segment_number}</b>'
         f"{speaker_badge} "
         f'<span style="font-size:9px; color:#8b949e;">'
         f"({duration:.2f}s)"
+        f"{gender_badge}"  # Added here
         f" • gap: {gap_str}"
         f' • <span style="color:#d2a8ff;">{end_reason}</span>'
         f' • VAD: <span style="color:{vad_score_color}; font-weight:bold;">{vad_score_str}</span>'
@@ -205,6 +283,7 @@ def _format_entry(
         f"</span>"
         f" {copy_link} {open_link} {play_link}"
     )
+
     text_html = (
         f'<div style="margin-top:5px; margin-bottom:2px;">'
         f'<span style="'
@@ -216,6 +295,7 @@ def _format_entry(
         f'">{text_display.replace(chr(10), "<br/>")}</span>'
         f"</div>"
     )
+
     return (
         f'<div style="margin-bottom:4px;">'
         f"{header_html}"
