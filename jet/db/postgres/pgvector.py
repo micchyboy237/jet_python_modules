@@ -230,6 +230,19 @@ class PgVectorClient:
             content_column,
         )
 
+    def diverse_search(
+        self,
+        table_name: str,
+        query_embedding: EmbeddingInput,
+        top_k: int = 5,
+        num_candidates: int = 20,
+        lambda_mult: float = 0.5,
+        metric: Literal["cosine", "l2"] = "cosine",
+    ) -> List[Dict]:
+        return self.search_manager.diverse_search(
+            table_name, query_embedding, top_k, num_candidates, lambda_mult, metric
+        )
+
     def get_embeddings(
         self, table_name: str, ids: List[str] = None
     ) -> Dict[str, Embedding]:
