@@ -1,4 +1,4 @@
-# jet_python_modules/jet/db/postgres/examples/demo_vector_search_jet.py
+from jet.adapters.llama_cpp.config import EMBED_DOC_PREFIX, EMBED_QUERY_PREFIX
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.db.postgres.pgvector import PgVectorClient
 from jet.logger import logger
@@ -12,7 +12,6 @@ def main():
 
     try:
         table_name = "demo_items"
-        # nomic-embed typically uses 768 dimensions
         dimension = 768
 
         logger.info(
@@ -24,7 +23,6 @@ def main():
             additional_columns={"content": "TEXT"},
         )
 
-        # Sample data with real-world concepts
         sample_texts = [
             "The dog is barking loudly at the mailman.",
             "The cat is purring softly on the windowsill.",
@@ -34,8 +32,8 @@ def main():
         ]
 
         logger.info("Generating real embeddings using llama.cpp adapter...")
-        # embed() returns a numpy array by default
-        embeddings = embed(sample_texts)
+        # Use EMBED_DOC_PREFIX for storing documents
+        embeddings = embed(sample_texts, prefix=EMBED_DOC_PREFIX)
 
         sample_data = [
             {"id": str(i + 1), "content": text, "embedding": emb.tolist()}
@@ -52,10 +50,11 @@ def main():
         logger.info("Creating Full-Text Search index...")
         client.create_fts_index(table_name, column_name="content")
 
-        # Generate a real query embedding
         query_text = "A canine is making noise"
         logger.info(f"\nGenerating embedding for query: '{query_text}'")
-        query_embedding = embed(query_text).tolist()
+
+        # Use EMBED_QUERY_PREFIX for the search query
+        query_embedding = embed(query_text, prefix=EMBED_QUERY_PREFIX).tolist()
 
         logger.info(f"Searching for similarities...")
 
