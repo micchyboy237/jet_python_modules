@@ -31,7 +31,7 @@ def main():
             {
                 "id": "1",
                 "content": "High speed car chase in Tokyo",
-                "code": "SSIS-100",
+                "code": "ssis",
                 "genres": ["Action", "Cars"],
                 "release_date": "2023-05-15T00:00:00+00:00",
                 "director": None,
@@ -39,7 +39,7 @@ def main():
             {
                 "id": "2",
                 "content": "Romantic getaway in Paris",
-                "code": "ABP-200",
+                "code": "abp",
                 "genres": ["Romance", "Travel"],
                 "release_date": "2024-01-10T00:00:00+00:00",
                 "director": "Jean Luc",
@@ -47,7 +47,7 @@ def main():
             {
                 "id": "3",
                 "content": "Sci-fi battle in space",
-                "code": "SSIS-300",
+                "code": "ssis",
                 "genres": ["Sci-Fi", "Action"],
                 "release_date": "2023-11-20T00:00:00+00:00",
                 "director": None,
@@ -55,7 +55,7 @@ def main():
             {
                 "id": "4",
                 "content": "Documentary about ocean life",
-                "code": "DOC-400",
+                "code": "doc",
                 "genres": ["Documentary", "Nature"],
                 "release_date": "2022-08-05T00:00:00+00:00",
                 "director": "David Attenborough",
@@ -76,12 +76,12 @@ def main():
         query_emb = embed(query_text, prefix=EMBED_QUERY_PREFIX).tolist()
 
         # 1. Multiple Codes (Using $in)
-        logger.info("\n--- 1. Filter by Multiple Codes: ['SSIS-100', 'SSIS-300'] ---")
+        logger.info("\n--- 1. Filter by Multiple Codes: ['ssis'] ---")
         results = client.search(
             table_name,
             query_emb,
             top_k=5,
-            filters={"code": {"$in": ["SSIS-100", "SSIS-300"]}},
+            filters={"code": {"$in": ["ssis"]}},
         )
         for r in results:
             print(f"ID: {r['id']} | Code: {r.get('code')}")
@@ -125,15 +125,15 @@ def main():
 
         # 5. Complex Combined Filter
         logger.info(
-            "\n--- 5. Combined: Code IN ['SSIS-100', 'ABP-200'] AND Genres contains 'Action' ---"
+            "\n--- 5. Combined: Code IN ['ssis', 'abp'] AND Genres contains 'Action' ---"
         )
         results = client.search(
             table_name,
             query_emb,
             top_k=5,
             filters={
-                "code": {"$in": ["SSIS-100", "ABP-200"]},
-                "genres": {"$contains": ["Action"]},
+                "code": {"$in": ["ssis", "abp"]},
+                "genres": {"$contains": ["Sci-Fi"]},
             },
         )
         for r in results:
