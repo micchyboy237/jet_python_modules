@@ -243,6 +243,18 @@ class PgVectorClient:
             table_name, query_embedding, top_k, num_candidates, lambda_mult, metric
         )
 
+    def multi_query_search(
+        self,
+        table_name: str,
+        query_texts: List[str],
+        top_k: int = 5,
+        num_candidates: int = 20,
+        rrf_k: int = 60,
+    ) -> List[Dict]:
+        return self.search_manager.multi_query_search(
+            table_name, query_texts, top_k, num_candidates, rrf_k
+        )
+
     def get_embeddings(
         self, table_name: str, ids: List[str] = None
     ) -> Dict[str, Embedding]:

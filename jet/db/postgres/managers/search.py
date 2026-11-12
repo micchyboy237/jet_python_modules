@@ -237,3 +237,82 @@ class SearchManager:
 
             cur.execute(detail_query, selected_ids)
             return [dict(row) for row in cur.fetchall()]
+
+    def multi_query_search(
+        self,
+        table_name: str,
+        query_texts: List[str],
+        top_k: int = 5,
+        num_candidates: int = 20,
+        rrf_k: int = 60,
+    ) -> List[Dict]:
+        """
+        Perform search across multiple related queries and merge results using RRF.
+        """
+        if not query_texts:
+            return []
+
+        all_rankings = []
+
+        # 1. Fetch rankings for each query
+        for text in query_texts:
+            from jet.adapters.llama_cpp.config import EMBED_QUERY_PREFIX
+            from jet.adapters.llama_cpp.embed_utils import embed
+
+            vec = self._to_vector(embed(text, prefix=EMBED_QUERY_PREFIX))
+
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL(
+                        "SELECT id, RANK() OVER (ORDER BY embedding <=> %s) as rank FROM {} LIMIT %s"
+                    ).format(sql.Identifier(table_name)),
+                    (vec, num_candidates),
+                )
+                # Fetchall returns a list of dicts because of dict_row factory
+                all_rankings.append(cur.fetchall())
+
+        # 2. Apply Reciprocal Rank Fusion (RRF)
+        rrf_scores: Dict[str, float] = {}
+
+        for rankings in all_rankings:
+            for row in rankings:
+                rid = row["id"]
+                rank = row["rank"]
+                rrf_scores[rid] = rrf_scores.get(rid, 0) + (1.0 / (rrf_k + rank))
+
+        # 3. Sort by combined RRF score
+        sorted_items = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[
+            :top_k
+        ]
+
+        if not sorted_items:
+            return []
+
+        winner_ids = [item[0] for item in sorted_items]
+
+        # 4. Fetch full details for the winners using a NEW cursor
+        with self.conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
+                (table_name,),
+            )
+            cols = [r["column_name"] for r in cur.fetchall()]
+            select_cols = sql.SQL(", ").join(map(sql.Identifier, cols + ["id"]))
+
+            id_placeholders = sql.SQL(", ").join([sql.Placeholder()] * len(winner_ids))
+            detail_query = sql.SQL("SELECT {} FROM {} WHERE id IN ({})").format(
+                select_cols, sql.Identifier(table_name), id_placeholders
+            )
+
+            cur.execute(detail_query, winner_ids)
+            results_map = {row["id"]: dict(row) for row in cur.fetchall()}
+
+        # 5. Maintain the order from RRF sorting
+        final_results = []
+        for rid, score in sorted_items:
+            if rid in results_map:
+                entry = results_map[rid]
+                entry["rrf_score"] = score
+                final_results.append(entry)
+
+        return final_results
