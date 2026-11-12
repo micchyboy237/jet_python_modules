@@ -1,3 +1,5 @@
+# /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/db/metadata/postgres_context_generator.py
+
 """
 PostgreSQL Context Generator for RAG (Retrieval-Augmented Generation)
 
@@ -68,6 +70,14 @@ class ContextSettings:
     include_query_guidance: bool = True
     include_jsonb_metadata: bool = True
     common_columns_limit: int = 20
+
+    # New settings for improved sampling
+    prefer_complete_rows: bool = True
+    ensure_sample_diversity: bool = True
+    diversity_columns: Optional[List[str]] = (
+        None  # Columns to use for diversity scoring
+    )
+    max_diversity_attempts: int = 10  # Max attempts to find diverse samples
 
     def __post_init__(self):
         """Fail early on values that would produce broken SQL or empty output."""
@@ -315,6 +325,63 @@ class PostgresContextGenerator:
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def _get_non_null_columns(self, columns: List[Dict]) -> List[str]:
+        """Get list of columns that are NOT NULL (always have values)."""
+        return [col["name"] for col in columns if col["notnull"]]
+
+    def _calculate_completeness_score(
+        self, row: Dict, columns: List[Dict], exclude_cols: Set[str]
+    ) -> float:
+        """
+        Calculate completeness score for a row (0-1).
+        Higher score = more non-NULL values in non-hidden columns.
+        """
+        visible_columns = [
+            col["name"] for col in columns if col["name"] not in exclude_cols
+        ]
+        if not visible_columns:
+            return 0.0
+
+        non_null_count = sum(1 for col in visible_columns if row.get(col) is not None)
+        return non_null_count / len(visible_columns)
+
+    def _calculate_diversity_score(
+        self, new_row: Dict, existing_rows: List[Dict], diversity_cols: List[str]
+    ) -> float:
+        """
+        Calculate how diverse a new row is compared to existing samples.
+        Returns higher score for more different values.
+        """
+        if not existing_rows or not diversity_cols:
+            return 1.0  # First row is always diverse
+
+        min_distance = float("inf")
+
+        for existing_row in existing_rows:
+            distance = 0
+            differences = 0
+
+            for col in diversity_cols:
+                val1 = existing_row.get(col)
+                val2 = new_row.get(col)
+
+                # Count as different if both exist and are not equal
+                if val1 is not None and val2 is not None:
+                    if str(val1) != str(val2):
+                        differences += 1
+                elif val1 is None and val2 is not None:
+                    differences += 1
+                elif val1 is not None and val2 is None:
+                    differences += 1
+
+            # Normalize by number of diversity columns
+            if diversity_cols:
+                distance = differences / len(diversity_cols)
+
+            min_distance = min(min_distance, distance)
+
+        return min_distance
+
     def get_sample_data(
         self,
         table_name: str,
@@ -323,7 +390,14 @@ class PostgresContextGenerator:
         columns: Optional[List[Dict]] = None,
     ) -> List[Dict]:
         """
-        Sample rows. Every value is cut INSIDE PostgreSQL (LEFT(col::text, n+1)),
+        Sample rows with improved completeness and diversity.
+
+        Strategy:
+        1. If prefer_complete_rows: Try to find rows with all non-NULL values first
+        2. Ensure diversity by selecting rows with different values in key columns
+        3. Fall back to simple random sampling if needed
+
+        Every value is cut INSIDE PostgreSQL (LEFT(col::text, n+1)),
         so huge text/json/xml/array values never travel to Python.
         bytea is replaced by its size, hidden columns by <hidden>. NULL stays NULL.
         Cell limits come from settings (default + per-column overrides).
@@ -336,6 +410,98 @@ class PostgresContextGenerator:
         )
         if not columns:
             return []
+
+        # Determine which columns to use for diversity
+        diversity_cols = self.settings.diversity_columns or []
+        if not diversity_cols:
+            # Use primary key and first few non-PK columns for diversity
+            pk_cols = [col["name"] for col in columns if col["pk"]]
+            other_cols = [col["name"] for col in columns if not col["pk"]][:3]
+            diversity_cols = pk_cols + other_cols
+
+        # Get hidden columns to exclude from completeness calculation
+        hidden_cols = {
+            col["name"] for col in columns if self._is_hidden(table_name, col["name"])
+        }
+
+        # Try to get complete and diverse samples
+        if self.settings.prefer_complete_rows and self.settings.ensure_sample_diversity:
+            samples = self._get_complete_diverse_samples(
+                table_name, schema, columns, limit, diversity_cols, hidden_cols
+            )
+            if samples:
+                return samples
+
+        # Fallback to simple sampling
+        return self._get_simple_samples(table_name, schema, columns, limit)
+
+    def _get_complete_diverse_samples(
+        self,
+        table_name: str,
+        schema: str,
+        columns: List[Dict],
+        limit: int,
+        diversity_cols: List[str],
+        hidden_cols: Set[str],
+    ) -> List[Dict]:
+        """
+        Get samples that are both complete (few NULLs) and diverse.
+        Uses multiple strategies to find good samples.
+        """
+        # Strategy 1: Try to get rows with all non-NULL values
+        complete_samples = self._try_get_complete_rows(
+            table_name, schema, columns, limit, hidden_cols
+        )
+
+        if len(complete_samples) >= limit:
+            # We have enough complete rows, now ensure diversity
+            return self._ensure_diversity(complete_samples, diversity_cols, limit)
+
+        # Strategy 2: Get rows with high completeness and add diverse incomplete rows
+        if complete_samples:
+            remaining_needed = limit - len(complete_samples)
+            additional_samples = self._get_diverse_incomplete_rows(
+                table_name,
+                schema,
+                columns,
+                remaining_needed,
+                diversity_cols,
+                hidden_cols,
+                complete_samples,
+            )
+            combined = complete_samples + additional_samples
+            return combined[:limit]
+
+        # Strategy 3: Fall back to getting diverse rows regardless of completeness
+        return self._get_diverse_rows_fallback(
+            table_name, schema, columns, limit, diversity_cols
+        )
+
+    def _try_get_complete_rows(
+        self,
+        table_name: str,
+        schema: str,
+        columns: List[Dict],
+        limit: int,
+        hidden_cols: Set[str],
+    ) -> List[Dict]:
+        """Try to get rows where all visible columns are non-NULL."""
+        visible_columns = [col for col in columns if col["name"] not in hidden_cols]
+        if not visible_columns:
+            return []
+
+        # Build WHERE clause for IS NOT NULL on all visible columns
+        not_null_conditions = []
+        for col in visible_columns:
+            if col["base_type"] not in BINARY_TYPES:  # Skip binary types
+                not_null_conditions.append(
+                    sql.SQL("{} IS NOT NULL").format(sql.Identifier(col["name"]))
+                )
+
+        if not not_null_conditions:
+            return []
+
+        # Build select parts (same as original)
         select_parts = []
         for col in columns:
             ident = sql.Identifier(col["name"])
@@ -354,11 +520,219 @@ class PostgresContextGenerator:
                         c=ident, n=sql.Literal(n)
                     )
                 )
+
+        where_clause = sql.SQL(" AND ").join(not_null_conditions)
+        query = sql.SQL("SELECT {cols} FROM {tbl} WHERE {where} LIMIT {lim}").format(
+            cols=sql.SQL(", ").join(select_parts),
+            tbl=self._table(schema, table_name),
+            where=where_clause,
+            lim=sql.Literal(int(limit * 3)),  # Get more to ensure we have enough
+        )
+
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(query)
+                rows = [dict(r) for r in cursor.fetchall()]
+                logger.info(
+                    "Found %d complete rows from %s.%s", len(rows), schema, table_name
+                )
+                return rows[:limit]
+        except Exception as e:
+            logger.debug(
+                "Complete row query failed for %s.%s: %s", schema, table_name, e
+            )
+            return []
+
+    def _ensure_diversity(
+        self, samples: List[Dict], diversity_cols: List[str], limit: int
+    ) -> List[Dict]:
+        """Ensure the samples are diverse by selecting the most diverse subset."""
+        if len(samples) <= limit:
+            return samples
+
+        # Greedy algorithm: start with first row, then add most diverse rows
+        selected = [samples[0]]
+        remaining = samples[1:]
+
+        while len(selected) < limit and remaining:
+            best_row = None
+            best_score = -1
+
+            for row in remaining:
+                score = self._calculate_diversity_score(row, selected, diversity_cols)
+                if score > best_score:
+                    best_score = score
+                    best_row = row
+
+            if best_row:
+                selected.append(best_row)
+                remaining.remove(best_row)
+
+        return selected
+
+    def _get_diverse_incomplete_rows(
+        self,
+        table_name: str,
+        schema: str,
+        columns: List[Dict],
+        limit: int,
+        diversity_cols: List[str],
+        hidden_cols: Set[str],
+        existing_samples: List[Dict],
+    ) -> List[Dict]:
+        """Get additional rows that are diverse from existing samples."""
+        if limit <= 0:
+            return []
+
+        # Get a larger pool of rows
+        select_parts = []
+        for col in columns:
+            ident = sql.Identifier(col["name"])
+            if self._is_hidden(table_name, col["name"]):
+                select_parts.append(sql.SQL("'<hidden>' AS {c}").format(c=ident))
+            elif col["base_type"] in BINARY_TYPES:
+                select_parts.append(
+                    sql.SQL(
+                        "'<binary ' || octet_length({c}) || ' bytes>' AS {c}"
+                    ).format(c=ident)
+                )
+            else:
+                n = self._chars_for(table_name, col["name"]) + 1
+                select_parts.append(
+                    sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
+                        c=ident, n=sql.Literal(n)
+                    )
+                )
+
+        # Get more rows than needed to have options for diversity
+        pool_size = min(limit * self.settings.max_diversity_attempts, 100)
+        query = sql.SQL("SELECT {cols} FROM {tbl} LIMIT {lim}").format(
+            cols=sql.SQL(", ").join(select_parts),
+            tbl=self._table(schema, table_name),
+            lim=sql.Literal(pool_size),
+        )
+
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(query)
+                pool = [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            logger.warning(
+                "Failed to get row pool for %s.%s: %s", schema, table_name, e
+            )
+            return []
+
+        # Select most diverse rows from pool
+        selected = []
+        for row in pool:
+            if len(selected) >= limit:
+                break
+
+            # Check completeness
+            completeness = self._calculate_completeness_score(row, columns, hidden_cols)
+
+            # Check diversity
+            diversity = self._calculate_diversity_score(
+                row, existing_samples + selected, diversity_cols
+            )
+
+            # Combined score: prefer complete AND diverse
+            combined_score = (completeness * 0.6) + (diversity * 0.4)
+
+            if combined_score > 0.3:  # Threshold for acceptance
+                selected.append(row)
+
+        return selected[:limit]
+
+    def _get_diverse_rows_fallback(
+        self,
+        table_name: str,
+        schema: str,
+        columns: List[Dict],
+        limit: int,
+        diversity_cols: List[str],
+    ) -> List[Dict]:
+        """Fallback: get diverse rows without completeness requirement."""
+        # Get a pool of rows
+        select_parts = []
+        for col in columns:
+            ident = sql.Identifier(col["name"])
+            if self._is_hidden(table_name, col["name"]):
+                select_parts.append(sql.SQL("'<hidden>' AS {c}").format(c=ident))
+            elif col["base_type"] in BINARY_TYPES:
+                select_parts.append(
+                    sql.SQL(
+                        "'<binary ' || octet_length({c}) || ' bytes>' AS {c}"
+                    ).format(c=ident)
+                )
+            else:
+                n = self._chars_for(table_name, col["name"]) + 1
+                select_parts.append(
+                    sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
+                        c=ident, n=sql.Literal(n)
+                    )
+                )
+
+        pool_size = min(limit * self.settings.max_diversity_attempts, 100)
+        query = sql.SQL("SELECT {cols} FROM {tbl} LIMIT {lim}").format(
+            cols=sql.SQL(", ").join(select_parts),
+            tbl=self._table(schema, table_name),
+            lim=sql.Literal(pool_size),
+        )
+
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute(query)
+                pool = [dict(r) for r in cursor.fetchall()]
+        except Exception as e:
+            logger.warning(
+                "Failed to get fallback rows for %s.%s: %s", schema, table_name, e
+            )
+            return self._get_simple_samples(table_name, schema, columns, limit)
+
+        # Select diverse rows
+        if not pool:
+            return []
+
+        selected = [pool[0]]
+        for row in pool[1:]:
+            if len(selected) >= limit:
+                break
+            diversity = self._calculate_diversity_score(row, selected, diversity_cols)
+            if diversity > 0.2:  # Accept if sufficiently different
+                selected.append(row)
+
+        return selected[:limit]
+
+    def _get_simple_samples(
+        self, table_name: str, schema: str, columns: List[Dict], limit: int
+    ) -> List[Dict]:
+        """Original simple sampling method as fallback."""
+        select_parts = []
+        for col in columns:
+            ident = sql.Identifier(col["name"])
+            if self._is_hidden(table_name, col["name"]):
+                select_parts.append(sql.SQL("'<hidden>' AS {c}").format(c=ident))
+            elif col["base_type"] in BINARY_TYPES:
+                select_parts.append(
+                    sql.SQL(
+                        "'<binary ' || octet_length({c}) || ' bytes>' AS {c}"
+                    ).format(c=ident)
+                )
+            else:
+                n = self._chars_for(table_name, col["name"]) + 1
+                select_parts.append(
+                    sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
+                        c=ident, n=sql.Literal(n)
+                    )
+                )
+
         query = sql.SQL("SELECT {cols} FROM {tbl} LIMIT {lim}").format(
             cols=sql.SQL(", ").join(select_parts),
             tbl=self._table(schema, table_name),
             lim=sql.Literal(int(limit)),
         )
+
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(query)
@@ -366,6 +740,7 @@ class PostgresContextGenerator:
         except Exception as e:
             logger.warning("Sampling failed for %s.%s: %s", schema, table_name, e)
             return []
+
         logger.info("Sampled %d rows from %s.%s", len(rows), schema, table_name)
         return rows
 
@@ -1032,6 +1407,36 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Show <hidden> instead of values for these columns ('column' or 'table.column')",
     )
+    # New sampling options
+    samples.add_argument(
+        "--prefer-complete",
+        dest="prefer_complete_rows",
+        action=argparse.BooleanOptionalAction,
+        default=d.prefer_complete_rows,
+        help="Prefer rows with all non-NULL values (default: %(default)s)",
+    )
+    samples.add_argument(
+        "--ensure-diversity",
+        dest="ensure_sample_diversity",
+        action=argparse.BooleanOptionalAction,
+        default=d.ensure_sample_diversity,
+        help="Ensure sample diversity (default: %(default)s)",
+    )
+    samples.add_argument(
+        "--diversity-columns",
+        dest="diversity_columns",
+        type=str,
+        metavar="COL1,COL2",
+        default=None,
+        help="Comma-separated columns to use for diversity scoring",
+    )
+    samples.add_argument(
+        "--max-diversity-attempts",
+        dest="max_diversity_attempts",
+        type=int,
+        default=d.max_diversity_attempts,
+        help="Max attempts to find diverse samples (default: %(default)s)",
+    )
     stats = parser.add_argument_group("statistics and safety")
     stats.add_argument(
         "-m",
@@ -1078,6 +1483,12 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     # Parse comma-separated tables if provided
     if args.tables:
         args.tables = [tbl.strip() for tbl in args.tables.split(",") if tbl.strip()]
+
+    # Parse diversity columns if provided
+    if args.diversity_columns:
+        args.diversity_columns = [
+            col.strip() for col in args.diversity_columns.split(",") if col.strip()
+        ]
 
     try:
         args.settings = build_settings(args)
