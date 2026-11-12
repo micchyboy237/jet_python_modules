@@ -1,11 +1,16 @@
-# jet_python_modules/jet/db/postgres/managers/search.py
 from typing import Dict, List, Literal
 
 import numpy as np
 from pgvector import Vector
 from psycopg import sql
 
-from jet.db.postgres.pg_types import EmbeddingInput
+from jet.db.postgres.pg_types import (
+    DiverseSearchResult,
+    EmbeddingInput,
+    HybridSearchResult,
+    MultiQueryResult,
+    SearchResult,
+)
 
 
 class SearchManager:
@@ -25,7 +30,7 @@ class SearchManager:
         query_vector: EmbeddingInput,
         top_k: int = 5,
         metric: Literal["cosine", "l2", "ip"] = "cosine",
-    ) -> List[Dict]:
+    ) -> List[SearchResult]:
         vec = self._to_vector(query_vector)
         operators = {"cosine": "<=>", "l2": "<->", "ip": "<#>"}
         op = operators.get(metric, "<=>")
@@ -40,7 +45,15 @@ class SearchManager:
                 "SELECT {}, embedding {} %s AS distance FROM {} ORDER BY distance LIMIT %s"
             ).format(select_cols, sql.SQL(op), sql.Identifier(table_name))
             cur.execute(query, (vec, top_k))
-            return [dict(row) for row in cur.fetchall()]
+            # Convert to SearchResult format
+            results = []
+            for i, row in enumerate(cur.fetchall(), start=1):
+                d = dict(row)
+                d["rank"] = i
+                # Score calculation is usually done in the client or via a helper
+                # For now, we just pass the distance. The client will calculate 'score'.
+                results.append(d)
+            return results
 
     def hybrid_search(
         self,
@@ -52,7 +65,7 @@ class SearchManager:
         text_weight: float = 1.0,
         vector_weight: float = 1.0,
         content_column: str = "content",
-    ) -> List[Dict]:
+    ) -> List[HybridSearchResult]:
         vec = self._to_vector(query_vector)
         with self.conn.cursor() as cur:
             cur.execute(
@@ -105,8 +118,9 @@ class SearchManager:
                 select_cols, sql.Identifier(table_name), id_placeholders
             )
             cur.execute(detail_query, ids)
-            detailed_rows = {r["id"]: r for r in cur.fetchall()}
-            final_results = []
+            detailed_rows = {r["id"]: dict(r) for r in cur.fetchall()}
+
+            final_results: List[HybridSearchResult] = []
             for res in results:
                 rid = res["id"]
                 if rid in detailed_rows:
@@ -123,20 +137,14 @@ class SearchManager:
         num_candidates: int = 20,
         lambda_mult: float = 0.5,
         metric: Literal["cosine", "l2"] = "cosine",
-    ) -> List[Dict]:
-        """
-        Perform Maximal Marginal Relevance (MMR) search.
-        """
+    ) -> List[DiverseSearchResult]:
         if lambda_mult < 0 or lambda_mult > 1:
             raise ValueError("lambda_mult must be between 0 and 1")
 
         vec = self._to_vector(query_vector)
-
-        # Fix: Use sql.SQL for operators
         op = sql.SQL("<=>") if metric == "cosine" else sql.SQL("<->")
 
         with self.conn.cursor() as cur:
-            # 1. Fetch initial candidates
             query = sql.SQL(
                 "SELECT id, embedding FROM {} ORDER BY embedding {} %s LIMIT %s"
             ).format(sql.Identifier(table_name), op)
@@ -147,10 +155,7 @@ class SearchManager:
             if not candidates:
                 return []
 
-            # Convert to numpy for easier math
-            # Fix: Explicitly convert Vector objects to lists before creating numpy arrays
             query_emb = np.array(vec.to_list() if hasattr(vec, "to_list") else vec)
-
             candidate_ids = [c["id"] for c in candidates]
             candidate_embs = np.array(
                 [
@@ -163,11 +168,9 @@ class SearchManager:
                 ]
             )
 
-            # 2. MMR Algorithm
             selected_indices = []
             remaining_indices = list(range(len(candidates)))
 
-            # Select the first item (most relevant)
             first_idx = remaining_indices.pop(0)
             selected_indices.append(first_idx)
 
@@ -176,7 +179,6 @@ class SearchManager:
                 best_score = -float("inf")
 
                 for idx in remaining_indices:
-                    # Relevance to query
                     if metric == "cosine":
                         sim_query = np.dot(candidate_embs[idx], query_emb) / (
                             np.linalg.norm(candidate_embs[idx])
@@ -186,7 +188,6 @@ class SearchManager:
                     else:
                         sim_query = -np.linalg.norm(candidate_embs[idx] - query_emb)
 
-                    # Redundancy (max similarity to already selected items)
                     max_sim_selected = -float("inf")
                     for sel_idx in selected_indices:
                         if metric == "cosine":
@@ -203,7 +204,6 @@ class SearchManager:
                             )
                         max_sim_selected = max(max_sim_selected, sim_sel)
 
-                    # MMR Score
                     mmr_score = (
                         lambda_mult * sim_query - (1 - lambda_mult) * max_sim_selected
                     )
@@ -216,7 +216,6 @@ class SearchManager:
                     selected_indices.append(best_idx)
                     remaining_indices.remove(best_idx)
 
-            # 3. Fetch full details for selected items
             selected_ids = [candidate_ids[i] for i in selected_indices]
             if not selected_ids:
                 return []
@@ -245,16 +244,11 @@ class SearchManager:
         top_k: int = 5,
         num_candidates: int = 20,
         rrf_k: int = 60,
-    ) -> List[Dict]:
-        """
-        Perform search across multiple related queries and merge results using RRF.
-        """
+    ) -> List[MultiQueryResult]:
         if not query_texts:
             return []
-
         all_rankings = []
 
-        # 1. Fetch rankings for each query
         for text in query_texts:
             from jet.adapters.llama_cpp.config import EMBED_QUERY_PREFIX
             from jet.adapters.llama_cpp.embed_utils import embed
@@ -268,10 +262,8 @@ class SearchManager:
                     ).format(sql.Identifier(table_name)),
                     (vec, num_candidates),
                 )
-                # Fetchall returns a list of dicts because of dict_row factory
                 all_rankings.append(cur.fetchall())
 
-        # 2. Apply Reciprocal Rank Fusion (RRF)
         rrf_scores: Dict[str, float] = {}
 
         for rankings in all_rankings:
@@ -280,7 +272,6 @@ class SearchManager:
                 rank = row["rank"]
                 rrf_scores[rid] = rrf_scores.get(rid, 0) + (1.0 / (rrf_k + rank))
 
-        # 3. Sort by combined RRF score
         sorted_items = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[
             :top_k
         ]
@@ -290,7 +281,6 @@ class SearchManager:
 
         winner_ids = [item[0] for item in sorted_items]
 
-        # 4. Fetch full details for the winners using a NEW cursor
         with self.conn.cursor() as cur:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
@@ -307,8 +297,7 @@ class SearchManager:
             cur.execute(detail_query, winner_ids)
             results_map = {row["id"]: dict(row) for row in cur.fetchall()}
 
-        # 5. Maintain the order from RRF sorting
-        final_results = []
+        final_results: List[MultiQueryResult] = []
         for rid, score in sorted_items:
             if rid in results_map:
                 entry = results_map[rid]

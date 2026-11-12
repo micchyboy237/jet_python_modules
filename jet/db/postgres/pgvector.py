@@ -1,4 +1,3 @@
-# jet_python_modules/jet/db/postgres/pgvector.py
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
@@ -19,8 +18,11 @@ from .managers.search import SearchManager
 from .managers.vector import VectorEngine
 from .pg_types import (
     DatabaseMetadata,
+    DiverseSearchResult,
     Embedding,
     EmbeddingInput,
+    HybridSearchResult,
+    MultiQueryResult,
     SearchResult,
     TableMetadata,
     TableRow,
@@ -180,17 +182,14 @@ class PgVectorClient:
         threshold: Optional[float] = None,
         metric: Literal["cosine", "l2", "ip"] = "cosine",
     ) -> List[SearchResult]:
-        # Use the renamed manager instance
         results = self.search_manager.semantic_search(
             table_name, query_embedding, top_k, metric
         )
-
         from jet.db.postgres.scoring import calculate_vector_scores
 
-        final_results = []
+        final_results: List[SearchResult] = []
         distances = [r["distance"] for r in results]
         scores = calculate_vector_scores(distances)
-
         for rank, (res, score) in enumerate(zip(results, scores), start=1):
             if threshold and score < threshold:
                 continue
@@ -204,7 +203,6 @@ class PgVectorClient:
                 if k not in ["id", "distance"]:
                     entry[k] = v
             final_results.append(entry)
-
         return final_results
 
     def hybrid_search(
@@ -217,8 +215,7 @@ class PgVectorClient:
         text_weight: float = 1.0,
         vector_weight: float = 1.0,
         content_column: str = "content",
-    ) -> List[Dict]:
-        # Use the renamed manager instance
+    ) -> List[HybridSearchResult]:
         return self.search_manager.hybrid_search(
             table_name,
             query_text,
@@ -238,7 +235,7 @@ class PgVectorClient:
         num_candidates: int = 20,
         lambda_mult: float = 0.5,
         metric: Literal["cosine", "l2"] = "cosine",
-    ) -> List[Dict]:
+    ) -> List[DiverseSearchResult]:
         return self.search_manager.diverse_search(
             table_name, query_embedding, top_k, num_candidates, lambda_mult, metric
         )
@@ -250,7 +247,7 @@ class PgVectorClient:
         top_k: int = 5,
         num_candidates: int = 20,
         rrf_k: int = 60,
-    ) -> List[Dict]:
+    ) -> List[MultiQueryResult]:
         return self.search_manager.multi_query_search(
             table_name, query_texts, top_k, num_candidates, rrf_k
         )

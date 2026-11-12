@@ -1,3 +1,4 @@
+# jet_python_modules/jet/db/postgres/pg_types.py
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
 import numpy as np
@@ -25,15 +26,43 @@ class ColumnMetadata(TypedDict):
     numeric_scale: Optional[int]
 
 
-class TableRow(TypedDict):
+class TableRow(TypedDict, total=False):
     id: str
-    # Allow any additional columns with arbitrary key-value pairs
     __annotations__: Dict[str, Any]
 
 
 class SearchResult(TableRow):
+    """
+    Base type for all search results.
+    Ensures every result has a rank and a primary scoring metric.
+    """
+
     rank: int
     score: float
+
+
+class SemanticSearchResult(SearchResult):
+    """Specific to vector-only search."""
+
+    distance: float
+
+
+class HybridSearchResult(SearchResult):
+    """Specific to Hybrid (Vector + Keyword) search."""
+
+    hybrid_score: float
+
+
+class DiverseSearchResult(SearchResult):
+    """Specific to MMR/Diversity search."""
+
+    pass
+
+
+class MultiQueryResult(SearchResult):
+    """Specific to Multi-Query expansion search."""
+
+    rrf_score: float
 
 
 class TableMetadata(TypedDict):
