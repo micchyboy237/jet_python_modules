@@ -37,6 +37,13 @@ class ConnectionManager:
             row_factory=dict_row,
         )
 
+        # Ensure the extension exists in this specific database before registering
+        with self.conn.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+
+        # Now it is safe to register the vector types
+        register_vector(self.conn)
+
     def _ensure_database_exists(self, overwrite_db: bool):
         with connect(
             dbname="postgres",
@@ -105,17 +112,14 @@ class ConnectionManager:
             ) from e
 
     def begin_transaction(self) -> None:
-        """Explicitly begin a new transaction."""
         if self.conn:
             self.conn.execute("BEGIN;")
 
     def commit(self) -> None:
-        """Commit the current transaction."""
         if self.conn:
             self.conn.execute("COMMIT;")
 
     def rollback(self) -> None:
-        """Rollback the current transaction."""
         if self.conn:
             self.conn.execute("ROLLBACK;")
 

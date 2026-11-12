@@ -1,5 +1,3 @@
-# jet/db/postgres/managers/schema.py
-
 from typing import Any, Dict, List, Optional
 
 from psycopg import sql
@@ -88,15 +86,12 @@ class SchemaManager:
             col_defs.append(
                 sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
             )
-
         if include_timestamps:
             col_defs.append(sql.SQL("created_at TIMESTAMPTZ DEFAULT NOW()"))
             col_defs.append(sql.SQL("updated_at TIMESTAMPTZ DEFAULT NOW()"))
-
         query = sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
             sql.Identifier(table_name), sql.SQL(", ").join(col_defs)
         )
-
         with self.conn.cursor() as cur:
             cur.execute(query)
         logger.success("Created table: %s", table_name)
@@ -118,22 +113,18 @@ class SchemaManager:
             )
         else:
             col_defs.append(sql.SQL("id TEXT PRIMARY KEY"))
-
         for col_name, col_type in columns.items():
             if col_name == primary_key:
                 continue
             col_defs.append(
                 sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
             )
-
         if include_timestamps:
             col_defs.append(sql.SQL("created_at TIMESTAMPTZ DEFAULT NOW()"))
             col_defs.append(sql.SQL("updated_at TIMESTAMPTZ DEFAULT NOW()"))
-
         query = sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
             sql.Identifier(table_name), sql.SQL(", ").join(col_defs)
         )
-
         with self.conn.cursor() as cur:
             cur.execute(query)
         logger.success("Created custom table: %s", table_name)
@@ -145,7 +136,6 @@ class SchemaManager:
                 (table_name,),
             )
             existing_columns = {row["column_name"] for row in cur.fetchall()}
-
             for column, value in row_data.items():
                 if column in existing_columns or column in {
                     "id",
@@ -153,7 +143,6 @@ class SchemaManager:
                     "updated_at",
                 }:
                     continue
-
                 if isinstance(value, (dict, list)):
                     col_type = "jsonb"
                 elif isinstance(value, bool):
@@ -162,7 +151,6 @@ class SchemaManager:
                     col_type = "numeric"
                 else:
                     col_type = "text"
-
                 query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {};").format(
                     sql.Identifier(table_name),
                     sql.Identifier(column),
@@ -181,3 +169,18 @@ class SchemaManager:
                         sql.Identifier(table)
                     )
                 )
+
+    def create_fts_index(self, table_name: str, column_name: str = "content"):
+        """Create a GIN index for full-text search on a specific column."""
+        index_name = f"{table_name}_{column_name}_fts_idx"
+        with self.conn.cursor() as cur:
+            cur.execute(
+                sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (to_tsvector('english', {}))"
+                ).format(
+                    sql.Identifier(index_name),
+                    sql.Identifier(table_name),
+                    sql.Identifier(column_name),
+                )
+            )
+        logger.success("Created FTS index: %s", index_name)

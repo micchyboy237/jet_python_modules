@@ -1,3 +1,4 @@
+# jet_python_modules/jet/db/postgres/pgvector.py
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
@@ -14,6 +15,7 @@ from .managers.connection import ConnectionManager
 from .managers.metadata import MetadataManager
 from .managers.query import QueryExecutor
 from .managers.schema import SchemaManager
+from .managers.search import SearchManager
 from .managers.vector import VectorEngine
 from .pg_types import (
     DatabaseMetadata,
@@ -42,6 +44,8 @@ class PgVectorClient:
         self.query = QueryExecutor(self.connection.conn)
         self.metadata = MetadataManager(self.connection.conn)
         self.vector = VectorEngine(self.connection.conn)
+        # Renamed to avoid conflict with the search() method
+        self.search_manager = SearchManager(self.connection.conn)
         self.conn = self.connection.conn
 
     def create_vector_table(
@@ -58,6 +62,18 @@ class PgVectorClient:
 
     def create_table(self, table_name: str, dimension: int):
         self.create_vector_table(table_name, dimension)
+
+    def create_index(
+        self,
+        table_name: str,
+        metric: Literal["cosine", "l2", "ip"] = "cosine",
+        method: Literal["hnsw", "ivfflat"] = "hnsw",
+        index_name: Optional[str] = None,
+    ):
+        self.vector.create_index(table_name, index_name, metric, method)
+
+    def create_fts_index(self, table_name: str, column_name: str = "content"):
+        self.schema.create_fts_index(table_name, column_name)
 
     def create_row(
         self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None
@@ -150,8 +166,57 @@ class PgVectorClient:
         query_embedding: EmbeddingInput,
         top_k: int = 5,
         threshold: Optional[float] = None,
+        metric: Literal["cosine", "l2", "ip"] = "cosine",
     ) -> List[SearchResult]:
-        return self.vector.search_similar(table_name, query_embedding, top_k, threshold)
+        # Use the renamed manager instance
+        results = self.search_manager.semantic_search(
+            table_name, query_embedding, top_k, metric
+        )
+
+        from jet.db.postgres.scoring import calculate_vector_scores
+
+        final_results = []
+        distances = [r["distance"] for r in results]
+        scores = calculate_vector_scores(distances)
+
+        for rank, (res, score) in enumerate(zip(results, scores), start=1):
+            if threshold and score < threshold:
+                continue
+            entry = {
+                "id": res["id"],
+                "rank": rank,
+                "score": score,
+                "distance": res["distance"],
+            }
+            for k, v in res.items():
+                if k not in ["id", "distance"]:
+                    entry[k] = v
+            final_results.append(entry)
+
+        return final_results
+
+    def hybrid_search(
+        self,
+        table_name: str,
+        query_text: str,
+        query_embedding: EmbeddingInput,
+        top_k: int = 5,
+        rrf_k: int = 60,
+        text_weight: float = 1.0,
+        vector_weight: float = 1.0,
+        content_column: str = "content",
+    ) -> List[Dict]:
+        # Use the renamed manager instance
+        return self.search_manager.hybrid_search(
+            table_name,
+            query_text,
+            query_embedding,
+            top_k,
+            rrf_k,
+            text_weight,
+            vector_weight,
+            content_column,
+        )
 
     def get_embeddings(
         self, table_name: str, ids: List[str] = None
