@@ -7,6 +7,9 @@ Generates comprehensive database schema, metadata, sample data, and query guidan
 from PostgreSQL databases. The output is formatted as markdown text suitable for
 inclusion in LLM prompts to provide context about database structure and content.
 
+Uses psycopg3 (v3) for modern PostgreSQL connectivity with better type handling
+and async support capabilities.
+
 Usage Examples:
     # Generate context for all tables in public schema
     from jet.db.metadata.postgres_context_generator import generate_rag_context
@@ -42,9 +45,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-import psycopg2
-from psycopg2 import sql
-from psycopg2.extras import RealDictCursor
+# Use psycopg3 (v3) instead of psycopg2
+import psycopg
+from psycopg.rows import dict_row
 
 logger = logging.getLogger(__name__)
 
@@ -113,15 +116,28 @@ class PostgresContextGenerator:
         self.conn = None
 
     def connect(self):
-        """Open a read-only, autocommit connection (a failed query can't poison later ones)."""
+        """Open a read-only connection with statement timeout."""
         try:
-            self.conn = psycopg2.connect(
-                self.connection_string,
-                cursor_factory=RealDictCursor,
-                options=f"-c statement_timeout={int(self.settings.statement_timeout_ms)}",
+            # Parse connection string to add options
+            conn_params = psycopg.conninfo.conninfo_to_dict(self.connection_string)
+
+            # Add statement timeout via options parameter
+            if self.settings.statement_timeout_ms > 0:
+                options = (
+                    f"-c statement_timeout={int(self.settings.statement_timeout_ms)}"
+                )
+                conn_params["options"] = options
+
+            # Connect with dict_row factory for dictionary-like results
+            self.conn = psycopg.connect(
+                **conn_params,
+                row_factory=dict_row,
             )
-            self.conn.set_session(readonly=True, autocommit=True)
-            logger.info("Connected to PostgreSQL (read-only, autocommit)")
+
+            # Set session to read-only
+            self.conn.execute("SET TRANSACTION READ ONLY")
+
+            logger.info("Connected to PostgreSQL (read-only) using psycopg3")
         except Exception as e:
             raise ConnectionError(f"Failed to connect to database: {e}")
 
@@ -139,52 +155,40 @@ class PostgresContextGenerator:
         self.disconnect()
 
     @staticmethod
-    def _table(schema: str, table: str) -> sql.Composed:
-        """Safely quoted schema.table identifier."""
-        return sql.SQL("{}.{}").format(sql.Identifier(schema), sql.Identifier(table))
+    def _table(schema: str, table: str) -> str:
+        """Safely quoted schema.table identifier for psycopg3."""
+        # psycopg3 uses %s for parameters, but for identifiers we need to quote manually
+        # Using psycopg.sql module for safe identifier quoting
+        from psycopg import sql
 
-    @staticmethod
-    def _quote_name(name: str) -> str:
-        """Quote a name only when needed (for readable CREATE TABLE text)."""
         return (
-            name
-            if re.fullmatch(r"[a-z_][a-z0-9_]*", name)
-            else '"' + name.replace('"', '""') + '"'
-        )
+            sql.SQL("{}.{}")
+            .format(sql.Identifier(schema), sql.Identifier(table))
+            .as_string(None)
+        )  # We'll handle this differently in queries
 
-    @staticmethod
-    def _format_cell(value, max_chars: int) -> str:
-        """Make any value safe for a one-line markdown table cell."""
-        if value is None:
-            return "NULL"
-        raw = str(value)
-        was_cut = len(raw) > max_chars
-        text = re.sub(r"\s+", " ", raw[:max_chars]).strip().replace("|", "\\|")
-        return text + "…" if was_cut else text
-
-    def _chars_for(self, table: str, column: str) -> int:
-        """Cell limit: 'table.column' override > 'column' override > sample_chars."""
-        overrides = self.settings.column_sample_chars
-        return overrides.get(
-            f"{table}.{column}", overrides.get(column, self.settings.sample_chars)
-        )
-
-    def _is_hidden(self, table: str, column: str) -> bool:
-        hidden = self.settings.exclude_sample_columns
-        return f"{table}.{column}" in hidden or column in hidden
+    def _execute_query(self, query: str, params: tuple = None):
+        """Execute a query and return results using psycopg3."""
+        try:
+            with self.conn.cursor() as cursor:
+                if params:
+                    cursor.execute(query, params)
+                else:
+                    cursor.execute(query)
+                return cursor.fetchall()
+        except Exception as e:
+            logger.warning("Query execution failed: %s", e)
+            raise
 
     def get_all_tables(self, schema: str = "public") -> List[str]:
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = %s AND table_type = 'BASE TABLE'
-                ORDER BY table_name
-                """,
-                (schema,),
-            )
-            return [row["table_name"] for row in cursor.fetchall()]
+        query = """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        """
+        rows = self._execute_query(query, (schema,))
+        return [row["table_name"] for row in rows]
 
     def get_filtered_tables(self, schema: str = "public") -> List[str]:
         all_tables = self.get_all_tables(schema)
@@ -201,45 +205,40 @@ class PostgresContextGenerator:
         return all_tables
 
     def get_all_schemas(self) -> List[str]:
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT schema_name
-                FROM information_schema.schemata
-                WHERE schema_name NOT IN ('pg_catalog', 'information_schema')
-                  AND schema_name NOT LIKE 'pg_toast%%'
-                  AND schema_name NOT LIKE 'pg_temp%%'
-                ORDER BY schema_name
-                """
-            )
-            return [row["schema_name"] for row in cursor.fetchall()]
+        query = """
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name NOT IN ('pg_catalog', 'information_schema')
+              AND schema_name NOT LIKE 'pg_toast%%'
+              AND schema_name NOT LIKE 'pg_temp%%'
+            ORDER BY schema_name
+        """
+        rows = self._execute_query(query)
+        return [row["schema_name"] for row in rows]
 
     def get_table_columns(self, table_name: str, schema: str = "public") -> List[Dict]:
         """Columns with exact Postgres type text (format_type), PK flag, and type category."""
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT a.attnum AS cid,
-                       a.attname AS name,
-                       format_type(a.atttypid, a.atttypmod) AS type,
-                       t.typname AS base_type,
-                       t.typcategory AS category,
-                       a.attnotnull AS notnull,
-                       pg_get_expr(d.adbin, d.adrelid) AS default_value,
-                       COALESCE(a.attnum = ANY(pk.indkey), false) AS pk
-                FROM pg_attribute a
-                JOIN pg_class c ON c.oid = a.attrelid
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_type t ON t.oid = a.atttypid
-                LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-                LEFT JOIN pg_index pk ON pk.indrelid = a.attrelid AND pk.indisprimary
-                WHERE n.nspname = %s AND c.relname = %s
-                  AND a.attnum > 0 AND NOT a.attisdropped
-                ORDER BY a.attnum
-                """,
-                (schema, table_name),
-            )
-            return [dict(row) for row in cursor.fetchall()]
+        query = """
+            SELECT a.attnum AS cid,
+                   a.attname AS name,
+                   format_type(a.atttypid, a.atttypmod) AS type,
+                   t.typname AS base_type,
+                   t.typcategory AS category,
+                   a.attnotnull AS notnull,
+                   pg_get_expr(d.adbin, d.adrelid) AS default_value,
+                   COALESCE(a.attnum = ANY(pk.indkey), false) AS pk
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_type t ON t.oid = a.atttypid
+            LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            LEFT JOIN pg_index pk ON pk.indrelid = a.attrelid AND pk.indisprimary
+            WHERE n.nspname = %s AND c.relname = %s
+              AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attnum
+        """
+        rows = self._execute_query(query, (schema, table_name))
+        return [dict(row) for row in rows]
 
     def get_table_schema(
         self,
@@ -255,75 +254,84 @@ class PostgresContextGenerator:
         )
         if not columns:
             return None
+
+        from psycopg import sql
+
         lines = []
         for col in columns:
             nullable = "NOT NULL" if col["notnull"] else "NULL"
             default = f" DEFAULT {col['default_value']}" if col["default_value"] else ""
-            lines.append(
-                f"    {self._quote_name(col['name'])} {col['type']} {nullable}{default}"
-            )
-        pk_cols = [self._quote_name(c["name"]) for c in columns if c["pk"]]
+            col_name = sql.Identifier(col["name"]).as_string(None)
+            lines.append(f"    {col_name} {col['type']} {nullable}{default}")
+
+        pk_cols = [
+            sql.Identifier(c["name"]).as_string(None) for c in columns if c["pk"]
+        ]
         if pk_cols:
             lines.append(f"    PRIMARY KEY ({', '.join(pk_cols)})")
-        return f"CREATE TABLE {schema}.{table_name} (\n" + ",\n".join(lines) + "\n);"
+
+        schema_ident = sql.Identifier(schema).as_string(None)
+        table_ident = sql.Identifier(table_name).as_string(None)
+        return (
+            f"CREATE TABLE {schema_ident}.{table_ident} (\n"
+            + ",\n".join(lines)
+            + "\n);"
+        )
 
     def get_row_count(self, table_name: str, schema: str = "public") -> Optional[int]:
-        """Exact row count, or None if it could not be counted (timeout, permissions...)."""
+        """Exact row count, or None if it could not be counted."""
+        from psycopg import sql
+
+        query = (
+            sql.SQL("SELECT COUNT(*) AS cnt FROM {}.{}")
+            .format(sql.Identifier(schema), sql.Identifier(table_name))
+            .as_string(self.conn)
+        )
+
         try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL("SELECT COUNT(*) AS cnt FROM {}").format(
-                        self._table(schema, table_name)
-                    )
-                )
-                return cursor.fetchone()["cnt"]
+            rows = self._execute_query(query)
+            return rows[0]["cnt"] if rows else None
         except Exception as e:
             logger.warning("Row count failed for %s.%s: %s", schema, table_name, e)
             return None
 
     def get_foreign_keys(self, table_name: str, schema: str = "public") -> List[Dict]:
         """Foreign keys read from pg_constraint (correct for composite keys)."""
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT a.attname  AS source_column,
-                       nf.nspname AS target_schema,
-                       cf.relname AS target_table,
-                       af.attname AS target_column
-                FROM pg_constraint con
-                JOIN pg_class c      ON c.oid = con.conrelid
-                JOIN pg_namespace n  ON n.oid = c.relnamespace
-                JOIN pg_class cf     ON cf.oid = con.confrelid
-                JOIN pg_namespace nf ON nf.oid = cf.relnamespace
-                JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS k(src, tgt, ord) ON true
-                JOIN pg_attribute a  ON a.attrelid = con.conrelid  AND a.attnum = k.src
-                JOIN pg_attribute af ON af.attrelid = con.confrelid AND af.attnum = k.tgt
-                WHERE con.contype = 'f' AND n.nspname = %s AND c.relname = %s
-                ORDER BY con.conname, k.ord
-                """,
-                (schema, table_name),
-            )
-            return [dict(row) for row in cursor.fetchall()]
+        query = """
+            SELECT a.attname  AS source_column,
+                   nf.nspname AS target_schema,
+                   cf.relname AS target_table,
+                   af.attname AS target_column
+            FROM pg_constraint con
+            JOIN pg_class c      ON c.oid = con.conrelid
+            JOIN pg_namespace n  ON n.oid = c.relnamespace
+            JOIN pg_class cf     ON cf.oid = con.confrelid
+            JOIN pg_namespace nf ON nf.oid = cf.relnamespace
+            JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS k(src, tgt, ord) ON true
+            JOIN pg_attribute a  ON a.attrelid = con.conrelid  AND a.attnum = k.src
+            JOIN pg_attribute af ON af.attrelid = con.confrelid AND af.attnum = k.tgt
+            WHERE con.contype = 'f' AND n.nspname = %s AND c.relname = %s
+            ORDER BY con.conname, k.ord
+        """
+        rows = self._execute_query(query, (schema, table_name))
+        return [dict(row) for row in rows]
 
     def get_indexes(self, table_name: str, schema: str = "public") -> List[Dict]:
         """Indexes with their full definition (handles expression and partial indexes)."""
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT i.relname AS index_name,
-                       ix.indisunique AS is_unique,
-                       ix.indisprimary AS is_primary,
-                       pg_get_indexdef(ix.indexrelid) AS definition
-                FROM pg_index ix
-                JOIN pg_class t     ON t.oid = ix.indrelid
-                JOIN pg_class i     ON i.oid = ix.indexrelid
-                JOIN pg_namespace n ON n.oid = t.relnamespace
-                WHERE n.nspname = %s AND t.relname = %s
-                ORDER BY i.relname
-                """,
-                (schema, table_name),
-            )
-            return [dict(row) for row in cursor.fetchall()]
+        query = """
+            SELECT i.relname AS index_name,
+                   ix.indisunique AS is_unique,
+                   ix.indisprimary AS is_primary,
+                   pg_get_indexdef(ix.indexrelid) AS definition
+            FROM pg_index ix
+            JOIN pg_class t     ON t.oid = ix.indrelid
+            JOIN pg_class i     ON i.oid = ix.indexrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = %s AND t.relname = %s
+            ORDER BY i.relname
+        """
+        rows = self._execute_query(query, (schema, table_name))
+        return [dict(row) for row in rows]
 
     def _get_non_null_columns(self, columns: List[Dict]) -> List[str]:
         """Get list of columns that are NOT NULL (always have values)."""
@@ -486,6 +494,8 @@ class PostgresContextGenerator:
         hidden_cols: Set[str],
     ) -> List[Dict]:
         """Try to get rows where all visible columns are non-NULL."""
+        from psycopg import sql
+
         visible_columns = [col for col in columns if col["name"] not in hidden_cols]
         if not visible_columns:
             return []
@@ -506,37 +516,40 @@ class PostgresContextGenerator:
         for col in columns:
             ident = sql.Identifier(col["name"])
             if self._is_hidden(table_name, col["name"]):
-                select_parts.append(sql.SQL("'<hidden>' AS {c}").format(c=ident))
+                select_parts.append(sql.SQL("'<hidden>' AS {}").format(ident))
             elif col["base_type"] in BINARY_TYPES:
                 select_parts.append(
-                    sql.SQL(
-                        "'<binary ' || octet_length({c}) || ' bytes>' AS {c}"
-                    ).format(c=ident)
+                    sql.SQL("'<binary ' || octet_length({}) || ' bytes>' AS {}").format(
+                        ident, ident
+                    )
                 )
             else:
                 n = self._chars_for(table_name, col["name"]) + 1
                 select_parts.append(
-                    sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
-                        c=ident, n=sql.Literal(n)
+                    sql.SQL("LEFT({}::text, {}) AS {}").format(
+                        ident, sql.Literal(n), ident
                     )
                 )
 
         where_clause = sql.SQL(" AND ").join(not_null_conditions)
-        query = sql.SQL("SELECT {cols} FROM {tbl} WHERE {where} LIMIT {lim}").format(
-            cols=sql.SQL(", ").join(select_parts),
-            tbl=self._table(schema, table_name),
-            where=where_clause,
-            lim=sql.Literal(int(limit * 3)),  # Get more to ensure we have enough
+        query = (
+            sql.SQL("SELECT {} FROM {}.{} WHERE {} LIMIT {}")
+            .format(
+                sql.SQL(", ").join(select_parts),
+                sql.Identifier(schema),
+                sql.Identifier(table_name),
+                where_clause,
+                sql.Literal(int(limit * 3)),  # Get more to ensure we have enough
+            )
+            .as_string(self.conn)
         )
 
         try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query)
-                rows = [dict(r) for r in cursor.fetchall()]
-                logger.info(
-                    "Found %d complete rows from %s.%s", len(rows), schema, table_name
-                )
-                return rows[:limit]
+            rows = self._execute_query(query)
+            logger.info(
+                "Found %d complete rows from %s.%s", len(rows), schema, table_name
+            )
+            return [dict(r) for r in rows[:limit]]
         except Exception as e:
             logger.debug(
                 "Complete row query failed for %s.%s: %s", schema, table_name, e
@@ -581,6 +594,8 @@ class PostgresContextGenerator:
         existing_samples: List[Dict],
     ) -> List[Dict]:
         """Get additional rows that are diverse from existing samples."""
+        from psycopg import sql
+
         if limit <= 0:
             return []
 
@@ -589,33 +604,37 @@ class PostgresContextGenerator:
         for col in columns:
             ident = sql.Identifier(col["name"])
             if self._is_hidden(table_name, col["name"]):
-                select_parts.append(sql.SQL("'<hidden>' AS {c}").format(c=ident))
+                select_parts.append(sql.SQL("'<hidden>' AS {}").format(ident))
             elif col["base_type"] in BINARY_TYPES:
                 select_parts.append(
-                    sql.SQL(
-                        "'<binary ' || octet_length({c}) || ' bytes>' AS {c}"
-                    ).format(c=ident)
+                    sql.SQL("'<binary ' || octet_length({}) || ' bytes>' AS {}").format(
+                        ident, ident
+                    )
                 )
             else:
                 n = self._chars_for(table_name, col["name"]) + 1
                 select_parts.append(
-                    sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
-                        c=ident, n=sql.Literal(n)
+                    sql.SQL("LEFT({}::text, {}) AS {}").format(
+                        ident, sql.Literal(n), ident
                     )
                 )
 
         # Get more rows than needed to have options for diversity
         pool_size = min(limit * self.settings.max_diversity_attempts, 100)
-        query = sql.SQL("SELECT {cols} FROM {tbl} LIMIT {lim}").format(
-            cols=sql.SQL(", ").join(select_parts),
-            tbl=self._table(schema, table_name),
-            lim=sql.Literal(pool_size),
+        query = (
+            sql.SQL("SELECT {} FROM {}.{} LIMIT {}")
+            .format(
+                sql.SQL(", ").join(select_parts),
+                sql.Identifier(schema),
+                sql.Identifier(table_name),
+                sql.Literal(pool_size),
+            )
+            .as_string(self.conn)
         )
 
         try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query)
-                pool = [dict(r) for r in cursor.fetchall()]
+            pool = self._execute_query(query)
+            pool = [dict(r) for r in pool]
         except Exception as e:
             logger.warning(
                 "Failed to get row pool for %s.%s: %s", schema, table_name, e
@@ -653,37 +672,43 @@ class PostgresContextGenerator:
         diversity_cols: List[str],
     ) -> List[Dict]:
         """Fallback: get diverse rows without completeness requirement."""
+        from psycopg import sql
+
         # Get a pool of rows
         select_parts = []
         for col in columns:
             ident = sql.Identifier(col["name"])
             if self._is_hidden(table_name, col["name"]):
-                select_parts.append(sql.SQL("'<hidden>' AS {c}").format(c=ident))
+                select_parts.append(sql.SQL("'<hidden>' AS {}").format(ident))
             elif col["base_type"] in BINARY_TYPES:
                 select_parts.append(
-                    sql.SQL(
-                        "'<binary ' || octet_length({c}) || ' bytes>' AS {c}"
-                    ).format(c=ident)
+                    sql.SQL("'<binary ' || octet_length({}) || ' bytes>' AS {}").format(
+                        ident, ident
+                    )
                 )
             else:
                 n = self._chars_for(table_name, col["name"]) + 1
                 select_parts.append(
-                    sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
-                        c=ident, n=sql.Literal(n)
+                    sql.SQL("LEFT({}::text, {}) AS {}").format(
+                        ident, sql.Literal(n), ident
                     )
                 )
 
         pool_size = min(limit * self.settings.max_diversity_attempts, 100)
-        query = sql.SQL("SELECT {cols} FROM {tbl} LIMIT {lim}").format(
-            cols=sql.SQL(", ").join(select_parts),
-            tbl=self._table(schema, table_name),
-            lim=sql.Literal(pool_size),
+        query = (
+            sql.SQL("SELECT {} FROM {}.{} LIMIT {}")
+            .format(
+                sql.SQL(", ").join(select_parts),
+                sql.Identifier(schema),
+                sql.Identifier(table_name),
+                sql.Literal(pool_size),
+            )
+            .as_string(self.conn)
         )
 
         try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query)
-                pool = [dict(r) for r in cursor.fetchall()]
+            pool = self._execute_query(query)
+            pool = [dict(r) for r in pool]
         except Exception as e:
             logger.warning(
                 "Failed to get fallback rows for %s.%s: %s", schema, table_name, e
@@ -708,35 +733,41 @@ class PostgresContextGenerator:
         self, table_name: str, schema: str, columns: List[Dict], limit: int
     ) -> List[Dict]:
         """Original simple sampling method as fallback."""
+        from psycopg import sql
+
         select_parts = []
         for col in columns:
             ident = sql.Identifier(col["name"])
             if self._is_hidden(table_name, col["name"]):
-                select_parts.append(sql.SQL("'<hidden>' AS {c}").format(c=ident))
+                select_parts.append(sql.SQL("'<hidden>' AS {}").format(ident))
             elif col["base_type"] in BINARY_TYPES:
                 select_parts.append(
-                    sql.SQL(
-                        "'<binary ' || octet_length({c}) || ' bytes>' AS {c}"
-                    ).format(c=ident)
+                    sql.SQL("'<binary ' || octet_length({}) || ' bytes>' AS {}").format(
+                        ident, ident
+                    )
                 )
             else:
                 n = self._chars_for(table_name, col["name"]) + 1
                 select_parts.append(
-                    sql.SQL("LEFT({c}::text, {n}) AS {c}").format(
-                        c=ident, n=sql.Literal(n)
+                    sql.SQL("LEFT({}::text, {}) AS {}").format(
+                        ident, sql.Literal(n), ident
                     )
                 )
 
-        query = sql.SQL("SELECT {cols} FROM {tbl} LIMIT {lim}").format(
-            cols=sql.SQL(", ").join(select_parts),
-            tbl=self._table(schema, table_name),
-            lim=sql.Literal(int(limit)),
+        query = (
+            sql.SQL("SELECT {} FROM {}.{} LIMIT {}")
+            .format(
+                sql.SQL(", ").join(select_parts),
+                sql.Identifier(schema),
+                sql.Identifier(table_name),
+                sql.Literal(int(limit)),
+            )
+            .as_string(self.conn)
         )
 
         try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(query)
-                rows = [dict(r) for r in cursor.fetchall()]
+            rows = self._execute_query(query)
+            rows = [dict(r) for r in rows]
         except Exception as e:
             logger.warning("Sampling failed for %s.%s: %s", schema, table_name, e)
             return []
@@ -744,54 +775,89 @@ class PostgresContextGenerator:
         logger.info("Sampled %d rows from %s.%s", len(rows), schema, table_name)
         return rows
 
+    def _is_hidden(self, table: str, column: str) -> bool:
+        hidden = self.settings.exclude_sample_columns
+        return f"{table}.{column}" in hidden or column in hidden
+
+    def _chars_for(self, table: str, column: str) -> int:
+        """Cell limit: 'table.column' override > 'column' override > sample_chars."""
+        overrides = self.settings.column_sample_chars
+        return overrides.get(
+            f"{table}.{column}", overrides.get(column, self.settings.sample_chars)
+        )
+
     @staticmethod
-    def _distinct_expr(col: Dict) -> sql.Composable:
+    def _format_cell(value, max_chars: int) -> str:
+        """Make any value safe for a one-line markdown table cell."""
+        if value is None:
+            return "NULL"
+        raw = str(value)
+        was_cut = len(raw) > max_chars
+        text = re.sub(r"\s+", " ", raw[:max_chars]).strip().replace("|", "\\|")
+        return text + "…" if was_cut else text
+
+    @staticmethod
+    def _distinct_expr(col: Dict) -> str:
         """
         Expression used inside COUNT(DISTINCT ...).
         Numbers/dates/booleans: the column itself.
-        Everything else (long text, json, xml, arrays...): md5 of its text form, which
-        works for types with no equality operator and keeps the sort key small.
+        Everything else (long text, json, xml, arrays...): md5 of its text form.
         """
+        from psycopg import sql
+
         ident = sql.Identifier(col["name"])
         if col["base_type"] in BINARY_TYPES:
-            return sql.SQL("md5({})").format(ident)
+            return sql.SQL("md5({})").format(ident).as_string(None)
         if col["category"] in SIMPLE_CATEGORIES:
-            return ident
-        return sql.SQL("md5({}::text)").format(ident)
+            return sql.Identifier(col["name"]).as_string(None)
+        return sql.SQL("md5({}::text)").format(ident).as_string(None)
 
     def _stats_query(
         self, table_name: str, schema: str, cols: List[Dict]
     ) -> Dict[str, Dict]:
         """One table scan computing stats for all given columns."""
+        from psycopg import sql
+
         parts = [sql.SQL("COUNT(*) AS total")]
         for i, col in enumerate(cols):
+            distinct_expr = self._distinct_expr(col)
             parts.append(
-                sql.SQL("COUNT(DISTINCT {e}) AS {d}").format(
-                    e=self._distinct_expr(col), d=sql.Identifier(f"d{i}")
+                sql.SQL("COUNT(DISTINCT {}) AS {}").format(
+                    sql.SQL(distinct_expr), sql.Identifier(f"d{i}")
                 )
             )
             parts.append(
-                sql.SQL("COUNT(*) FILTER (WHERE {c} IS NULL) AS {n}").format(
-                    c=sql.Identifier(col["name"]), n=sql.Identifier(f"n{i}")
+                sql.SQL("COUNT(*) FILTER (WHERE {} IS NULL) AS {}").format(
+                    sql.Identifier(col["name"]), sql.Identifier(f"n{i}")
                 )
             )
-        query = sql.SQL("SELECT {p} FROM {t}").format(
-            p=sql.SQL(", ").join(parts), t=self._table(schema, table_name)
+
+        query = (
+            sql.SQL("SELECT {} FROM {}.{}")
+            .format(
+                sql.SQL(", ").join(parts),
+                sql.Identifier(schema),
+                sql.Identifier(table_name),
+            )
+            .as_string(self.conn)
         )
-        with self.conn.cursor() as cursor:
-            cursor.execute(query)
-            row = cursor.fetchone()
-        total = row["total"]
-        return {
-            col["name"]: {
+
+        rows = self._execute_query(query)
+        row = rows[0] if rows else {}
+
+        total = row.get("total", 0)
+        result = {}
+        for i, col in enumerate(cols):
+            result[col["name"]] = {
                 "type": col["type"],
                 "total_count": total,
-                "distinct_count": row[f"d{i}"],
-                "null_count": row[f"n{i}"],
-                "null_percentage": round(row[f"n{i}"] / total * 100, 2) if total else 0,
+                "distinct_count": row.get(f"d{i}", 0),
+                "null_count": row.get(f"n{i}", 0),
+                "null_percentage": round(row.get(f"n{i}", 0) / total * 100, 2)
+                if total
+                else 0,
             }
-            for i, col in enumerate(cols)
-        }
+        return result
 
     def get_column_statistics(
         self,
@@ -833,19 +899,23 @@ class PostgresContextGenerator:
         self, table_name: str, column_name: str, schema: str = "public"
     ) -> Optional[Any]:
         """Extract representative JSON structure from a jsonb column."""
+        from psycopg import sql
+
+        query = (
+            sql.SQL("SELECT {} FROM {}.{} WHERE {} IS NOT NULL LIMIT 1")
+            .format(
+                sql.Identifier(column_name),
+                sql.Identifier(schema),
+                sql.Identifier(table_name),
+                sql.Identifier(column_name),
+            )
+            .as_string(self.conn)
+        )
+
         try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL(
-                        "SELECT {col} FROM {tbl} WHERE {col} IS NOT NULL LIMIT 1"
-                    ).format(
-                        col=sql.Identifier(column_name),
-                        tbl=self._table(schema, table_name),
-                    )
-                )
-                row = cursor.fetchone()
-                if row and row[column_name] is not None:
-                    return row[column_name]
+            rows = self._execute_query(query)
+            if rows and rows[0][column_name] is not None:
+                return rows[0][column_name]
         except Exception as e:
             logger.warning(
                 "Failed to sample JSON structure for %s.%s: %s",
@@ -859,24 +929,30 @@ class PostgresContextGenerator:
         self, table_name: str, column_name: str, schema: str = "public"
     ) -> Dict[str, int]:
         """Count frequency of top-level JSON object keys."""
+        from psycopg import sql
+
+        query = (
+            sql.SQL("""
+            SELECT key, COUNT(*) AS freq
+            FROM {}.{}, jsonb_object_keys({}) AS key
+            WHERE {} IS NOT NULL AND jsonb_typeof({}) = 'object'
+            GROUP BY key
+            ORDER BY freq DESC
+            LIMIT 20
+        """)
+            .format(
+                sql.Identifier(schema),
+                sql.Identifier(table_name),
+                sql.Identifier(column_name),
+                sql.Identifier(column_name),
+                sql.Identifier(column_name),
+            )
+            .as_string(self.conn)
+        )
+
         try:
-            with self.conn.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL(
-                        """
-                        SELECT key, COUNT(*) AS freq
-                        FROM {tbl}, jsonb_object_keys({col}) AS key
-                        WHERE {col} IS NOT NULL AND jsonb_typeof({col}) = 'object'
-                        GROUP BY key
-                        ORDER BY freq DESC
-                        LIMIT 20
-                        """
-                    ).format(
-                        tbl=self._table(schema, table_name),
-                        col=sql.Identifier(column_name),
-                    )
-                )
-                return {row["key"]: row["freq"] for row in cursor.fetchall()}
+            rows = self._execute_query(query)
+            return {row["key"]: row["freq"] for row in rows}
         except Exception as e:
             logger.warning(
                 "Failed to analyze JSON keys for %s.%s: %s",
@@ -912,63 +988,67 @@ class PostgresContextGenerator:
         using a single aggregated query. Ignores null values to find the
         actual data type used when the field is populated.
         """
+        from psycopg import sql
+
+        query = (
+            sql.SQL("""
+            SELECT key, jsonb_typeof(value) as type
+            FROM {}.{}, jsonb_each({})
+            WHERE {} IS NOT NULL AND jsonb_typeof({}) = 'object'
+            LIMIT 5000
+        """)
+            .format(
+                sql.Identifier(schema),
+                sql.Identifier(table_name),
+                sql.Identifier(column_name),
+                sql.Identifier(column_name),
+                sql.Identifier(column_name),
+            )
+            .as_string(self.conn)
+        )
+
         try:
-            with self.conn.cursor() as cursor:
-                # Extract all keys and their jsonb_typeof from non-null jsonb objects
-                # We scan up to 5000 rows to ensure we catch sparse fields
-                cursor.execute(
-                    sql.SQL("""
-                        SELECT key, jsonb_typeof(value) as type
-                        FROM {tbl}, jsonb_each({col})
-                        WHERE {col} IS NOT NULL AND jsonb_typeof({col}) = 'object'
-                        LIMIT 5000
-                    """).format(
-                        tbl=self._table(schema, table_name),
-                        col=sql.Identifier(column_name),
-                    )
-                )
+            rows = self._execute_query(query)
+            key_types: Dict[str, Set[str]] = {}
 
-                rows = cursor.fetchall()
-                key_types: Dict[str, Set[str]] = {}
+            for row in rows:
+                key = row["key"]
+                pg_type = row["type"]
 
-                for row in rows:
-                    key = row["key"]
-                    pg_type = row["type"]
+                if key not in key_types:
+                    key_types[key] = set()
+                key_types[key].add(pg_type)
 
-                    if key not in key_types:
-                        key_types[key] = set()
-                    key_types[key].add(pg_type)
+            # Resolve final types
+            resolved_types: Dict[str, str] = {}
+            type_map = {
+                "string": "text",
+                "number": "numeric",
+                "boolean": "boolean",
+                "array": "array",
+                "object": "object",
+            }
 
-                # Resolve final types
-                resolved_types: Dict[str, str] = {}
-                type_map = {
-                    "string": "text",
-                    "number": "numeric",
-                    "boolean": "boolean",
-                    "array": "array",
-                    "object": "object",
-                }
+            for key, types in key_types.items():
+                # Remove 'null' from consideration to find the actual data type
+                clean_types = types - {"null"}
 
-                for key, types in key_types.items():
-                    # Remove 'null' from consideration to find the actual data type
-                    clean_types = types - {"null"}
-
-                    if not clean_types:
-                        # If only nulls were found, mark as null
-                        resolved_types[key] = "null"
-                    elif len(clean_types) == 1:
-                        pg_t = clean_types.pop()
-                        resolved_types[key] = type_map.get(pg_t, "unknown")
+                if not clean_types:
+                    # If only nulls were found, mark as null
+                    resolved_types[key] = "null"
+                elif len(clean_types) == 1:
+                    pg_t = clean_types.pop()
+                    resolved_types[key] = type_map.get(pg_t, "unknown")
+                else:
+                    # Mixed types: prefer text if string is involved, else numeric
+                    if "string" in clean_types:
+                        resolved_types[key] = "text"
+                    elif "number" in clean_types:
+                        resolved_types[key] = "numeric"
                     else:
-                        # Mixed types: prefer text if string is involved, else numeric
-                        if "string" in clean_types:
-                            resolved_types[key] = "text"
-                        elif "number" in clean_types:
-                            resolved_types[key] = "numeric"
-                        else:
-                            resolved_types[key] = "mixed"
+                        resolved_types[key] = "mixed"
 
-                return resolved_types
+            return resolved_types
 
         except Exception as e:
             logger.warning(
@@ -1210,9 +1290,9 @@ class PostgresContextGenerator:
             "",
             "Example Query Pattern:",
             "```python",
-            "import psycopg2",
+            "import psycopg",
             "",
-            'conn = psycopg2.connect("<CONNECTION_STRING>")  # credentials intentionally omitted',
+            'conn = psycopg.connect("<CONNECTION_STRING>")  # credentials intentionally omitted',
             "cursor = conn.cursor()",
             "",
             "# Simple SELECT with filtering",
