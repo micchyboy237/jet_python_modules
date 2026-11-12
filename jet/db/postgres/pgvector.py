@@ -1,3 +1,4 @@
+# jet_python_modules/jet/db/postgres/pgvector.py
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
@@ -24,6 +25,7 @@ from .pg_types import (
     HybridSearchResult,
     MultiQueryResult,
     SearchResult,
+    SemanticSearchResult,
     TableMetadata,
     TableRow,
 )
@@ -46,7 +48,6 @@ class PgVectorClient:
         self.query = QueryExecutor(self.connection.conn)
         self.metadata = MetadataManager(self.connection.conn)
         self.vector = VectorEngine(self.connection.conn)
-        # Renamed to avoid conflict with the search() method
         self.search_manager = SearchManager(self.connection.conn)
         self.conn = self.connection.conn
 
@@ -141,9 +142,6 @@ class PgVectorClient:
         dimension: Optional[int] = None,
         batch_size: int = 1000,
     ) -> int:
-        """
-        Bulk ingest data into a vector table.
-        """
         return self.vector.bulk_ingest(table_name, data, dimension, batch_size)
 
     def get_row(self, table_name: str, row_id: str) -> Optional[TableRow]:
@@ -181,13 +179,14 @@ class PgVectorClient:
         top_k: int = 5,
         threshold: Optional[float] = None,
         metric: Literal["cosine", "l2", "ip"] = "cosine",
-    ) -> List[SearchResult]:
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[SemanticSearchResult]:
         results = self.search_manager.semantic_search(
-            table_name, query_embedding, top_k, metric
+            table_name, query_embedding, top_k, metric, filters
         )
         from jet.db.postgres.scoring import calculate_vector_scores
 
-        final_results: List[SearchResult] = []
+        final_results: List[SemanticSearchResult] = []
         distances = [r["distance"] for r in results]
         scores = calculate_vector_scores(distances)
         for rank, (res, score) in enumerate(zip(results, scores), start=1):
@@ -215,6 +214,7 @@ class PgVectorClient:
         text_weight: float = 1.0,
         vector_weight: float = 1.0,
         content_column: str = "content",
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[HybridSearchResult]:
         return self.search_manager.hybrid_search(
             table_name,
@@ -225,6 +225,7 @@ class PgVectorClient:
             text_weight,
             vector_weight,
             content_column,
+            filters,
         )
 
     def diverse_search(
@@ -235,9 +236,16 @@ class PgVectorClient:
         num_candidates: int = 20,
         lambda_mult: float = 0.5,
         metric: Literal["cosine", "l2"] = "cosine",
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[DiverseSearchResult]:
         return self.search_manager.diverse_search(
-            table_name, query_embedding, top_k, num_candidates, lambda_mult, metric
+            table_name,
+            query_embedding,
+            top_k,
+            num_candidates,
+            lambda_mult,
+            metric,
+            filters,
         )
 
     def multi_query_search(
@@ -247,9 +255,10 @@ class PgVectorClient:
         top_k: int = 5,
         num_candidates: int = 20,
         rrf_k: int = 60,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[MultiQueryResult]:
         return self.search_manager.multi_query_search(
-            table_name, query_texts, top_k, num_candidates, rrf_k
+            table_name, query_texts, top_k, num_candidates, rrf_k, filters
         )
 
     def get_embeddings(

@@ -1,20 +1,22 @@
-from typing import Dict, List, Literal
+# jet_python_modules/jet/db/postgres/managers/search.py
+from typing import Any, Dict, List, Literal, Optional
 
 import numpy as np
 from pgvector import Vector
 from psycopg import sql
 
+from jet.db.postgres.managers.filter_builder import FilterBuilder
 from jet.db.postgres.pg_types import (
     DiverseSearchResult,
     EmbeddingInput,
     HybridSearchResult,
     MultiQueryResult,
-    SearchResult,
+    SemanticSearchResult,
 )
 
 
 class SearchManager:
-    """Handles complex search strategies like Hybrid and RRF."""
+    """Handles complex search strategies like Hybrid, RRF, and MMR."""
 
     def __init__(self, conn):
         self.conn = conn
@@ -30,10 +32,14 @@ class SearchManager:
         query_vector: EmbeddingInput,
         top_k: int = 5,
         metric: Literal["cosine", "l2", "ip"] = "cosine",
-    ) -> List[SearchResult]:
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[SemanticSearchResult]:
         vec = self._to_vector(query_vector)
         operators = {"cosine": "<=>", "l2": "<->", "ip": "<#>"}
         op = operators.get(metric, "<=>")
+
+        where_clause, where_params = FilterBuilder.build(filters)
+
         with self.conn.cursor() as cur:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
@@ -41,17 +47,18 @@ class SearchManager:
             )
             cols = [r["column_name"] for r in cur.fetchall()]
             select_cols = sql.SQL(", ").join(map(sql.Identifier, cols + ["id"]))
+
             query = sql.SQL(
-                "SELECT {}, embedding {} %s AS distance FROM {} ORDER BY distance LIMIT %s"
-            ).format(select_cols, sql.SQL(op), sql.Identifier(table_name))
-            cur.execute(query, (vec, top_k))
-            # Convert to SearchResult format
-            results = []
+                "SELECT {}, embedding {} %s AS distance FROM {}{} ORDER BY distance LIMIT %s"
+            ).format(select_cols, sql.SQL(op), sql.Identifier(table_name), where_clause)
+
+            final_params = [vec] + where_params + [top_k]
+            cur.execute(query, final_params)
+
+            results: List[SemanticSearchResult] = []
             for i, row in enumerate(cur.fetchall(), start=1):
                 d = dict(row)
                 d["rank"] = i
-                # Score calculation is usually done in the client or via a helper
-                # For now, we just pass the distance. The client will calculate 'score'.
                 results.append(d)
             return results
 
@@ -65,8 +72,11 @@ class SearchManager:
         text_weight: float = 1.0,
         vector_weight: float = 1.0,
         content_column: str = "content",
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[HybridSearchResult]:
         vec = self._to_vector(query_vector)
+        where_clause, where_params = FilterBuilder.build(filters)
+
         with self.conn.cursor() as cur:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
@@ -74,15 +84,16 @@ class SearchManager:
             )
             cols = [r["column_name"] for r in cur.fetchall()]
             select_cols = sql.SQL(", ").join(map(sql.Identifier, cols + ["id"]))
+
             query = sql.SQL("""
                 WITH vector_search AS (
                     SELECT id, RANK() OVER (ORDER BY embedding <=> %s) as v_rank
-                    FROM {table}
+                    FROM {table}{where}
                 ),
                 keyword_search AS (
                     SELECT id, RANK() OVER (ORDER BY ts_rank(to_tsvector('english', {content_col}), websearch_to_tsquery('english', %s)) DESC) as k_rank
                     FROM {table}
-                    WHERE to_tsvector('english', {content_col}) @@ websearch_to_tsquery('english', %s)
+                    WHERE to_tsvector('english', {content_col}) @@ websearch_to_tsquery('english', %s){where}
                 )
                 SELECT 
                     v.id, 
@@ -95,23 +106,22 @@ class SearchManager:
             """).format(
                 table=sql.Identifier(table_name),
                 content_col=sql.Identifier(content_column),
+                where=where_clause,
             )
-            cur.execute(
-                query,
-                (
-                    vec,
-                    query_text,
-                    query_text,
-                    rrf_k,
-                    text_weight,
-                    rrf_k,
-                    vector_weight,
-                    top_k,
-                ),
+
+            final_params = (
+                [vec]
+                + where_params
+                + [query_text, query_text]
+                + where_params
+                + [rrf_k, text_weight, rrf_k, vector_weight, top_k]
             )
+
+            cur.execute(query, final_params)
             results = cur.fetchall()
             if not results:
                 return []
+
             ids = [r["id"] for r in results]
             id_placeholders = sql.SQL(", ").join([sql.Placeholder()] * len(ids))
             detail_query = sql.SQL("SELECT {} FROM {} WHERE id IN ({})").format(
@@ -137,19 +147,21 @@ class SearchManager:
         num_candidates: int = 20,
         lambda_mult: float = 0.5,
         metric: Literal["cosine", "l2"] = "cosine",
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[DiverseSearchResult]:
         if lambda_mult < 0 or lambda_mult > 1:
             raise ValueError("lambda_mult must be between 0 and 1")
 
         vec = self._to_vector(query_vector)
         op = sql.SQL("<=>") if metric == "cosine" else sql.SQL("<->")
+        where_clause, where_params = FilterBuilder.build(filters)
 
         with self.conn.cursor() as cur:
             query = sql.SQL(
-                "SELECT id, embedding FROM {} ORDER BY embedding {} %s LIMIT %s"
-            ).format(sql.Identifier(table_name), op)
+                "SELECT id, embedding FROM {}{} ORDER BY embedding {} %s LIMIT %s"
+            ).format(sql.Identifier(table_name), where_clause, op)
 
-            cur.execute(query, (vec, num_candidates))
+            cur.execute(query, [vec] + where_params + [num_candidates])
             candidates = cur.fetchall()
 
             if not candidates:
@@ -244,9 +256,12 @@ class SearchManager:
         top_k: int = 5,
         num_candidates: int = 20,
         rrf_k: int = 60,
+        filters: Optional[Dict[str, Any]] = None,
     ) -> List[MultiQueryResult]:
         if not query_texts:
             return []
+
+        where_clause, where_params = FilterBuilder.build(filters)
         all_rankings = []
 
         for text in query_texts:
@@ -258,9 +273,9 @@ class SearchManager:
             with self.conn.cursor() as cur:
                 cur.execute(
                     sql.SQL(
-                        "SELECT id, RANK() OVER (ORDER BY embedding <=> %s) as rank FROM {} LIMIT %s"
-                    ).format(sql.Identifier(table_name)),
-                    (vec, num_candidates),
+                        "SELECT id, RANK() OVER (ORDER BY embedding <=> %s) as rank FROM {}{} LIMIT %s"
+                    ).format(sql.Identifier(table_name), where_clause),
+                    [vec] + where_params + [num_candidates],
                 )
                 all_rankings.append(cur.fetchall())
 
