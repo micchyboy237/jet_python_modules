@@ -1,5 +1,6 @@
+from typing import Any, Dict, List, Optional, TypedDict, Union
+
 import numpy as np
-from typing import Any, List, Dict, Optional, Tuple, TypedDict, Union
 from numpy.typing import NDArray
 
 Embedding = NDArray[np.float64]

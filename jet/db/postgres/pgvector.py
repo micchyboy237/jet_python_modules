@@ -132,6 +132,18 @@ class PgVectorClient:
     ) -> List[TableRow]:
         return [self.create_or_update_row(table_name, r, dimension) for r in rows_data]
 
+    def bulk_ingest(
+        self,
+        table_name: str,
+        data: List[Dict[str, Any]],
+        dimension: Optional[int] = None,
+        batch_size: int = 1000,
+    ) -> int:
+        """
+        Bulk ingest data into a vector table.
+        """
+        return self.vector.bulk_ingest(table_name, data, dimension, batch_size)
+
     def get_row(self, table_name: str, row_id: str) -> Optional[TableRow]:
         rows = self.query.get_rows(table_name, where_conditions={"id": row_id})
         return rows[0] if rows else None

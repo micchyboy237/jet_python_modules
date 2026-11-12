@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -209,3 +209,91 @@ class VectorEngine:
 
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, vecs))
+
+    def bulk_ingest(
+        self,
+        table_name: str,
+        data: List[Dict[str, Any]],
+        dimension: Optional[int] = None,
+        batch_size: int = 1000,
+    ) -> int:
+        """
+        Efficiently ingest a large list of records using PostgreSQL COPY.
+
+        Args:
+            table_name: Name of the target table.
+            data: List of dicts. Each dict must have 'id', 'content', and 'embedding'.
+            dimension: Optional vector dimension check.
+            batch_size: Number of rows to process in memory at once.
+
+        Returns:
+            Total number of rows inserted.
+        """
+        if not data:
+            return 0
+
+        import io
+
+        total_inserted = 0
+
+        # Prepare columns based on the first item
+        columns = list(data[0].keys())
+        if "embedding" not in columns:
+            raise ValueError("Data must contain an 'embedding' key")
+
+        with self.conn.cursor() as cur:
+            for i in range(0, len(data), batch_size):
+                batch = data[i : i + batch_size]
+
+                # Create a CSV-like string buffer for COPY
+                # We use a tab-separated format which is standard for COPY
+                buffer = io.StringIO()
+
+                for row in batch:
+                    # Ensure embedding is a vector string format [1.2, 3.4]
+                    emb = row["embedding"]
+                    if isinstance(emb, np.ndarray):
+                        emb_str = f"[{','.join(map(str, emb.tolist()))}]"
+                    elif isinstance(emb, list):
+                        emb_str = f"[{','.join(map(str, emb))}]"
+                    else:
+                        emb_str = str(emb)
+
+                    # Map other columns
+                    vals = []
+                    for col in columns:
+                        val = row.get(col)
+                        if val is None:
+                            vals.append("\\N")  # NULL in COPY
+                        elif col == "embedding":
+                            vals.append(emb_str)
+                        else:
+                            # Escape tabs and newlines for COPY format
+                            s = (
+                                str(val)
+                                .replace("\\", "\\\\")
+                                .replace("\n", "\\n")
+                                .replace("\t", "\\t")
+                            )
+                            vals.append(s)
+
+                    buffer.write("\t".join(vals) + "\n")
+
+                buffer.seek(0)
+
+                # Execute COPY
+                col_names = sql.SQL(", ").join(map(sql.Identifier, columns))
+                copy_sql = sql.SQL("COPY {} ({}) FROM STDIN WITH (FORMAT text)").format(
+                    sql.Identifier(table_name), col_names
+                )
+
+                with cur.copy(copy_sql) as copy:
+                    while True:
+                        chunk = buffer.read(8192)
+                        if not chunk:
+                            break
+                        copy.write(chunk)
+
+                total_inserted += len(batch)
+
+        return total_inserted
