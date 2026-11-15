@@ -29,7 +29,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 console.print(f"[bold]Output dir ready:[/bold] [cyan]{OUTPUT_DIR}[/cyan]")
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), "mocks")
-sample_data_path = os.path.join(BASE_DIR, "03_data.json")
+sample_data_path = os.path.join(BASE_DIR, "01_data.json")
 
 with console.status("[bold green]Loading sample data...", spinner="dots"):
     with open(sample_data_path, "r") as f:
