@@ -1,7 +1,11 @@
 import shutil
 from pathlib import Path
 
-from jet.adapters.llama_cpp.cluster_utils import TextsClusterer
+from jet.adapters.llama_cpp.cluster_utils import (
+    TextsClusterer,
+    print_cluster_analysis,
+    save_cluster_results,
+)
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -67,13 +71,21 @@ Containerization with Docker ensures consistent environments across development 
     print("\n" + "=" * 60)
     print("DETAILED CLUSTER ANALYSIS:")
     print("=" * 60)
-    clusterer.print_analysis(analysis)
+    print_cluster_analysis(analysis)
 
     print(f"\n{'=' * 60}")
     print(f"SUMMARY: {results['n_clusters']} clusters, {results['n_noise']} outliers")
     print(f"{'=' * 60}")
 
-    saved = clusterer.save_results(OUTPUT_DIR, analysis=analysis)
+    summary = clusterer.get_summary(analysis)
+    saved = save_cluster_results(
+        OUTPUT_DIR,
+        analysis,
+        summary,
+        coordinates_2d=clusterer.coordinates_2d,
+        labels=clusterer.labels,
+        texts=clusterer._unique_texts or [],
+    )
     print(f"\nResults saved to {OUTPUT_DIR}")
     for name, path in saved.items():
         print(f"  {name}: {path}")
