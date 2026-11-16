@@ -1,6 +1,5 @@
 """
 Clustering for mixed-length texts (words, sentences, and documents).
-
 Features:
     - Semantic Understanding: Uses configured Llama.cpp embedding models.
     - Mixed-Length Handling: Normalizes embeddings and chunks long texts dynamically.
@@ -8,17 +7,13 @@ Features:
     - Advanced Metrics: Provides membership probabilities, silhouette scores, and consistency scores.
     - Visualization: Generates 2D t-SNE plots and saves detailed JSON analysis.
     - Traceability: Tracks original indices and handles duplicates efficiently.
-
 Usage Examples:
     1. Basic usage with default settings:
        python cluster_utils.py -i input_texts.json
-
     2. Strict clustering (tighter groups, more noise):
        python cluster_utils.py -i input_texts.json -m 5 -e 0.1
-
     3. Loose clustering (broader topics, less noise):
        python cluster_utils.py -i input_texts.json -m 2 -e 0.5
-
     4. Custom output directory and model:
        python cluster_utils.py -i input_texts.json -o ./my_results -n nomic-embed:2-moe
 """
@@ -51,13 +46,9 @@ from sklearn.preprocessing import normalize
 
 warnings.filterwarnings("ignore")
 
-# Define output directory relative to this script
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-# --- Type Definitions & Aliases ---
 
 ClustersType = Dict[int, List[str]]
 CentroidsType = Dict[int, np.ndarray]
@@ -78,12 +69,14 @@ class FitPredictResult(TypedDict):
     n_clusters: int
     n_noise: int
     probabilities: Optional[np.ndarray]
-    original_indices: np.ndarray  # NEW: Tracks original positions
+    original_indices: np.ndarray
+    n_original_texts: int
+    n_unique_texts: int
 
 
 class ClusterAnalysisItem(TypedDict, total=False):
     count: int
-    original_indices: List[int]  # NEW: Maps back to original doc
+    original_indices: List[int]
     avg_length: float
     min_length: int
     max_length: int
@@ -112,26 +105,47 @@ class SummaryData(TypedDict):
     cluster_details: Dict[str, ClusterDetailSummary]
 
 
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy scalar and array types."""
+
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
 def deduplicate_texts(texts: List[str]) -> Tuple[List[str], Dict[str, List[int]]]:
     """
     Deduplicates texts while maintaining a map of original indices.
 
     Returns:
-        unique_texts: List of unique text strings.
-        index_map: Dictionary mapping each unique text to a list of its original indices.
+        unique_texts: List of unique text strings (first-occurrence order).
+        index_map: Dictionary mapping each unique text to the list of its
+            ORIGINAL POSITIONAL INDICES in the input list. Note: these are
+            positions in the input, not indices into ``unique_texts``.
     """
     unique_texts = []
     index_map: Dict[str, List[int]] = {}
     seen = set()
-
     for i, text in enumerate(texts):
         if text not in seen:
             seen.add(text)
             unique_texts.append(text)
             index_map[text] = []
         index_map[text].append(i)
-
     return unique_texts, index_map
+
+
+def _get_cluster_sort_key(name: str) -> float:
+    """Sort cluster labels numerically; push non-numeric labels (e.g. noise) last."""
+    try:
+        return float(name.split(" ")[1])
+    except (IndexError, ValueError):
+        return float("inf")
 
 
 class TextsClusterer:
@@ -153,11 +167,9 @@ class TextsClusterer:
             query_prefix if query_prefix is not None else EMBED_QUERY_PREFIX
         )
         self.doc_prefix = doc_prefix if doc_prefix is not None else EMBED_DOC_PREFIX
-
         self.embedding_dim: Optional[int] = None
         self.max_tokens_safe: Optional[int] = max_tokens_safe
         self._initialize_model_params()
-
         self.embeddings: Optional[np.ndarray] = None
         self.labels: Optional[np.ndarray] = None
         self.text_lengths: Optional[np.ndarray] = None
@@ -166,9 +178,11 @@ class TextsClusterer:
         self.cluster_consistency: ConsistencyType = {}
         self.coordinates_2d: Optional[np.ndarray] = None
         self.silhouette_scores: Optional[np.ndarray] = None
-        self.processed_indices: Optional[np.ndarray] = (
-            None  # Stores indices of processed (unique) texts
-        )
+        self.processed_indices: Optional[np.ndarray] = None
+        # State captured by fit_predict (dedup + traceability)
+        self._unique_texts: Optional[List[str]] = None
+        self._index_map: Optional[Dict[str, List[int]]] = None
+        self._n_original: Optional[int] = None
 
     def _initialize_model_params(self):
         """Fetch model metadata to set embedding dim and safe token limits."""
@@ -179,7 +193,6 @@ class TextsClusterer:
             if not self.embedding_dim or self.embedding_dim == 0:
                 self.embedding_dim = 768
             print(f"Detected Embedding Dimension: {self.embedding_dim}")
-
             if self.max_tokens_safe is None:
                 n_ctx = model_info["ctx"]
                 if n_ctx and n_ctx > 0:
@@ -232,7 +245,6 @@ class TextsClusterer:
                 chunks.append(chunk_text)
         if not chunks:
             return np.zeros(self.embedding_dim)
-
         chunk_embeddings = embed(
             chunks, model=self.model_name, return_format="numpy", show_progress=False
         )
@@ -242,8 +254,36 @@ class TextsClusterer:
             avg_embedding = avg_embedding / norm
         return avg_embedding
 
+    def _deduplicate(
+        self, texts: List[str], indices: List[int]
+    ) -> Tuple[List[str], List[int]]:
+        """
+        Deduplicate texts while preserving caller-supplied original indices.
+
+        Returns:
+            unique_texts: Unique texts in first-occurrence order.
+            unique_indices: The original index (from ``indices``) associated
+                with each unique text (i.e. its first occurrence).
+        """
+        index_map: Dict[str, List[int]] = {}
+        unique_texts: List[str] = []
+        for local_i, text in enumerate(texts):
+            if text not in index_map:
+                unique_texts.append(text)
+                index_map[text] = []
+            index_map[text].append(indices[local_i])
+        unique_indices = [index_map[t][0] for t in unique_texts]
+        self._unique_texts = unique_texts
+        self._index_map = index_map
+        self._n_original = len(texts)
+        return unique_texts, unique_indices
+
     def fit_predict(
-        self, texts: List[str], indices: Optional[List[int]] = None
+        self,
+        texts: List[str],
+        indices: Optional[List[int]] = None,
+        *,
+        deduplicate: bool = True,
     ) -> FitPredictResult:
         """
         Fits the clusterer to the provided texts.
@@ -252,12 +292,33 @@ class TextsClusterer:
             texts: List of text strings.
             indices: Optional list of original indices corresponding to the texts.
                      If None, assumes indices are 0..N-1.
+            deduplicate: If True (default), duplicate texts are collapsed before
+                embedding; ``index_map`` is captured on the instance so that
+                :meth:`get_detailed_analysis` can expand ``original_indices``
+                back to every occurrence. Pass False if the input is already
+                known to be unique.
         """
         if not texts:
             raise ValueError("Input texts list is empty")
-
         if indices is None:
             indices = list(range(len(texts)))
+        if len(indices) != len(texts):
+            raise ValueError(
+                f"Length mismatch: {len(texts)} texts vs {len(indices)} indices"
+            )
+
+        if deduplicate:
+            unique_texts, unique_indices = self._deduplicate(texts, indices)
+            print(
+                f"Deduplicated: {len(texts)} -> {len(unique_texts)} texts "
+                f"(removed {len(texts) - len(unique_texts)})"
+            )
+            texts = unique_texts
+            indices = unique_indices
+        else:
+            self._unique_texts = list(texts)
+            self._index_map = {t: [indices[i]] for i, t in enumerate(texts)}
+            self._n_original = len(texts)
 
         self.processed_indices = np.array(indices)
 
@@ -277,7 +338,6 @@ class TextsClusterer:
             embeddings_list.append(emb)
             if (i + 1) % 100 == 0:
                 print(f"  Processed {i + 1}/{len(texts)} texts...")
-
         self.embeddings = np.array(embeddings_list)
         self.embeddings = normalize(self.embeddings)
 
@@ -320,6 +380,12 @@ class TextsClusterer:
             "n_noise": n_noise,
             "probabilities": self.probabilities,
             "original_indices": self.processed_indices,
+            "n_original_texts": self._n_original
+            if self._n_original is not None
+            else len(texts),
+            "n_unique_texts": len(self._unique_texts)
+            if self._unique_texts is not None
+            else len(texts),
         }
 
     def _run_hdbscan(self):
@@ -384,7 +450,6 @@ class TextsClusterer:
                 (len(self.embeddings) if self.embeddings is not None else 0, 2)
             )
             return
-
         print("Generating 2D projection for visualization...")
         tsne = TSNE(
             n_components=2,
@@ -396,25 +461,18 @@ class TextsClusterer:
 
     def _calculate_silhouette_scores(self):
         """Calculate Silhouette Score for each sample."""
-        # Filter out noise points (-1) for silhouette calculation
         mask = self.labels != -1
         if np.sum(mask) < 2:
             self.silhouette_scores = np.zeros(len(self.labels))
             return
-
-        # Silhouette score requires at least 2 clusters
         unique_labels = np.unique(self.labels[mask])
         if len(unique_labels) < 2:
             self.silhouette_scores = np.zeros(len(self.labels))
             return
-
         try:
-            # Calculate scores only for clustered points
             sample_scores = silhouette_samples(
                 self.embeddings[mask], self.labels[mask], metric="cosine"
             )
-
-            # Create full array with 0 for noise points
             self.silhouette_scores = np.zeros(len(self.labels))
             self.silhouette_scores[mask] = sample_scores
         except Exception as e:
@@ -422,45 +480,51 @@ class TextsClusterer:
             self.silhouette_scores = np.zeros(len(self.labels))
 
     def get_detailed_analysis(
-        self, texts: List[str], index_map: Dict[str, List[int]]
+        self,
+        texts: Optional[List[str]] = None,
+        index_map: Optional[Dict[str, List[int]]] = None,
     ) -> DetailedAnalysis:
         """
         Generates detailed analysis including original indices.
 
         Args:
-            texts: The list of UNIQUE texts used for clustering.
-            index_map: Map from unique text to list of original indices.
+            texts: The list of UNIQUE texts used for clustering. If omitted,
+                uses the texts captured by the last ``fit_predict`` call.
+            index_map: Map from unique text to list of original indices. If
+                omitted, uses the map captured by the last ``fit_predict`` call.
         """
         if self.labels is None:
             raise ValueError("Must call fit_predict first")
 
-        analysis: DetailedAnalysis = {}
+        if texts is None:
+            texts = self._unique_texts
+        if index_map is None:
+            index_map = self._index_map
+        if texts is None or index_map is None:
+            raise ValueError(
+                "No texts/index_map available. Call fit_predict(texts) first, "
+                "or pass both arguments explicitly."
+            )
 
-        # Group indices by label
+        analysis: DetailedAnalysis = {}
         cluster_indices_map: Dict[int, List[int]] = {}
         for i, label in enumerate(self.labels):
             if label not in cluster_indices_map:
                 cluster_indices_map[label] = []
             cluster_indices_map[label].append(i)
 
-        # UPDATED: Sort keys numerically, ensuring Noise (-1) is always last
         all_keys = list(cluster_indices_map.keys())
         regular_keys = [k for k in all_keys if k != -1]
         regular_keys.sort()
-
         sorted_keys = regular_keys + ([-1] if -1 in all_keys else [])
 
         for cluster_id in sorted_keys:
             local_indices = cluster_indices_map[cluster_id]
-
-            # Get texts and original indices for this cluster
             cluster_texts = [texts[i] for i in local_indices]
-            # For each unique text, get ALL its original indices from the map
             cluster_original_indices = []
             for i in local_indices:
                 text = texts[i]
                 cluster_original_indices.extend(index_map[text])
-
             lengths = [len(t.split()) for t in cluster_texts]
 
             if self.probabilities is not None:
@@ -501,11 +565,7 @@ class TextsClusterer:
                     cluster_silhouettes,
                 )
             )
-
-            # UPDATED: Sort by Silhouette Score descending (primary), then Probability (secondary)
-            # x[5] is silhouette score, x[2] is probability
             combined.sort(key=lambda x: (x[5], x[2]), reverse=True)
-
             (
                 sorted_texts,
                 sorted_orig_idxs,
@@ -521,7 +581,7 @@ class TextsClusterer:
 
             item: ClusterAnalysisItem = {
                 "count": len(cluster_texts),
-                "original_indices": list(sorted_orig_idxs),  # NEW: Traceability
+                "original_indices": list(sorted_orig_idxs),
                 "avg_length": float(np.mean(lengths)),
                 "min_length": int(min(lengths)),
                 "max_length": int(max(lengths)),
@@ -531,40 +591,178 @@ class TextsClusterer:
                 "coordinates_2d": [list(c) for c in sorted_coords],
                 "silhouette_scores": [float(s) for s in sorted_silhouettes],
             }
-
             if cluster_id in self.centroids:
                 item["centroid_vector_sample"] = self.centroids[cluster_id][:5].tolist()
                 item["consistency_score"] = self.cluster_consistency.get(
                     cluster_id, 0.0
                 )
-
             analysis[label_name] = item
 
         return analysis
+
+    def get_summary(self, analysis: Optional[DetailedAnalysis] = None) -> SummaryData:
+        """
+        Build the summary report from a detailed analysis. If ``analysis`` is
+        omitted, it is recomputed via :meth:`get_detailed_analysis`.
+        """
+        if analysis is None:
+            analysis = self.get_detailed_analysis()
+
+        n_clusters = len(self.centroids) if self.centroids else 0
+        n_noise = int(np.sum(self.labels == -1)) if self.labels is not None else 0
+
+        cluster_details: Dict[str, ClusterDetailSummary] = {}
+        total_misplaced = 0
+        for cluster_name, info in analysis.items():
+            is_noise = cluster_name == "Noise/Outliers"
+            sil_scores = info.get("silhouette_scores", [])
+            misplaced_count = sum(1 for s in sil_scores if s < 0)
+            avg_silhouette = float(np.mean(sil_scores)) if sil_scores else 0.0
+            total_misplaced += misplaced_count
+            cluster_details[cluster_name] = {
+                "count": info["count"],
+                "consistency_score": info.get("consistency_score", 0.0),
+                "avg_silhouette_score": round(avg_silhouette, 4),
+                "misplaced_items_count": misplaced_count,
+                "is_noise": is_noise,
+            }
+
+        n_original = self._n_original
+        if n_original is None:
+            # Fallback: expand index_map
+            n_original = (
+                sum(len(v) for v in self._index_map.values())
+                if self._index_map is not None
+                else (len(self._unique_texts) if self._unique_texts else 0)
+            )
+        n_unique = len(self._unique_texts) if self._unique_texts else n_original
+
+        return {
+            "summary": {
+                "n_clusters": n_clusters,
+                "n_noise": n_noise,
+                "total_texts": n_original,
+                "unique_texts_processed": n_unique,
+                "total_misplaced_items": total_misplaced,
+            },
+            "cluster_details": cluster_details,
+        }
+
+    def print_analysis(
+        self,
+        analysis: Optional[DetailedAnalysis] = None,
+        *,
+        include_noise: bool = True,
+    ) -> None:
+        """Pretty-print the cluster analysis to stdout."""
+        if analysis is None:
+            analysis = self.get_detailed_analysis()
+
+        regular_clusters = {k: v for k, v in analysis.items() if k != "Noise/Outliers"}
+        noise_cluster = {k: v for k, v in analysis.items() if k == "Noise/Outliers"}
+
+        sorted_names = sorted(regular_clusters.keys(), key=_get_cluster_sort_key)
+
+        for cluster_name in sorted_names:
+            info = regular_clusters[cluster_name]
+            print(f"\n{cluster_name}:")
+            print(
+                f"  Count: {info['count']} | "
+                f"Consistency: {info.get('consistency_score', 0):.3f} | "
+                f"Length range: {info['min_length']}-{info['max_length']} words | "
+                f"Avg: {info['avg_length']:.1f}"
+            )
+            print("  Top Members (sorted by Silhouette Score):")
+            for idx, (text, orig_idx, prob, dist, sil) in enumerate(
+                zip(
+                    info["all_texts"],
+                    info["original_indices"],
+                    info["probabilities"],
+                    info["distances_to_centroid"],
+                    info["silhouette_scores"],
+                ),
+                1,
+            ):
+                preview = text[:80] + "..." if len(text) > 80 else text
+                idx_str = str(orig_idx)
+                print(
+                    f"    {idx}. [Idx:{idx_str}] [S:{sil:.2f}] [P:{prob:.2f}] {preview}"
+                )
+
+        if include_noise and noise_cluster:
+            noise_info = noise_cluster["Noise/Outliers"]
+            print(f"\nNoise/Outliers ({noise_info['count']} items):")
+            for text, orig_idx in zip(
+                noise_info["all_texts"], noise_info["original_indices"]
+            ):
+                idx_str = str(orig_idx)
+                print(f"  - [Idx:{idx_str}] {text[:80]}...")
+
+    def save_results(
+        self,
+        output_dir: Path,
+        analysis: Optional[DetailedAnalysis] = None,
+        summary: Optional[SummaryData] = None,
+        *,
+        save_plot: bool = True,
+    ) -> Dict[str, Path]:
+        """
+        Persist plot, analysis.json, and summary.json under ``output_dir``.
+        Returns a mapping of artifact name to path.
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if analysis is None:
+            analysis = self.get_detailed_analysis()
+        if summary is None:
+            summary = self.get_summary(analysis)
+
+        paths: Dict[str, Path] = {}
+
+        if save_plot:
+            plot_path = output_dir / "clusters_plot.png"
+            self.plot_clusters(self._unique_texts or [], plot_path)
+            paths["plot"] = plot_path
+
+        analysis_path = output_dir / "analysis.json"
+        with open(analysis_path, "w") as f:
+            json.dump(analysis, f, indent=2, cls=NumpyEncoder, ensure_ascii=False)
+        paths["analysis"] = analysis_path
+
+        summary_path = output_dir / "summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2, cls=NumpyEncoder, ensure_ascii=False)
+        paths["summary"] = summary_path
+
+        return paths
+
+    def cluster(
+        self, texts: List[str], *, deduplicate: bool = True
+    ) -> Tuple[FitPredictResult, DetailedAnalysis]:
+        """One-shot: fit_predict + get_detailed_analysis."""
+        results = self.fit_predict(texts, deduplicate=deduplicate)
+        analysis = self.get_detailed_analysis()
+        return results, analysis
 
     def plot_clusters(self, texts: List[str], output_path: Path):
         """Generate a 2D scatter plot of the clusters using stored coordinates."""
         if self.coordinates_2d is None:
             return
-
         plt.figure(figsize=(12, 8))
         unique_labels = np.unique(self.labels)
         colors = plt.cm.rainbow(np.linspace(0, 1, len(unique_labels)))
-
         for i, label in enumerate(unique_labels):
             mask = self.labels == label
             x = self.coordinates_2d[mask, 0]
             y = self.coordinates_2d[mask, 1]
-
             label_name = "Noise" if label == -1 else f"Cluster {label}"
             plt.scatter(x, y, c=[colors[i]], label=label_name, alpha=0.7, s=100)
-
             for j, idx in enumerate(np.where(mask)[0]):
                 preview = (
                     texts[idx][:20] + "..." if len(texts[idx]) > 20 else texts[idx]
                 )
                 plt.annotate(preview, (x[j], y[j]), fontsize=8, alpha=0.8)
-
         plt.title("Text Clusters Visualization (t-SNE)")
         plt.legend(loc="best")
         plt.grid(True, linestyle="--", alpha=0.3)
@@ -590,7 +788,7 @@ def main():
         "--output-dir",
         type=str,
         default=str(OUTPUT_DIR),
-        help=f"Directory to save results.",
+        help="Directory to save results.",
     )
     parser.add_argument(
         "-s",
@@ -633,122 +831,27 @@ def main():
     print("Mixed-Length Text Clustering Demo (Llama.cpp)")
     print("=" * 60)
 
-    # 1. Deduplicate texts while tracking original indices
-    unique_texts, index_map = deduplicate_texts(original_texts)
-    print(f"Input: {len(original_texts)} texts -> Unique: {len(unique_texts)} texts")
-
     clusterer = TextsClusterer(
         model_name=args.model,
         min_cluster_size=args.min_cluster_size,
         cluster_selection_epsilon=args.epsilon,
     )
 
-    # 2. Fit predict on unique texts
-    results = clusterer.fit_predict(unique_texts)
-
-    # 3. Get detailed analysis with traceability
-    analysis = clusterer.get_detailed_analysis(unique_texts, index_map)
+    results, analysis = clusterer.cluster(original_texts)
+    print(
+        f"Input: {results['n_original_texts']} texts -> "
+        f"Unique: {results['n_unique_texts']} texts"
+    )
 
     print("\n" + "=" * 60)
     print("DETAILED CLUSTER ANALYSIS:")
     print("=" * 60)
+    clusterer.print_analysis(analysis)
 
-    # Separate regular clusters and noise
-    regular_clusters = {k: v for k, v in analysis.items() if k != "Noise/Outliers"}
-    noise_cluster = {k: v for k, v in analysis.items() if k == "Noise/Outliers"}
-
-    # UPDATED: Sort by extracting the integer from "Cluster X"
-    def get_cluster_id(name: str) -> float:
-        try:
-            return float(name.split(" ")[1])
-        except (IndexError, ValueError):
-            return float("inf")
-
-    sorted_cluster_names = sorted(regular_clusters.keys(), key=get_cluster_id)
-
-    for cluster_name in sorted_cluster_names:
-        info = regular_clusters[cluster_name]
-        print(f"\n{cluster_name}:")
-        print(
-            f"  Count: {info['count']} | Consistency: {info.get('consistency_score', 0):.3f}"
-        )
-        print(f"  Top Members (sorted by Silhouette Score):")
-        for idx, (text, orig_idx, prob, dist, sil) in enumerate(
-            zip(
-                info["all_texts"],
-                info["original_indices"],
-                info["probabilities"],
-                info["distances_to_centroid"],
-                info["silhouette_scores"],
-            ),
-            1,
-        ):
-            preview = text[:80] + "..." if len(text) > 80 else text
-            # Display original indices for traceability
-            idx_str = str(orig_idx) if isinstance(orig_idx, int) else str(orig_idx)
-            print(f"    {idx}. [Idx:{idx_str}] [S:{sil:.2f}] [P:{prob:.2f}] {preview}")
-
-    if noise_cluster:
-        print(f"\nNoise/Outliers ({noise_cluster['Noise/Outliers']['count']} items):")
-        for text, orig_idx in zip(
-            noise_cluster["Noise/Outliers"]["all_texts"],
-            noise_cluster["Noise/Outliers"]["original_indices"],
-        ):
-            idx_str = str(orig_idx) if isinstance(orig_idx, int) else str(orig_idx)
-            print(f"  - [Idx:{idx_str}] {text[:80]}...")
-
-    plot_file = out_path / "clusters_plot.png"
-    clusterer.plot_clusters(unique_texts, plot_file)
-
-    class NumpyEncoder(json.JSONEncoder):
-        def default(self, obj):
-            if isinstance(obj, np.integer):
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            return super().default(obj)
-
-    with open(out_path / "analysis.json", "w") as f:
-        json.dump(analysis, f, indent=2, cls=NumpyEncoder, ensure_ascii=False)
-
-    # --- Enhanced Summary Generation ---
-    cluster_details: Dict[str, ClusterDetailSummary] = {}
-    total_misplaced = 0
-
-    for cluster_name, info in analysis.items():
-        is_noise = cluster_name == "Noise/Outliers"
-        sil_scores = info.get("silhouette_scores", [])
-
-        # Calculate metrics
-        misplaced_count = sum(1 for s in sil_scores if s < 0)
-        avg_silhouette = float(np.mean(sil_scores)) if sil_scores else 0.0
-        total_misplaced += misplaced_count
-
-        cluster_details[cluster_name] = {
-            "count": info["count"],
-            "consistency_score": info.get("consistency_score", 0.0),
-            "avg_silhouette_score": round(avg_silhouette, 4),
-            "misplaced_items_count": misplaced_count,
-            "is_noise": is_noise,
-        }
-
-    summary_data: SummaryData = {
-        "summary": {
-            "n_clusters": results["n_clusters"],
-            "n_noise": results["n_noise"],
-            "total_texts": len(original_texts),  # Total original count
-            "unique_texts_processed": len(unique_texts),
-            "total_misplaced_items": total_misplaced,
-        },
-        "cluster_details": cluster_details,
-    }
-
-    with open(out_path / "summary.json", "w") as f:
-        json.dump(summary_data, f, indent=2, cls=NumpyEncoder, ensure_ascii=False)
-
+    saved = clusterer.save_results(out_path, analysis=analysis)
     print(f"\nResults saved to {out_path}")
+    for name, path in saved.items():
+        print(f"  {name}: {path}")
 
 
 if __name__ == "__main__":

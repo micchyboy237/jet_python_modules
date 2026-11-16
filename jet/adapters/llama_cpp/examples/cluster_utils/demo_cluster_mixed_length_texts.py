@@ -1,4 +1,12 @@
+import shutil
+from pathlib import Path
+
 from jet.adapters.llama_cpp.cluster_utils import TextsClusterer
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 if __name__ == "__main__":
     mixed_texts = [
@@ -16,6 +24,7 @@ applications. Full-stack developers work across the entire technology stack.""",
         """Artificial intelligence is transforming industries worldwide. Machine learning algorithms can now diagnose diseases,
 drive cars, and translate languages with remarkable accuracy. Deep learning, a subset of AI, uses neural networks with
 many layers to process complex patterns in data.
+
 The ethical implications of AI development are increasingly important. Questions about bias in algorithms, job displacement,
 and privacy concerns need careful consideration. Governments and organizations are developing guidelines for responsible AI use.
 Future advancements in quantum computing may accelerate AI capabilities exponentially. Researchers are exploring new architectures
@@ -36,7 +45,6 @@ Industrial IoT optimizes manufacturing processes through real-time monitoring.""
 Containerization with Docker ensures consistent environments across development and production.""",
         "The battery life is terrible, lasting only 3 hours.",
         "Excellent value for money with premium features included.",
-        # Added some distinct/outlier-like texts to demonstrate outlier detection
         "Sushi is best eaten fresh with soy sauce.",
         "The cat sat on the mat.",
         "Quantum entanglement defies classical intuition.",
@@ -48,53 +56,24 @@ Containerization with Docker ensures consistent environments across development 
     print("Mixed-Length Text Clustering Demo (Llama.cpp)")
     print("=" * 60)
 
-    # Initialize with defaults from config
-    clusterer = TextsClusterer(
-        min_cluster_size=2,
-        # max_tokens_safe=None will trigger dynamic calculation
-    )
+    clusterer = TextsClusterer(min_cluster_size=2)
+    results, analysis = clusterer.cluster(mixed_texts)
 
-    results = clusterer.fit_predict(mixed_texts)
-    clusters = clusterer.get_cluster_texts(mixed_texts)
-    analysis = clusterer.get_detailed_analysis(mixed_texts)
+    print(
+        f"\nInput: {results['n_original_texts']} texts -> "
+        f"Unique: {results['n_unique_texts']} texts"
+    )
 
     print("\n" + "=" * 60)
     print("DETAILED CLUSTER ANALYSIS:")
     print("=" * 60)
-
-    # Separate regular clusters and noise for better display order
-    regular_clusters = {k: v for k, v in analysis.items() if k != "Noise/Outliers"}
-    noise_cluster = {k: v for k, v in analysis.items() if k == "Noise/Outliers"}
-
-    # Print regular clusters first
-    for cluster_name, info in sorted(regular_clusters.items()):
-        print(f"\n{cluster_name}:")
-        print(f"  Count: {info['count']}")
-        print(f"  Length range: {info['min_length']} - {info['max_length']} words")
-        print(f"  Average length: {info['avg_length']:.1f} words")
-        print(f"  All texts:")
-        for idx, (text, prob) in enumerate(
-            zip(info["all_texts"], info["probabilities"]), 1
-        ):
-            preview = text[:100] + "..." if len(text) > 100 else text
-            # Display probability score
-            print(f"    {idx}. [{prob:.3f}] {preview}")
-
-    # Print Noise/Outliers last if they exist
-    if noise_cluster:
-        for cluster_name, info in noise_cluster.items():
-            print(f"\n{cluster_name}:")
-            print(f"  Count: {info['count']}")
-            print(f"  Length range: {info['min_length']} - {info['max_length']} words")
-            print(f"  Average length: {info['avg_length']:.1f} words")
-            print(f"  All texts:")
-            for idx, (text, prob) in enumerate(
-                zip(info["all_texts"], info["probabilities"]), 1
-            ):
-                preview = text[:100] + "..." if len(text) > 100 else text
-                # Display probability score (will be 0.000 for noise)
-                print(f"    {idx}. [{prob:.3f}] {preview}")
+    clusterer.print_analysis(analysis)
 
     print(f"\n{'=' * 60}")
     print(f"SUMMARY: {results['n_clusters']} clusters, {results['n_noise']} outliers")
     print(f"{'=' * 60}")
+
+    saved = clusterer.save_results(OUTPUT_DIR, analysis=analysis)
+    print(f"\nResults saved to {OUTPUT_DIR}")
+    for name, path in saved.items():
+        print(f"  {name}: {path}")
