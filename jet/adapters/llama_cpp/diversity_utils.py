@@ -13,6 +13,7 @@ This module owns:
 
 import logging
 import time
+from typing import Callable, Optional, TypedDict
 
 import numpy as np
 from jet.adapters.llama_cpp.embed_utils import embed
@@ -30,9 +31,28 @@ BALANCED_RELEVANCE_BIAS = 1.0
 # always has *some* chance of appearing in a shuffle - otherwise a shuffle
 # would just keep re-picking from the same top slice of the pool.
 MIN_SAMPLE_WEIGHT = 0.05
+FETCH_K_CAP = 300
+SHUFFLE_FETCH_K_CAP = 400
 
-FETCH_K_CAP = 300  # was hardcoded 200 inside compute_fetch_k
-SHUFFLE_FETCH_K_CAP = 400  # was hardcoded 300 inside compute_shuffle_fetch_k
+
+class SearchResult(TypedDict):
+    """Represents a single search result candidate."""
+
+    id: str
+    score: float
+    document: str
+
+
+class EmbeddingFetcher(TypedDict):
+    """Protocol-like definition for the embedding fetcher function."""
+
+    # Note: In Python 3.8+, Protocol is preferred for callable structures,
+    # but for simple typing hints in this context, we document the signature below.
+    pass
+
+
+# Type alias for the embedding fetcher function
+EmbeddingFn = Callable[[list[str]], Optional[np.ndarray]]
 
 
 class LlamaCppSemHashEncoder:
@@ -46,7 +66,7 @@ class LlamaCppSemHashEncoder:
     SemHash.from_embeddings() — no full re-embedding of the candidate pool.
     """
 
-    def encode(self, inputs, **kwargs) -> np.ndarray:
+    def encode(self, inputs: str | list[str], **kwargs) -> np.ndarray:
         """
         Encode a string or list of strings into embeddings.
         :param inputs: A string or a list of strings to encode.
@@ -78,7 +98,6 @@ def compute_fetch_k(top_k: int, diversity: float) -> int:
     """
     if diversity <= 0:
         return top_k
-    # diversity=0.0 -> handled above. diversity=0.1 -> 3x, 0.5 -> ~5x, 1.0 -> 6x
     multiplier = 3 + round(diversity * 3)
     desired = top_k * multiplier
     fetch_k = min(max(desired, top_k + 20), FETCH_K_CAP)
@@ -116,12 +135,12 @@ def compute_shuffle_fetch_k(top_k: int) -> int:
 
 
 def sample_candidate_pool(
-    results: list[dict],
+    results: list[SearchResult],
     sample_size: int,
     seed: int,
     relevance_bias: float = BALANCED_RELEVANCE_BIAS,
     guaranteed_top: int = 1,
-) -> list[dict]:
+) -> list[SearchResult]:
     """
     Weighted random sample (without replacement) of `results`, biased
     toward higher relevance scores. This is what makes "shuffle" vary
@@ -158,6 +177,7 @@ def sample_candidate_pool(
     sorted_by_score = sorted(results, key=lambda r: r["score"], reverse=True)
     guaranteed = sorted_by_score[:guaranteed_top]
     guaranteed_ids = {r["id"] for r in guaranteed}
+
     remaining_pool = [r for r in results if r["id"] not in guaranteed_ids]
     remaining_sample_size = sample_size - guaranteed_top
 
@@ -171,7 +191,6 @@ def sample_candidate_pool(
         if score_range > 0
         else np.ones_like(scores)
     )
-
     weights = np.power(normalized, relevance_bias) + MIN_SAMPLE_WEIGHT
     weights = weights / weights.sum()
 
@@ -190,11 +209,11 @@ def sample_candidate_pool(
 
 
 def diversify_results(
-    results: list[dict],
+    results: list[SearchResult],
     top_k: int,
     diversity: float,
-    get_embeddings_fn,
-) -> list[dict]:
+    get_embeddings_fn: EmbeddingFn,
+) -> list[SearchResult]:
     """
     Select a diverse subset of `results` using SemHash's MMR-based
     diversification (pyversity under the hood).
@@ -254,13 +273,13 @@ def diversify_results(
 
 
 def shuffle_and_diversify(
-    results: list[dict],
+    results: list[SearchResult],
     top_k: int,
     diversity: float,
     seed: int,
-    get_embeddings_fn,
+    get_embeddings_fn: EmbeddingFn,
     relevance_bias: float = BALANCED_RELEVANCE_BIAS,
-) -> list[dict]:
+) -> list[SearchResult]:
     """
     Shuffle entry point: weighted-sample the overfetched candidate pool
     down to a workable size, then run the normal MMR diversify step on
