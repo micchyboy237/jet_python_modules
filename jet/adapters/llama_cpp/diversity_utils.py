@@ -1,5 +1,4 @@
 """Diversity-aware result selection for semantic search.
-
 Isolated here so chroma_service.py stays focused on CRUD/search plumbing.
 This module owns:
   - the SemHash-compatible encoder adapter for our llama.cpp server
@@ -21,15 +20,7 @@ from semhash import SemHash
 
 logger = logging.getLogger(__name__)
 
-# "Balanced" default: normalized relevance score is used as-is (exponent 1.0)
-# when weighting the shuffle sample. Higher exponent -> favor relevance more
-# (less variety per shuffle). Lower exponent -> favor variety more (more
-# surprising results, occasionally lower relevance).
 BALANCED_RELEVANCE_BIAS = 1.0
-
-# Floor probability weight so even the lowest-scored candidate in the pool
-# always has *some* chance of appearing in a shuffle - otherwise a shuffle
-# would just keep re-picking from the same top slice of the pool.
 MIN_SAMPLE_WEIGHT = 0.05
 FETCH_K_CAP = 300
 SHUFFLE_FETCH_K_CAP = 400
@@ -43,14 +34,6 @@ class SearchResult(TypedDict):
     document: str
 
 
-class EmbeddingFetcher(TypedDict):
-    """Protocol-like definition for the embedding fetcher function."""
-
-    # Note: In Python 3.8+, Protocol is preferred for callable structures,
-    # but for simple typing hints in this context, we document the signature below.
-    pass
-
-
 # Type alias for the embedding fetcher function
 EmbeddingFn = Callable[[list[str]], Optional[np.ndarray]]
 
@@ -59,7 +42,6 @@ class LlamaCppSemHashEncoder:
     """
     Semhash-compatible Encoder (see semhash.utils.Encoder protocol — only
     needs `.encode()`), backed by our local llama.cpp embedding server.
-
     Only invoked by SemHash during the MMR diversity re-ranking step
     (self_find_representative -> _diversify), since the initial index is
     built from embeddings already stored in ChromaDB via
@@ -84,17 +66,6 @@ def compute_fetch_k(top_k: int, diversity: float) -> int:
     """
     Compute how many candidates to overfetch before diversifying (normal,
     non-shuffle path).
-
-    MMR needs a pool larger than top_k to have anything to trade relevance
-    against — fetching exactly top_k candidates and then "diversifying"
-    them is a no-op. The multiplier now scales with how much diversity was
-    requested (a diversity=0.1 nudge doesn't need the same pool as
-    diversity=1.0), and is capped to avoid an unnecessarily expensive
-    Chroma query for large top_k values.
-
-    :param top_k: Number of final results the caller wants.
-    :param diversity: Diversity weight (0 disables overfetching entirely).
-    :return: Number of candidates to fetch from the vector store.
     """
     if diversity <= 0:
         return top_k
@@ -114,14 +85,6 @@ def compute_fetch_k(top_k: int, diversity: float) -> int:
 def compute_shuffle_fetch_k(top_k: int) -> int:
     """
     Compute how many candidates to overfetch for a SHUFFLE request.
-
-    Shuffle needs a noticeably bigger pool than the normal path — the
-    whole point is to have enough breadth to sample a genuinely different
-    subset each time. There's no caching (per current design), so this
-    directly controls the Chroma query cost per shuffle click.
-
-    :param top_k: Number of final results the caller wants.
-    :return: Number of candidates to fetch from the vector store.
     """
     desired = top_k * 10
     fetch_k = min(max(desired, top_k + 60), SHUFFLE_FETCH_K_CAP)
@@ -143,32 +106,7 @@ def sample_candidate_pool(
 ) -> list[SearchResult]:
     """
     Weighted random sample (without replacement) of `results`, biased
-    toward higher relevance scores. This is what makes "shuffle" vary
-    across calls: a different random subset of the (still relevant)
-    candidate pool is chosen each time, before MMR diversifies it.
-
-    The top `guaranteed_top` candidates by score are always kept — pure
-    weighted sampling can otherwise drop the single best match by chance,
-    which is a bad look for "shuffle" even though it's not a bug. The
-    remaining `sample_size - guaranteed_top` slots are filled by the
-    existing weighted random draw over everything else.
-
-    Weighting scheme: scores are min-max normalized to [0, 1] across the
-    pool, then raised to `relevance_bias` and floored at MIN_SAMPLE_WEIGHT
-    so no candidate has zero chance of being picked.
-        relevance_bias > 1.0  -> favors top-scored candidates more
-                                  (shuffles look more similar to each other)
-        relevance_bias == 1.0 -> balanced (default)
-        relevance_bias < 1.0  -> favors variety more
-                                  (shuffles can surface weaker matches)
-
-    :param results: Scored search results; each dict must have "id" and "score".
-    :param sample_size: Number of results to sample.
-    :param seed: Random seed — same seed always produces the same sample.
-    :param relevance_bias: Exponent controlling relevance-vs-variety balance.
-    :param guaranteed_top: How many top-scored candidates to always keep.
-        Set to 0 to restore the old pure-random behavior.
-    :return: Sampled subset of `results`, length == min(sample_size, len(results)).
+    toward higher relevance scores.
     """
     if sample_size >= len(results):
         return results
@@ -212,45 +150,40 @@ def diversify_results(
     results: list[SearchResult],
     top_k: int,
     diversity: float,
-    get_embeddings_fn: EmbeddingFn,
+    get_embeddings_fn: Optional[EmbeddingFn] = None,
+    embeddings: Optional[np.ndarray] = None,
 ) -> list[SearchResult]:
     """
     Select a diverse subset of `results` using SemHash's MMR-based
     diversification (pyversity under the hood).
 
-    Reuses embeddings already stored in ChromaDB for the candidate pool —
-    the custom LlamaCpp encoder is only used internally by SemHash to
-    re-embed the shortlisted candidates during MMR re-ranking.
-
-    Works identically whether `results` is the plain overfetched pool
-    (normal path) or an already-shuffled subset of it (shuffle path) —
-    shuffling only changes what's fed in here, not this function itself.
-
-    :param results: Candidate search results (already ranked by relevance,
-        already score-filtered), each a dict with at least "id" and
-        "document".
+    :param results: Candidate search results.
     :param top_k: Number of diverse representatives to select.
     :param diversity: Trade-off between diversity (1.0) and relevance (0.0).
-    :param get_embeddings_fn: Callable(ids: list[str]) -> Optional[np.ndarray],
-        used to fetch stored embeddings for the candidate pool. Injected
-        rather than imported to avoid a circular import with
-        chroma_service.py.
-    :return: Diversified subset of `results`, length <= top_k. Falls back
-        to a plain top_k slice if embeddings can't be retrieved/aligned.
+    :param get_embeddings_fn: Optional callable to fetch embeddings if not provided directly.
+    :param embeddings: Optional pre-computed embeddings. If provided, skips get_embeddings_fn.
+    :return: Diversified subset of `results`.
     """
     if len(results) <= top_k:
         return results
 
-    ids = [r["id"] for r in results]
-    embeddings = get_embeddings_fn(ids)
+    # Resolve embeddings
+    if embeddings is None:
+        if get_embeddings_fn is None:
+            raise ValueError(
+                "Either 'embeddings' or 'get_embeddings_fn' must be provided."
+            )
 
-    if embeddings is None or len(embeddings) != len(results):
-        logger.warning(
-            f"⚠️ [SearchDiversity] Could not retrieve aligned embeddings for "
-            f"{len(ids)} candidates — skipping diversification, returning "
-            f"top_k by relevance"
-        )
-        return results[:top_k]
+        ids = [r["id"] for r in results]
+        embeddings = get_embeddings_fn(ids)
+
+        if embeddings is None or len(embeddings) != len(results):
+            logger.warning(
+                f"⚠️ [SearchDiversity] Could not retrieve aligned embeddings for "
+                f"{len(ids)} candidates — skipping diversification, returning "
+                f"top_k by relevance"
+            )
+            return results[:top_k]
 
     start_time = time.time()
     semhash = SemHash.from_embeddings(
@@ -277,30 +210,44 @@ def shuffle_and_diversify(
     top_k: int,
     diversity: float,
     seed: int,
-    get_embeddings_fn: EmbeddingFn,
+    get_embeddings_fn: Optional[EmbeddingFn] = None,
     relevance_bias: float = BALANCED_RELEVANCE_BIAS,
+    embeddings: Optional[np.ndarray] = None,
 ) -> list[SearchResult]:
     """
     Shuffle entry point: weighted-sample the overfetched candidate pool
     down to a workable size, then run the normal MMR diversify step on
     that sample.
 
-    :param results: The overfetched, score-filtered candidate pool (should
-        be fetched with compute_shuffle_fetch_k for enough variety).
+    :param results: The overfetched, score-filtered candidate pool.
     :param top_k: Number of final results to return.
-    :param diversity: Trade-off between diversity (1.0) and relevance (0.0),
-        applied during the diversify step (same meaning as elsewhere).
-    :param seed: Random seed for the shuffle — same seed -> same output.
-    :param get_embeddings_fn: See diversify_results.
-    :param relevance_bias: See sample_candidate_pool.
+    :param diversity: Trade-off between diversity (1.0) and relevance (0.0).
+    :param seed: Random seed for the shuffle.
+    :param get_embeddings_fn: Optional callable to fetch embeddings.
+    :param relevance_bias: Exponent controlling relevance-vs-variety balance.
+    :param embeddings: Optional pre-computed embeddings for the entire 'results' pool.
+        Note: If provided, these embeddings must correspond to the FULL 'results' list,
+        as sampling happens first, and we slice these embeddings to match the sample.
     :return: A diverse top_k subset, varying by `seed`.
     """
-    # Sample down to roughly the same size a normal (non-shuffle) diversify
-    # candidate pool would use, just drawn randomly instead of by strict rank.
     sample_size = min(len(results), compute_fetch_k(top_k, diversity))
     sampled = sample_candidate_pool(
         results, sample_size=sample_size, seed=seed, relevance_bias=relevance_bias
     )
+
+    # If pre-computed embeddings were provided for the full pool,
+    # we need to extract the embeddings for the sampled items.
+    sampled_embeddings = None
+    if embeddings is not None:
+        # Create a map of ID to index in the original results/embeddings array
+        id_to_idx = {r["id"]: i for i, r in enumerate(results)}
+        sampled_indices = [id_to_idx[r["id"]] for r in sampled]
+        sampled_embeddings = embeddings[sampled_indices]
+
     return diversify_results(
-        sampled, top_k=top_k, diversity=diversity, get_embeddings_fn=get_embeddings_fn
+        sampled,
+        top_k=top_k,
+        diversity=diversity,
+        get_embeddings_fn=get_embeddings_fn,
+        embeddings=sampled_embeddings,
     )

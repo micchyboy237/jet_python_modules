@@ -1,7 +1,7 @@
 """
 Demonstrates the shuffle feature which introduces variability in results.
 Uses weighted sampling + diversity to provide different but still relevant sets.
-NOTE: Requires a large candidate pool to demonstrate variability.
+Uses pre-computed embeddings for efficiency.
 """
 
 import json
@@ -21,8 +21,6 @@ OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Generate a larger pool of documents to ensure sampling occurs
-# We need len(results) > sample_size for shuffle to work
 base_topics = [
     "Machine learning is a subset of AI.",
     "Deep learning uses neural networks.",
@@ -66,59 +64,49 @@ base_topics = [
     "AI traffic management reduces congestion.",
 ]
 
-# Create 40 unique documents
 documents = [f"{topic} (ID: {i})" for i, topic in enumerate(base_topics)]
 
-# Simulate a large candidate pool fetched from vector DB
-# Scores decrease slightly to simulate relevance ranking
 results = [
     {"id": f"ai_doc_{i}", "document": doc, "score": 1.0 - (i * 0.01)}
     for i, doc in enumerate(documents)
 ]
 
-
-# Mock embedding function
-def mock_get_embeddings(ids):
-    id_to_text = {r["id"]: r["document"] for r in results}
-    ordered_texts = [id_to_text[i] for i in ids]
-    # Only embed what is requested
-    return embed(ordered_texts, return_format="numpy", show_progress=False)
-
+# Pre-compute embeddings for the entire pool
+console.print("[dim]Generating embeddings for candidate pool...[/dim]")
+all_embeddings = embed([r["document"] for r in results], show_progress=False)
 
 console.print("[bold blue]=== Shuffle Variety Demo ===[/bold blue]")
 console.print(f"Candidate pool size: {len(results)}")
 console.print(f"Target top_k: 5")
 
-# Calculate how many candidates to fetch for shuffle
 fetch_k = compute_shuffle_fetch_k(top_k=5)
 console.print(f"Fetch K for shuffle: {fetch_k}")
 console.print(f"[dim]Note: Using first {fetch_k} items from pool for simulation.[/dim]")
 
-# Perform shuffle and diversify with different seeds
+# Slice results and embeddings to simulate the "fetched" pool
+candidate_pool = results[:fetch_k]
+pool_embeddings = all_embeddings[:fetch_k]
+
 seeds = [42, 123, 999]
 all_shuffled_results = {}
 
 for seed in seeds:
     console.print(f"\n[bold yellow]Shuffle Seed: {seed}[/bold yellow]")
 
-    # Use the subset of results that simulates the DB fetch
-    candidate_pool = results[:fetch_k]
-
+    # Pass pre-computed embeddings for the candidate pool
     shuffled = shuffle_and_diversify(
         results=candidate_pool,
         top_k=5,
         diversity=0.6,
         seed=seed,
-        get_embeddings_fn=mock_get_embeddings,
         relevance_bias=1.0,
+        embeddings=pool_embeddings,
     )
 
     all_shuffled_results[f"seed_{seed}"] = shuffled
-
     selected_ids = [item["id"] for item in shuffled]
     console.print(f"  Selected IDs: {selected_ids}")
 
-# Save output
 output_file = OUTPUT_DIR / "shuffled_results.json"
 output_file.write_text(json.dumps(all_shuffled_results, indent=2))
 
