@@ -1,0 +1,77 @@
+[
+  {
+    "code": "my_list = [1, 2, 3]",
+    "text": "In Python, a list is a built-in data structure that stores an ordered collection of items. Lists are mutable, meaning you can change their content after creation. They are defined using square brackets [] and can contain elements of different data types.",
+    "videoId": "py-list-basics-01"
+  },
+  {
+    "code": "items = ['apple', 'banana', 'cherry']",
+    "text": "Python lists allow you to store multiple items in a single variable. You can access elements by their index, starting from 0. Lists support operations like appending, removing, and slicing, making them versatile for data manipulation tasks.",
+    "videoId": "py-list-intro-02"
+  },
+  {
+    "code": "numbers = list(range(10))",
+    "text": "A list in Python is a sequence of values. Unlike arrays in other languages, Python lists can hold mixed types. They are dynamic and can grow or shrink as needed. Common methods include .append(), .insert(), and .pop().",
+    "videoId": "py-list-sequence-03"
+  },
+  {
+    "code": "import pandas as pd\ndf = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})",
+    "text": "Pandas is a powerful library for data manipulation and analysis in Python. It provides DataFrame objects, which are two-dimensional labeled data structures with columns of potentially different types. It is essential for cleaning and exploring datasets.",
+    "videoId": "pandas-intro-01"
+  },
+  {
+    "code": "df.head()",
+    "text": "Data analysis with Python often involves using Pandas to handle structured data. You can perform filtering, grouping, and aggregation operations easily. Pandas integrates well with NumPy and Matplotlib for numerical computing and visualization.",
+    "videoId": "pandas-analysis-02"
+  },
+  {
+    "code": "from bs4 import BeautifulSoup\nsoup = BeautifulSoup(html, 'html.parser')",
+    "text": "Web scraping in Python can be done using libraries like BeautifulSoup and Requests. BeautifulSoup parses HTML and XML documents, creating a parse tree for extracted data. It is useful for navigating and searching through web page content.",
+    "videoId": "scraping-bs4-01"
+  },
+  {
+    "code": "import requests\nresponse = requests.get('https://api.example.com')",
+    "text": "The Requests library is the standard for making HTTP requests in Python. It simplifies sending GET, POST, PUT, and DELETE requests. It handles sessions, cookies, and authentication, making it ideal for interacting with REST APIs.",
+    "videoId": "requests-api-01"
+  },
+  {
+    "code": "def greet(name):\n    return f'Hello, {name}!'",
+    "text": "Functions in Python are defined using the def keyword. They allow you to encapsulate reusable blocks of code. Functions can accept arguments and return values. They help in organizing code and reducing redundancy.",
+    "videoId": "py-functions-01"
+  },
+  {
+    "code": "class Dog:\n    def __init__(self, name):\n        self.name = name",
+    "text": "Object-oriented programming in Python uses classes to create objects. A class defines attributes and methods. The __init__ method is the constructor. OOP helps in modeling real-world entities and managing complex software systems.",
+    "videoId": "py-oop-01"
+  },
+  {
+    "code": "try:\n    result = 10 / 0\nexcept ZeroDivisionError:\n    print('Cannot divide by zero')",
+    "text": "Exception handling in Python uses try-except blocks. It allows your program to handle errors gracefully without crashing. You can catch specific exceptions like ValueError or FileNotFoundError and provide custom error messages.",
+    "videoId": "py-errors-01"
+  },
+  {
+    "code": "import numpy as np\narr = np.array([1, 2, 3])",
+    "text": "NumPy is the fundamental package for scientific computing in Python. It provides support for large, multi-dimensional arrays and matrices, along with a collection of mathematical functions to operate on these arrays efficiently.",
+    "videoId": "numpy-basics-01"
+  },
+  {
+    "code": "plt.plot([1, 2, 3], [4, 5, 6])\nplt.show()",
+    "text": "Matplotlib is a plotting library for Python. It allows you to create static, animated, and interactive visualizations. You can generate line plots, scatter plots, histograms, and more to visualize data trends and patterns.",
+    "videoId": "matplotlib-viz-01"
+  },
+  {
+    "code": "with open('file.txt', 'r') as f:\n    content = f.read()",
+    "text": "File I/O in Python is handled using the open() function. Using the 'with' statement ensures that files are properly closed after operations. You can read from or write to text and binary files easily.",
+    "videoId": "py-file-io-01"
+  },
+  {
+    "code": "import json\ndata = json.loads(json_string)",
+    "text": "JSON (JavaScript Object Notation) is a lightweight data-interchange format. Python has a built-in json module to parse JSON strings into dictionaries and lists, and to convert Python objects back into JSON strings.",
+    "videoId": "py-json-01"
+  },
+  {
+    "code": "from datetime import datetime\nnow = datetime.now()",
+    "text": "The datetime module in Python provides classes for manipulating dates and times. You can perform arithmetic on dates, format them as strings, and parse strings into datetime objects. It is crucial for logging and scheduling tasks.",
+    "videoId": "py-datetime-01"
+  }
+]

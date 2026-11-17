@@ -34,7 +34,7 @@ import numpy as np
 from datasketch import MinHash, MinHashLSH
 
 # Local embedding backend (llama.cpp server via OpenAI-compatible client)
-from jet.adapters.llama_cpp.embed_utils import embed as llama_embed
+from jet.adapters.llama_cpp.embed_utils import embed
 from sklearn.cluster import KMeans
 
 
@@ -115,7 +115,7 @@ def embed_texts(texts: List[str], indices: List[int], cfg: DedupConfig) -> np.nd
     if cfg.embedding_model:
         kwargs["model"] = cfg.embedding_model
 
-    embeddings = llama_embed(subset, **kwargs)
+    embeddings = embed(subset, **kwargs)
     embeddings = np.asarray(embeddings, dtype=np.float32)
 
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
