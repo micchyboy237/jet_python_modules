@@ -234,8 +234,11 @@ def create_topic_model(
 ) -> BERTopic:
     """
     Create a configured BERTopic model.
+
     Args:
-        embedder: Embedding backend (auto-created if not provided)
+        embedder: Embedding backend (auto-created if not provided).
+                  Note: If passing pre-computed embeddings to extract_topics,
+                  this is still required for initialization but won't be used for fitting.
         min_topic_size: Minimum documents per topic
         top_n_words: Number of keywords per topic
         remove_stop_words: Remove English stop words for cleaner keywords
@@ -247,10 +250,14 @@ def create_topic_model(
         n_gram_range: The n-gram range for the vectorizer
         verbose: Enable progress logging
         **kwargs: Additional arguments passed to BERTopic
+
     Returns:
         Configured BERTopic model
     """
     if embedder is None:
+        # Even if using pre-computed embeddings, BERTopic often expects an embedder
+        # for certain operations like find_topics or transforming new data later.
+        # We create a default one if none is provided.
         embedder = create_bertopic_embedder()
 
     vectorizer_model = None
@@ -273,7 +280,6 @@ def create_topic_model(
     if use_keybert:
         kb_model = KeyBERTInspired(top_n_words=top_n_words)
         if use_mmr:
-            # Chain MMR after KeyBERT for diversity
             mmr_model = MaximalMarginalRelevance(
                 diversity=mmr_diversity, top_n_words=top_n_words
             )
@@ -281,7 +287,6 @@ def create_topic_model(
         else:
             representation_model = kb_model
     elif use_mmr:
-        # MMR usually works best on top of c-TF-IDF or another representation
         mmr_model = MaximalMarginalRelevance(
             diversity=mmr_diversity, top_n_words=top_n_words
         )
@@ -301,6 +306,7 @@ def create_topic_model(
 
 def extract_topics(
     documents: List[str],
+    embeddings: Optional[NDArray[np.float32]] = None,
     embedder: Optional[BaseEmbedder] = None,
     min_topic_size: int = 3,
     top_n_words: int = 10,
@@ -316,14 +322,20 @@ def extract_topics(
 ) -> TopicExtractionResult:
     """
     Extract topics from documents using BERTopic with llama.cpp embeddings.
+
     This is the main high-level function for topic extraction. It handles
     the complete pipeline: embedding, topic modeling, and result formatting.
+
     Uses concurrent embedding via jet.adapters.llama_cpp.embed_utils for
-    faster processing of large document sets.
+    faster processing of large document sets, unless pre-computed embeddings
+    are provided.
 
     Args:
         documents: List of text documents to analyze
-        embedder: Embedding backend (auto-created if not provided)
+        embeddings: Pre-computed document embeddings. If provided, the embedder
+                    will not be used to generate new embeddings. Shape should be
+                    (n_documents, embedding_dim).
+        embedder: Embedding backend (auto-created if not provided and embeddings are None)
         min_topic_size: Minimum documents per topic
         top_n_words: Number of keywords per topic
         remove_stop_words: Remove English stop words for cleaner keywords
@@ -331,19 +343,22 @@ def extract_topics(
         use_mmr: Use Maximal Marginal Relevance for diverse keywords
         mmr_diversity: Diversity parameter for MMR (0-1)
         n_representative_docs: Max representative docs per topic.
-            None (default) returns all available. Set to an int to cap.
+                               None (default) returns all available. Set to an int to cap.
         max_workers: Number of worker threads for concurrent embedding
         n_gram_range: The n-gram range for the vectorizer
         verbose: Enable progress logging
         show_progress: Whether to show progress bar during embedding
+
     Returns:
         TopicExtractionResult containing structured topic data with scores, sorted by size desc
     """
-    if embedder is None:
-        embedder = create_bertopic_embedder(
-            max_workers=max_workers,
-            show_progress=show_progress,
-        )
+    # If no pre-computed embeddings are provided, we need an embedder
+    if embeddings is None:
+        if embedder is None:
+            embedder = create_bertopic_embedder(
+                max_workers=max_workers,
+                show_progress=show_progress,
+            )
 
     topic_model = create_topic_model(
         embedder=embedder,
@@ -358,11 +373,13 @@ def extract_topics(
     )
 
     console.print("[yellow]Starting topic extraction...[/yellow]")
-    topic_labels, probs = topic_model.fit_transform(documents)
+
+    # Pass embeddings to fit_transform. If embeddings is None, BERTopic will
+    # use the internal embedder. If embeddings is provided, it uses those.
+    topic_labels, probs = topic_model.fit_transform(documents, embeddings=embeddings)
 
     topic_info = topic_model.get_topic_info()
 
-    # Build mapping of topic ID to document indices
     topic_doc_indices: Dict[int, List[int]] = {}
     for doc_idx, topic_id in enumerate(topic_labels):
         if topic_id == -1:
@@ -372,30 +389,25 @@ def extract_topics(
         topic_doc_indices[topic_id].append(doc_idx)
 
     topics_list: List[Topic] = []
-
     for _, row in topic_info.iterrows():
         topic_id = int(row["Topic"])
         if topic_id == -1:
             continue
 
-        # Get Keywords and Scores
         raw_keywords = topic_model.get_topic(topic_id)
         keywords = []
         keyword_scores = []
-
         if isinstance(raw_keywords, list):
             for word, score in raw_keywords:
-                if word:  # Filter empty strings
+                if word:
                     keywords.append(word)
                     keyword_scores.append({"word": word, "score": float(score)})
 
-        # Get Representative Docs and Scores
         doc_indices = topic_doc_indices.get(topic_id, [])
         rep_docs_text = []
         rep_docs_scores = []
 
         if doc_indices:
-            # Try to get sorted docs by probability if available
             try:
                 doc_info_df = topic_model.get_document_info(documents)
                 topic_doc_info = doc_info_df[doc_info_df["Topic"] == topic_id]
@@ -407,7 +419,6 @@ def extract_topics(
                     sorted_docs = topic_doc_info["Document"].tolist()
                     sorted_probs = topic_doc_info["Probability"].tolist()
                 else:
-                    # Fallback to assignment order
                     sorted_docs = [documents[idx] for idx in doc_indices]
                     sorted_probs = [0.0] * len(sorted_docs)
 
@@ -415,7 +426,6 @@ def extract_topics(
                 sorted_docs = [documents[idx] for idx in doc_indices]
                 sorted_probs = [0.0] * len(sorted_docs)
 
-            # Apply limit if requested
             if n_representative_docs is not None:
                 sorted_docs = sorted_docs[:n_representative_docs]
                 sorted_probs = sorted_probs[:n_representative_docs]
@@ -439,15 +449,25 @@ def extract_topics(
         )
 
     topics_list.sort(key=lambda t: t["size"], reverse=True)
-
     console.print(f"[green]Extracted {len(topics_list)} topics.[/green]")
+
+    # Return the embeddings used (either input or generated)
+    final_embeddings = embeddings
+    if final_embeddings is None and hasattr(topic_model.embedding_model, "embed"):
+        # Only re-embed if we didn't start with embeddings and have an embedder
+        # Note: This might be redundant if the user doesn't need them back,
+        # but preserves original behavior.
+        try:
+            final_embeddings = topic_model.embedding_model.embed(documents)
+        except:
+            final_embeddings = np.array([])
 
     return {
         "topics": topics_list,
         "topic_labels": [int(t) for t in topic_labels],
         "topic_info": topic_info,
-        "embeddings": topic_model.embedding_model.embed(documents)
-        if hasattr(topic_model.embedding_model, "embed")
+        "embeddings": final_embeddings
+        if final_embeddings is not None
         else np.array([]),
         "probabilities": probs,
     }

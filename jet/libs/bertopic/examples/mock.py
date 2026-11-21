@@ -1,5 +1,7 @@
-from typing import Literal, TypedDict
+import json
+from typing import Literal, TypedDict, Union, overload
 
+import numpy as np
 from jet.adapters.llama_cpp.chunking_utils import (
     ChunkResult,
     chunk_texts,
@@ -399,9 +401,106 @@ def load_news_sample_data(
     return chunks
 
 
+# ---------------------------------------------------------------------------
+# Embedding parsing helper
+# ---------------------------------------------------------------------------
+def _parse_embedding(raw) -> list[float] | None:
+    """Coerce a stored embedding value into ``list[float]`` (or ``None``).
+
+    Handles every representation we've observed coming out of the missav DB:
+
+    * ``None`` / empty string / ``"[]"``            -> ``None``
+    * ``numpy.ndarray``                              -> ``.astype(float).tolist()``
+    * ``list``/``tuple`` of numbers                  -> ``[float(x) for x in raw]``
+    * ``list``/``tuple`` of numeric strings          -> ``[float(x) for x in raw]``
+    * JSON array string (e.g. ``"[0.1, 0.2]"``)      -> ``json.loads`` then ``float``
+    * space- or comma-separated string               -> ``str.split`` then ``float``
+    * ``bytes``/``bytearray``                        -> decode then recurse
+    """
+    if raw is None:
+        return None
+
+    # numpy arrays (pgvector commonly returns these)
+    if isinstance(raw, np.ndarray):
+        return raw.astype(float).tolist()
+
+    # bytes -> str, then recurse
+    if isinstance(raw, (bytes, bytearray)):
+        return _parse_embedding(raw.decode("utf-8"))
+
+    # Already a Python sequence
+    if isinstance(raw, (list, tuple)):
+        if not raw:
+            return []
+        try:
+            return [float(x) for x in raw]
+        except (TypeError, ValueError):
+            # Sequence of stringified numbers, e.g. ["0.1", "0.2"]
+            return [float(str(x)) for x in raw]
+
+    # Anything that exposes tolist()/to_list() (pgvector.Vector, torch tensors)
+    if hasattr(raw, "to_list"):
+        return _parse_embedding(raw.to_list())
+    if hasattr(raw, "tolist"):
+        return _parse_embedding(raw.tolist())
+
+    # String forms
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s or s in ("[]", "null", "None", "NULL"):
+            return None
+
+        # JSON array: "[0.1, 0.2, ...]"
+        if s.startswith("["):
+            try:
+                return [float(x) for x in json.loads(s)]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                # Fall through to whitespace/comma-split below
+                s = s.strip("[]")
+
+        # Space- or comma-separated: "0.1 0.2 0.3" / "0.1,0.2,0.3"
+        tokens = s.replace(",", " ").split()
+        if tokens:
+            return [float(x) for x in tokens]
+
+        return None
+
+    # Last resort: single scalar
+    try:
+        return [float(raw)]
+    except (TypeError, ValueError):
+        raise ValueError(f"Unsupported embedding value of type {type(raw)!r}: {raw!r}")
+
+
+# ---------------------------------------------------------------------------
+# Overloads
+# ---------------------------------------------------------------------------
+
+
+@overload
 def load_missav_videos(
-    code: list[str] | None = None, limit: int | None = None
-) -> list[str]:
+    code: list[str] | None = None,
+    limit: int | None = None,
+    *,
+    include_embeddings: Literal[False] = False,
+) -> list[str]: ...
+
+
+@overload
+def load_missav_videos(
+    code: list[str] | None = None,
+    limit: int | None = None,
+    *,
+    include_embeddings: Literal[True],
+) -> tuple[list[str], np.ndarray]: ...
+
+
+def load_missav_videos(
+    code: list[str] | None = None,
+    limit: int | None = None,
+    *,
+    include_embeddings: bool = False,
+) -> Union[list[str], tuple[list[str], np.ndarray]]:
     """
     Load video items grouped by (code, episode) from the missav DB, mirroring
     the logic in extract_videos_grouped_by_episode_code.sh.
@@ -416,20 +515,38 @@ def load_missav_videos(
               Defaults to ('ssni', 'ssis', 'snis') when None.
         limit: Max number of grouped rows to return. When None (default),
                no LIMIT clause is applied and all matching rows are returned.
+        include_embeddings: When True, also return a numpy array of embeddings
+            (one row per formatted string). The embedding chosen for each
+            group is taken from the video item whose ``details`` field is the
+            longest (matching the representative ``details`` selection above).
+            Groups whose representative row has a NULL embedding are skipped.
+            The embedding column is only fetched from the DB when this is True.
 
     Returns:
-        A list of formatted strings, one per grouped video.
+        - When ``include_embeddings=False``: a list of formatted strings,
+          one per grouped video.
+        - When ``include_embeddings=True``: a tuple
+          ``(formatted_strings, embeddings)`` where ``embeddings`` is a
+          ``np.ndarray`` of shape ``(n, 768)`` and ``float32``, aligned
+          index-wise with ``formatted_strings``.
     """
     import psycopg
     from psycopg.rows import dict_row
 
     codes = code or ["ssni", "ssis", "snis"]
-
     conninfo = "dbname=missav_db1 user=jethroestrada host=localhost port=5432"
 
-    # Build the base query. The LIMIT clause is only appended when a limit
-    # is explicitly provided; otherwise all matching grouped rows are returned.
-    sql = """
+    # Only select the embedding column (and its per-group aggregation) when
+    # the caller actually needs it. Avoids shipping 768 floats per row over
+    # the wire and skipping the array_agg over vector values in the executor.
+    embedding_select = (
+        ",\n"
+        "            (array_agg(v.embedding ORDER BY length(v.details) ASC NULLS LAST))[1] AS embedding"
+        if include_embeddings
+        else ""
+    )
+
+    sql = f"""
         SELECT
             v.code,
             v.episode,
@@ -454,12 +571,12 @@ def load_missav_videos(
                     END,
                     v.id
                 )
-            )[1]                                                              AS video_id,
-            count(DISTINCT v.id)                                              AS video_count,
-            (array_agg(v.title ORDER BY length(v.title) ASC NULLS LAST))[1]   AS title,
-            (array_agg(v.thumbnail ORDER BY v.id))[1]                         AS thumbnail,
-            (array_agg(v.preview   ORDER BY v.id))[1]                         AS preview,
-            (array_agg(v.details   ORDER BY v.id))[1]                         AS details,
+            )[1]                                                                 AS video_id,
+            count(DISTINCT v.id)                                                 AS video_count,
+            (array_agg(v.title ORDER BY length(v.title) ASC NULLS LAST))[1]      AS title,
+            (array_agg(v.thumbnail ORDER BY v.id))[1]                            AS thumbnail,
+            (array_agg(v.preview   ORDER BY v.id))[1]                            AS preview,
+            (array_agg(v.details ORDER BY length(v.details) ASC NULLS LAST))[1]  AS details,
             (array_agg(v.release_date ORDER BY
                 CASE
                     WHEN v.url NOT LIKE '%%-uncensored-leak'
@@ -481,7 +598,7 @@ def load_missav_videos(
             (array_agg(v.url ORDER BY v.id)
                 FILTER (WHERE v.url LIKE '%%-uncensored-leak'))[1]             AS url_uncnsrd,
             (array_agg(v.url ORDER BY v.id)
-                FILTER (WHERE v.url LIKE '%%-english-subtitle'))[1]            AS url_engsub
+                FILTER (WHERE v.url LIKE '%%-english-subtitle'))[1]            AS url_engsub{embedding_select}
         FROM public.videos v
         LEFT JOIN LATERAL unnest(v.genres) AS g(genre) ON true
         WHERE
@@ -507,6 +624,9 @@ def load_missav_videos(
         params["limit"] = limit
 
     formatted: list[str] = []
+    embeddings: list[list[float]] = []
+    embedding_dim: int | None = None
+
     try:
         with psycopg.connect(conninfo, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
@@ -517,12 +637,47 @@ def load_missav_videos(
         raise
 
     for row in rows:
+        # Only skip when embeddings were requested AND the representative row
+        # had no embedding. When include_embeddings=False, `embedding` isn't
+        # even in the row, so this check must be guarded.
+        if include_embeddings and row["embedding"] is None:
+            continue
+
         title = row["title"]
         details = row["details"]
-        genres = row["genres"]
-
-        genres_str = "\n".join(genres)
-
+        genres = row["genres"] or []
+        genres_str = " | ".join(genres)
         formatted.append(f"{title}\n\n{details}\n\n{genres_str}")
 
-    return formatted
+        if include_embeddings:
+            vec = _parse_embedding(row["embedding"])
+            if vec is None:
+                # Defensive: DB said it had one but parsing yielded nothing.
+                # Keep alignment by dropping the string we just appended.
+                formatted.pop()
+                continue
+            if embedding_dim is None:
+                embedding_dim = len(vec)
+            elif len(vec) != embedding_dim:
+                # Skip malformed rows instead of crashing the whole load.
+                logger.warning(
+                    "Skipping row with embedding dim %d (expected %d) for code=%r episode=%r",
+                    len(vec),
+                    embedding_dim,
+                    row["code"],
+                    row["episode"],
+                )
+                formatted.pop()
+                continue
+            embeddings.append(vec)
+
+    if not include_embeddings:
+        return formatted
+
+    if not embeddings:
+        # Default to 768 (all-mpnet / MiniLM family) so callers get a
+        # consistently-shaped empty array.
+        return formatted, np.empty((0, embedding_dim or 768), dtype=np.float32)
+
+    emb_array = np.asarray(embeddings, dtype=np.float32)
+    return formatted, emb_array
