@@ -397,3 +397,132 @@ def load_news_sample_data(
     _sample_data_cache = chunks
 
     return chunks
+
+
+def load_missav_videos(
+    code: list[str] | None = None, limit: int | None = None
+) -> list[str]:
+    """
+    Load video items grouped by (code, episode) from the missav DB, mirroring
+    the logic in extract_videos_grouped_by_episode_code.sh.
+
+    Each row is reduced to a representative video (preferring the "normal"
+    non-uncensored/non-engsub version, then uncensored, then engsub) with
+    merged, deduplicated genres. Results are formatted as strings containing
+    title, details, and genres.
+
+    Args:
+        code: List of codes to filter on (e.g. ['ssni', 'ssis', 'snis']).
+              Defaults to ('ssni', 'ssis', 'snis') when None.
+        limit: Max number of grouped rows to return. When None (default),
+               no LIMIT clause is applied and all matching rows are returned.
+
+    Returns:
+        A list of formatted strings, one per grouped video.
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+
+    codes = code or ["ssni", "ssis", "snis"]
+
+    conninfo = "dbname=missav_db1 user=jethroestrada host=localhost port=5432"
+
+    # Build the base query. The LIMIT clause is only appended when a limit
+    # is explicitly provided; otherwise all matching grouped rows are returned.
+    sql = """
+        SELECT
+            v.code,
+            v.episode,
+            (
+                array_agg(v.id ORDER BY
+                    CASE
+                        WHEN v.url NOT LIKE '%%-uncensored-leak'
+                         AND v.url NOT LIKE '%%-english-subtitle' THEN 0
+                        WHEN v.url LIKE '%%-uncensored-leak'        THEN 1
+                        ELSE 2
+                    END,
+                    v.id
+                )
+            )[1]                                                              AS id,
+            (
+                array_agg(v.video_id ORDER BY
+                    CASE
+                        WHEN v.url NOT LIKE '%%-uncensored-leak'
+                         AND v.url NOT LIKE '%%-english-subtitle' THEN 0
+                        WHEN v.url LIKE '%%-uncensored-leak'        THEN 1
+                        ELSE 2
+                    END,
+                    v.id
+                )
+            )[1]                                                              AS video_id,
+            count(DISTINCT v.id)                                              AS video_count,
+            (array_agg(v.title ORDER BY length(v.title) ASC NULLS LAST))[1]   AS title,
+            (array_agg(v.thumbnail ORDER BY v.id))[1]                         AS thumbnail,
+            (array_agg(v.preview   ORDER BY v.id))[1]                         AS preview,
+            (array_agg(v.details   ORDER BY v.id))[1]                         AS details,
+            (array_agg(v.release_date ORDER BY
+                CASE
+                    WHEN v.url NOT LIKE '%%-uncensored-leak'
+                     AND v.url NOT LIKE '%%-english-subtitle' THEN 0
+                    WHEN v.url LIKE '%%-uncensored-leak'        THEN 1
+                    ELSE 2
+                END,
+                v.id
+            ))[1]                                                             AS release_date,
+            array_agg(DISTINCT g.genre)
+                FILTER (WHERE g.genre IS NOT NULL
+                          AND g.genre <> ''
+                          AND lower(btrim(g.genre)) NOT IN ('uncensored leak', 'english subtitle')) AS genres,
+            min(v.created_at)                                                 AS created_at,
+            max(v.updated_at)                                                 AS updated_at,
+            (array_agg(v.url ORDER BY v.id)
+                FILTER (WHERE v.url NOT LIKE '%%-uncensored-leak'
+                           AND v.url NOT LIKE '%%-english-subtitle'))[1]       AS url,
+            (array_agg(v.url ORDER BY v.id)
+                FILTER (WHERE v.url LIKE '%%-uncensored-leak'))[1]             AS url_uncnsrd,
+            (array_agg(v.url ORDER BY v.id)
+                FILTER (WHERE v.url LIKE '%%-english-subtitle'))[1]            AS url_engsub
+        FROM public.videos v
+        LEFT JOIN LATERAL unnest(v.genres) AS g(genre) ON true
+        WHERE
+            v.code = ANY(%(codes)s)
+            AND btrim(v.code)    <> ''
+            AND btrim(v.episode) <> ''
+            AND v.title          IS NOT NULL
+            AND v.details        IS NOT NULL
+            AND v.release_date   IS NOT NULL
+            AND v.genres         IS NOT NULL
+            AND cardinality(v.genres) > 0
+        GROUP BY
+            v.code,
+            v.episode
+        ORDER BY
+            v.code,
+            v.episode
+    """
+
+    params: dict = {"codes": codes}
+    if limit is not None:
+        sql += "\n        LIMIT %(limit)s"
+        params["limit"] = limit
+
+    formatted: list[str] = []
+    try:
+        with psycopg.connect(conninfo, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+    except Exception as e:
+        logger.error("Failed to load missav videos: %s", e)
+        raise
+
+    for row in rows:
+        title = row["title"]
+        details = row["details"]
+        genres = row["genres"]
+
+        genres_str = ", ".join(genres)
+
+        formatted.append(f"{title}\n{details}\n{genres_str}")
+
+    return formatted
