@@ -645,9 +645,7 @@ def load_missav_videos(
 
         title = row["title"]
         details = row["details"]
-        genres = row["genres"] or []
-        genres_str = "\n".join(genres)
-        formatted.append(f"{title}\n\n{details}\n\n{genres_str}")
+        formatted.append(f"{title}\n\n{details}")
 
         if include_embeddings:
             vec = _parse_embedding(row["embedding"])
