@@ -164,7 +164,7 @@ DetailedAnalysis = Dict[str, ClusterAnalysisItem]
 
 class ClusterDetailSummary(TypedDict):
     count: int
-    """Number of texts in the cluster (including noise if is_noise)."""
+    """Number of texts in the cluster."""
     consistency_score: float
     """Cluster cohesion in [0, 1]; see module glossary."""
     avg_silhouette_score: float
@@ -172,14 +172,32 @@ class ClusterDetailSummary(TypedDict):
     misplaced_items_count: int
     """Count of members with negative silhouette (likely misplaced)."""
     is_noise: bool
-    """True when this entry represents the -1 / Noise/Outliers bucket."""
+    """Always False here; noise is reported separately under ``outliers``."""
+
+
+class OutliersSummary(TypedDict):
+    count: int
+    """Number of texts labeled as noise (-1)."""
+    original_indices: List[int]
+    """Original input indices of every outlier occurrence."""
+    all_texts: List[str]
+    """Outlier texts (same ordering as ``analysis['Noise/Outliers']``)."""
+    probabilities: List[float]
+    """Per-text membership confidence (noise points are typically ~0)."""
+    silhouette_scores: List[float]
+    """Per-text silhouette; noise points are assigned 0."""
+    distances_to_centroid: List[float]
+    """Per-text cosine distance to cluster centroid (0.0 for noise)."""
 
 
 class SummaryData(TypedDict):
     summary: Dict[str, int]
     """Top-level counts: clusters, noise, totals, misplaced items."""
     cluster_details: Dict[str, ClusterDetailSummary]
-    """Per-cluster rollups keyed by "Cluster N" / "Noise/Outliers"."""
+    """Per-cluster rollups keyed by "Cluster N" only (no Noise entry),
+    sorted by ``count`` descending."""
+    outliers: OutliersSummary
+    """Rollup of all noise/outlier points (formerly "Noise/Outliers")."""
 
 
 @dataclass(frozen=True)
@@ -885,16 +903,24 @@ class TextsClusterer:
         """
         Build the summary report from a detailed analysis. If ``analysis`` is
         omitted, it is recomputed via ``get_detailed_analysis``.
+
+        ``cluster_details`` excludes the noise bucket and is sorted by
+        ``count`` descending; noise is reported separately under ``outliers``.
         See ``ClusterDetailSummary`` / module docstring for field meanings.
         """
         if analysis is None:
             analysis = self.get_detailed_analysis()
         n_clusters = len(self.centroids) if self.centroids else 0
         n_noise = int(np.sum(self.labels == -1)) if self.labels is not None else 0
+
         cluster_details: Dict[str, ClusterDetailSummary] = {}
         total_misplaced = 0
+        noise_info = analysis.get("Noise/Outliers")
+
         for cluster_name, info in analysis.items():
-            is_noise = cluster_name == "Noise/Outliers"
+            if cluster_name == "Noise/Outliers":
+                # Handled separately below; keep it out of cluster_details.
+                continue
             sil_scores = info.get("silhouette_scores", [])
             misplaced_count = sum(1 for s in sil_scores if s < 0)
             avg_silhouette = float(np.mean(sil_scores)) if sil_scores else 0.0
@@ -904,8 +930,44 @@ class TextsClusterer:
                 "consistency_score": info.get("consistency_score", 0.0),
                 "avg_silhouette_score": round(avg_silhouette, 4),
                 "misplaced_items_count": misplaced_count,
-                "is_noise": is_noise,
+                "is_noise": False,
             }
+
+        # Sort cluster_details by count descending (stable for ties).
+        cluster_details = dict(
+            sorted(
+                cluster_details.items(),
+                key=lambda kv: kv[1]["count"],
+                reverse=True,
+            )
+        )
+
+        # Build the outliers rollup (empty-safe when no noise exists).
+        if noise_info is not None:
+            outliers: OutliersSummary = {
+                "count": noise_info["count"],
+                "original_indices": list(noise_info.get("original_indices", [])),
+                "all_texts": list(noise_info.get("all_texts", [])),
+                "probabilities": [
+                    float(p) for p in noise_info.get("probabilities", [])
+                ],
+                "silhouette_scores": [
+                    float(s) for s in noise_info.get("silhouette_scores", [])
+                ],
+                "distances_to_centroid": [
+                    float(d) for d in noise_info.get("distances_to_centroid", [])
+                ],
+            }
+        else:
+            outliers = {
+                "count": 0,
+                "original_indices": [],
+                "all_texts": [],
+                "probabilities": [],
+                "silhouette_scores": [],
+                "distances_to_centroid": [],
+            }
+
         n_original = self._n_original
         if n_original is None:
             n_original = (
@@ -914,6 +976,7 @@ class TextsClusterer:
                 else (len(self._unique_texts) if self._unique_texts else 0)
             )
         n_unique = len(self._unique_texts) if self._unique_texts else n_original
+
         return {
             "summary": {
                 "n_clusters": n_clusters,
@@ -923,6 +986,7 @@ class TextsClusterer:
                 "total_misplaced_items": total_misplaced,
             },
             "cluster_details": cluster_details,
+            "outliers": outliers,
         }
 
     def cluster(
