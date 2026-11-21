@@ -521,8 +521,8 @@ def load_missav_videos(
         details = row["details"]
         genres = row["genres"]
 
-        genres_str = ", ".join(genres)
+        genres_str = "\n".join(genres)
 
-        formatted.append(f"{title}\n{details}\n{genres_str}")
+        formatted.append(f"{title}\n\n{details}\n\n{genres_str}")
 
     return formatted
