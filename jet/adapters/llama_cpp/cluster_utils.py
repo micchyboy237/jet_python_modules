@@ -96,9 +96,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 
 warnings.filterwarnings("ignore")
+
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+NOISE_KEY = "Noise/Outliers"
+
 ClustersType = Dict[int, List[str]]
 CentroidsType = Dict[int, np.ndarray]
 ConsistencyType = Dict[int, float]
@@ -181,7 +185,7 @@ class OutliersSummary(TypedDict):
     original_indices: List[int]
     """Original input indices of every outlier occurrence."""
     all_texts: List[str]
-    """Outlier texts (same ordering as ``analysis['Noise/Outliers']``)."""
+    f"""Outlier texts (same ordering as ``analysis['{NOISE_KEY}']``)."""
     probabilities: List[float]
     """Per-text membership confidence (noise points are typically ~0)."""
     silhouette_scores: List[float]
@@ -197,7 +201,7 @@ class SummaryData(TypedDict):
     """Per-cluster rollups keyed by "Cluster N" only (no Noise entry),
     sorted by ``count`` descending."""
     outliers: OutliersSummary
-    """Rollup of all noise/outlier points (formerly "Noise/Outliers")."""
+    f"""Rollup of all noise/outlier points (formerly "{NOISE_KEY}")."""
 
 
 @dataclass(frozen=True)
@@ -416,8 +420,8 @@ def print_cluster_analysis(
         [S:x.xx] silhouette in [-1, 1];   higher = better placed
         [P:x.xx] membership probability in [0, 1]; higher = more confident
     """
-    regular_clusters = {k: v for k, v in analysis.items() if k != "Noise/Outliers"}
-    noise_cluster = {k: v for k, v in analysis.items() if k == "Noise/Outliers"}
+    regular_clusters = {k: v for k, v in analysis.items() if k != NOISE_KEY}
+    noise_cluster = {k: v for k, v in analysis.items() if k == NOISE_KEY}
     sorted_names = sorted(regular_clusters.keys(), key=_get_cluster_sort_key)
     for cluster_name in sorted_names:
         info = regular_clusters[cluster_name]
@@ -445,8 +449,8 @@ def print_cluster_analysis(
             preview = text[:80] + "..." if len(text) > 80 else text
             print(f"    {idx}. [Idx:{orig_idx}] [S:{sil:.2f}] [P:{prob:.2f}] {preview}")
     if include_noise and noise_cluster:
-        noise_info = noise_cluster["Noise/Outliers"]
-        print(f"\nNoise/Outliers ({noise_info['count']} items):")
+        noise_info = noise_cluster[NOISE_KEY]
+        print(f"\nOutliers ({noise_info['count']} items):")
         for text, orig_idx in zip(
             noise_info["all_texts"], noise_info["original_indices"]
         ):
@@ -876,9 +880,7 @@ class TextsClusterer:
                 sorted_coords,
                 sorted_silhouettes,
             ) = zip(*combined) if combined else ([], [], [], [], [], [])
-            label_name = (
-                "Noise/Outliers" if cluster_id == -1 else f"Cluster {cluster_id}"
-            )
+            label_name = NOISE_KEY if cluster_id == -1 else f"Cluster {cluster_id}"
             item: ClusterAnalysisItem = {
                 "count": len(cluster_texts),
                 "original_indices": list(sorted_orig_idxs),
@@ -915,10 +917,10 @@ class TextsClusterer:
 
         cluster_details: Dict[str, ClusterDetailSummary] = {}
         total_misplaced = 0
-        noise_info = analysis.get("Noise/Outliers")
+        noise_info = analysis.get(NOISE_KEY)
 
         for cluster_name, info in analysis.items():
-            if cluster_name == "Noise/Outliers":
+            if cluster_name == NOISE_KEY:
                 # Handled separately below; keep it out of cluster_details.
                 continue
             sil_scores = info.get("silhouette_scores", [])

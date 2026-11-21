@@ -19,8 +19,16 @@ class TopDocumentResult(TypedDict):
 
 
 class TextAnalysis:
-    def __init__(self, data, eos_token_str="<|eos|>", include_keys=[], exclude_keys=[]):
+    def __init__(
+        self,
+        data,
+        eos_token_str="<|eos|>",
+        include_keys=[],
+        exclude_keys=[],
+        lowercase: bool = False,
+    ):
         self.data = data
+        self.lowercase = lowercase
         self.eos_token_str = eos_token_str
         self.include_keys = include_keys
         self.exclude_keys = exclude_keys
@@ -41,7 +49,7 @@ class TextAnalysis:
                     and (not self.include_keys or key in self.include_keys)
                     and (not self.exclude_keys or key not in self.exclude_keys)
                 )
-            starting_tokens = get_words(text)
+            starting_tokens = get_words(text, filter_word=self._filter_word_callback)
             starting_tokens = starting_tokens[:n]
             all_tokens.extend(starting_tokens)
         return all_tokens
@@ -60,7 +68,7 @@ class TextAnalysis:
                     for key in keys_to_use
                     if key != "id" and key not in self.exclude_keys
                 )
-            tokens = get_words(text)
+            tokens = get_words(text, filter_word=self._filter_word_callback)
             all_tokens.extend(tokens)
         return all_tokens
 
@@ -124,12 +132,14 @@ class TextAnalysis:
                 re.sub(rf"{self.eos_token_str}", "\n", text_content)
             )
             for segment in segments:
-                tokens = get_words(segment)
+                tokens = get_words(segment, filter_word=self._filter_word_callback)
                 if not tokens:
                     continue
                 for n in range(ngram_range[0], ngram_range[1] + 1):
                     for ngram in nltk.ngrams(tokens, n):
                         ngram_text = " ".join(ngram)
+                        if self.lowercase:
+                            ngram_text = ngram_text.lower()
                         all_collocations[ngram_text] = (
                             all_collocations.get(ngram_text, 0) + 1
                         )
@@ -186,6 +196,11 @@ class TextAnalysis:
         filtered_results.sort(key=lambda x: (-x["collocations"], x["ngram"]))
 
         return filtered_results
+
+    def _filter_word_callback(self, word: str) -> bool:
+        if not word:
+            return False
+        return all(char.isalpha() or char in "-_" for char in word)
 
     def format_results(
         self,
@@ -278,7 +293,9 @@ class TextAnalysis:
         Extract all n-grams from *text* using the **exact same tokenisation**
         that ``perform_dynamic_collocation_analysis`` uses (``get_words``).
         """
-        tokens = get_words(text)
+        tokens = get_words(text, filter_word=self._filter_word_callback)
+        if self.lowercase:
+            tokens = [t.lower() for t in tokens]
         ngrams: Set[str] = set()
         min_n, max_n = ngram_range
         for n in range(min_n, max_n + 1):
