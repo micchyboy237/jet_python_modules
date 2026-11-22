@@ -108,79 +108,54 @@ def mmr_rerank(
     lambda_param: float,
 ) -> list[MMRResult]:
     """
-    Maximal Marginal Relevance selection.
+    Maximal Marginal Relevance selection (vectorized).
 
-    Parameters
-    ----------
-    query_vec     : shape (dim,)   – embedded query (or corpus centroid)
-    doc_vecs      : shape (n, dim) – embedded documents
-    top_k         : how many items to pick
-    lambda_param  : λ — relevance vs. diversity weight
-
-    Returns
-    -------
-    List of dicts ordered by selection, each containing:
-        index       – original index into doc_vecs / data
-        relevance   – cosine similarity to query vector
-        redundancy  – max cosine similarity to any already-selected doc
-        mmr_score   – final MMR score used to pick this item
+    Same contract as the pure-Python version. `sim_to_selected` starts at
+    0.0 for every doc, matching the reference's `redundancy = 0.0` when
+    nothing is selected yet. (Using -inf as the sentinel here would poison
+    the score with +inf on the first iteration and the loop would break
+    immediately.)
     """
     n = len(doc_vecs)
     if n == 0:
         return []
-
     top_k = min(top_k, n)
 
-    # Precompute relevance scores for all documents
-    relevance_scores = np.array(
-        [cosine_similarity(query_vec, doc_vecs[i]) for i in range(n)]
+    doc_norms = np.linalg.norm(doc_vecs, axis=1, keepdims=True)
+    doc_norms[doc_norms == 0.0] = 1.0
+    D = (doc_vecs / doc_norms).astype(np.float32)
+
+    q_norm = float(np.linalg.norm(query_vec))
+    q = (
+        (query_vec / q_norm).astype(np.float32)
+        if q_norm > 0
+        else np.zeros(D.shape[1], dtype=np.float32)
     )
+    relevance = D @ q  # (n,)
 
-    selected: list[int] = []
+    selected_mask = np.zeros(n, dtype=bool)
+    sim_to_selected = np.zeros(n, dtype=np.float32)  # <-- was -inf; must be 0.0
+
     results: list[MMRResult] = []
-    remaining = list(range(n))
-
     for _ in range(top_k):
-        best_idx = None
-        best_score = -np.inf
-        best_rel = 0.0
-        best_red = 0.0
-
-        for idx in remaining:
-            rel = relevance_scores[idx]
-
-            if selected:
-                # Calculate max similarity to any already selected document
-                redundancy = max(
-                    cosine_similarity(doc_vecs[idx], doc_vecs[s]) for s in selected
-                )
-            else:
-                redundancy = 0.0
-
-            # MMR formula
-            score = lambda_param * rel - (1 - lambda_param) * redundancy
-
-            if score > best_score:
-                best_score = score
-                best_idx = idx
-                best_rel = rel
-                best_red = redundancy
-
-        if best_idx is None:
+        score = lambda_param * relevance - (1.0 - lambda_param) * sim_to_selected
+        score[selected_mask] = -np.inf  # exclude already-selected this iteration
+        idx = int(np.argmax(score))
+        if selected_mask[idx]:  # everything already selected
             break
-
-        selected.append(best_idx)
-        remaining.remove(best_idx)
-
+        rel = float(relevance[idx])
+        red = float(sim_to_selected[idx]) if selected_mask.any() else 0.0
         results.append(
             {
-                "index": best_idx,
-                "relevance": round(best_rel, 4),
-                "redundancy": round(best_red, 4),
-                "mmr_score": round(best_score, 4),
+                "index": idx,
+                "relevance": round(rel, 4),
+                "redundancy": round(red, 4),
+                "mmr_score": round(float(score[idx]), 4),
             }
         )
-
+        selected_mask[idx] = True
+        sims = D @ D[idx]
+        sim_to_selected = np.maximum(sim_to_selected, sims)
     return results
 
 
