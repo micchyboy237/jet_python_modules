@@ -4,7 +4,6 @@ Diversity-Preserving Dataset Sampling Pipeline
 Prevents overtraining on redundant data by removing duplicates at three
 levels of granularity, following common industry/research practice
 (SemDeDup [Abbas et al. 2023], NVIDIA NeMo Curator, SemHash):
-
   1. Exact dedup          -> hash-based, catches byte-identical records
   2. Near-lexical dedup   -> MinHash + LSH, catches similar wording
                               (paraphrase-light duplicates, boilerplate)
@@ -28,12 +27,10 @@ Usage:
 
 import hashlib
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from datasketch import MinHash, MinHashLSH
-
-# Local embedding backend (llama.cpp server via OpenAI-compatible client)
 from jet.adapters.llama_cpp.embed_utils import embed
 from sklearn.cluster import KMeans
 
@@ -41,18 +38,15 @@ from sklearn.cluster import KMeans
 @dataclass
 class DedupConfig:
     minhash_num_perm: int = 128
-    minhash_threshold: float = 0.85  # Jaccard similarity -> near-lexical dupes
-    embedding_model: str = None  # None -> use LLAMA_CPP_EMBED_MODEL env default
+    minhash_threshold: float = 0.85
+    embedding_model: str = None
     embedding_batch_size: int = 32
     embedding_max_workers: int = 6
-    n_clusters: int = 50  # tune relative to dataset size
-    semantic_sim_threshold: float = 0.9  # cosine similarity -> semantic dupes
+    n_clusters: int = 50
+    semantic_sim_threshold: float = 0.9
     random_seed: int = 42
 
 
-# ---------------------------------------------------------------------------
-# Step 1: Exact deduplication (byte-identical text)
-# ---------------------------------------------------------------------------
 def exact_dedup(texts: List[str]) -> List[int]:
     """Return indices of unique texts, keeping the first occurrence of each."""
     seen = set()
@@ -65,11 +59,6 @@ def exact_dedup(texts: List[str]) -> List[int]:
     return keep
 
 
-# ---------------------------------------------------------------------------
-# Step 2: Near-lexical deduplication (MinHash + LSH)
-# Catches items with overlapping wording/n-grams, e.g. minor edits,
-# punctuation changes, boilerplate templates.
-# ---------------------------------------------------------------------------
 def _to_minhash(text: str, num_perm: int) -> MinHash:
     mh = MinHash(num_perm=num_perm)
     for token in set(text.lower().split()):
@@ -84,28 +73,20 @@ def near_lexical_dedup(
     Keeps the first-seen item within each near-duplicate group."""
     lsh = MinHashLSH(threshold=cfg.minhash_threshold, num_perm=cfg.minhash_num_perm)
     keep = []
-
     for idx in indices:
         mh = _to_minhash(texts[idx], cfg.minhash_num_perm)
-        if not lsh.query(mh):  # no near-duplicate already indexed
+        if not lsh.query(mh):
             lsh.insert(str(idx), mh)
             keep.append(idx)
-        # else: skip, it's a near-lexical duplicate of something already kept
-
     return keep
 
 
-# ---------------------------------------------------------------------------
-# Step 3: Embedding generation (for semantic dedup / MMR)
-# Uses the user's local llama.cpp embedding server. embed_batch() already
-# handles batching, parallel requests, and internal dedup of repeated
-# strings -- we just need to L2-normalize the result ourselves, since
-# semantic_dedup() / mmr_select() use plain dot products as cosine
-# similarity and assume unit-length vectors.
-# ---------------------------------------------------------------------------
 def embed_texts(texts: List[str], indices: List[int], cfg: DedupConfig) -> np.ndarray:
-    subset = [texts[i] for i in indices]
+    """Generate embeddings for the subset of texts defined by indices."""
+    if not indices:
+        return np.array([])
 
+    subset = [texts[i] for i in indices]
     kwargs = dict(
         return_format="numpy",
         max_workers=cfg.embedding_max_workers,
@@ -118,27 +99,27 @@ def embed_texts(texts: List[str], indices: List[int], cfg: DedupConfig) -> np.nd
     embeddings = embed(subset, **kwargs)
     embeddings = np.asarray(embeddings, dtype=np.float32)
 
+    # Normalize embeddings for cosine similarity
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0  # guard against zero vectors
+    norms[norms == 0] = 1.0
     embeddings = embeddings / norms
-
     return embeddings
 
 
-# ---------------------------------------------------------------------------
-# Step 4: Semantic deduplication (SemDeDup-style)
-# Cluster embeddings -> within each cluster, compute pairwise cosine
-# similarity -> drop items too similar to something already kept.
-# Kept items are visited in order of distance-from-centroid (most
-# "distinctive" first), mirroring SemDeDup's approach of retaining the
-# more novel point in each near-duplicate group.
-# ---------------------------------------------------------------------------
 def semantic_dedup(
     embeddings: np.ndarray, indices: List[int], cfg: DedupConfig
-) -> List[int]:
-    n = len(indices)
-    n_clusters = min(cfg.n_clusters, n)  # can't exceed number of points
+) -> Tuple[List[int], np.ndarray]:
+    """
+    Performs semantic deduplication.
 
+    Returns:
+        Tuple of (kept_original_indices, kept_embeddings_aligned)
+    """
+    n = len(indices)
+    if n == 0:
+        return [], np.array([])
+
+    n_clusters = min(cfg.n_clusters, n)
     kmeans = KMeans(n_clusters=n_clusters, random_state=cfg.random_seed, n_init="auto")
     cluster_ids = kmeans.fit_predict(embeddings)
 
@@ -151,29 +132,29 @@ def semantic_dedup(
 
         cluster_embs = embeddings[member_positions]
         centroid = kmeans.cluster_centers_[c]
+
+        # Sort by distance to centroid (furthest first)
         dists_to_centroid = np.linalg.norm(cluster_embs - centroid, axis=1)
-        order = np.argsort(-dists_to_centroid)  # farthest-from-centroid first
+        order = np.argsort(-dists_to_centroid)
 
         kept_local = []
         for local_pos in order:
             emb = cluster_embs[local_pos]
             if kept_local:
-                sims = (
-                    cluster_embs[kept_local] @ emb
-                )  # cosine sim (embeddings are normalized)
+                sims = cluster_embs[kept_local] @ emb
                 if sims.max() >= cfg.semantic_sim_threshold:
                     keep_mask[member_positions[local_pos]] = False
                     continue
             kept_local.append(local_pos)
 
-    return [indices[i] for i in range(n) if keep_mask[i]]
+    # Filter indices
+    kept_indices = [indices[i] for i in range(n) if keep_mask[i]]
+    # Filter embeddings to match kept indices
+    kept_embeddings = embeddings[keep_mask]
+
+    return kept_indices, kept_embeddings
 
 
-# ---------------------------------------------------------------------------
-# Optional Step 5: MMR-based final subset selection
-# Use this if, after dedup, you still want to pick a fixed-size k
-# maximally-diverse sample (e.g. "give me the 500 most diverse rows").
-# ---------------------------------------------------------------------------
 def mmr_select(
     embeddings: np.ndarray,
     indices: List[int],
@@ -183,11 +164,11 @@ def mmr_select(
 ) -> List[int]:
     """
     Maximal Marginal Relevance selection.
-    relevance: optional per-item relevance score (e.g. quality score).
-               If None, all items are treated as equally relevant, so
-               this becomes a pure diversity-maximizing sampler.
     """
     n = len(indices)
+    if n == 0:
+        return []
+
     k = min(k, n)
     if relevance is None:
         relevance = np.ones(n)
@@ -195,7 +176,7 @@ def mmr_select(
     selected: List[int] = []
     candidates = list(range(n))
 
-    # seed with the single most relevant item
+    # Start with the most relevant item
     first = int(np.argmax(relevance))
     selected.append(first)
     candidates.remove(first)
@@ -207,62 +188,159 @@ def mmr_select(
             score = lambda_param * relevance[c] - (1 - lambda_param) * sim_to_selected
             if score > best_score:
                 best_score, best_c = score, c
-        selected.append(best_c)
-        candidates.remove(best_c)
+
+        if best_c is not None:
+            selected.append(best_c)
+            candidates.remove(best_c)
 
     return [indices[i] for i in selected]
 
 
-# ---------------------------------------------------------------------------
-# Full pipeline
-# ---------------------------------------------------------------------------
 def diversity_preserving_dedup(
-    texts: List[str], cfg: DedupConfig = DedupConfig()
-) -> Tuple[List[int], Dict[str, int]]:
+    texts: List[str],
+    cfg: DedupConfig = DedupConfig(),
+    embeddings: Optional[np.ndarray] = None,
+) -> Tuple[List[int], Dict[str, int], Optional[np.ndarray]]:
     """
     Runs the full 3-layer deduplication pipeline.
-    Returns (kept_indices_into_original_texts, stats_dict).
+
+    Args:
+        texts: List of input texts.
+        cfg: Configuration for deduplication.
+        embeddings: Optional pre-computed embeddings for ALL texts in the original list.
+                    If provided, skips embedding generation.
+
+    Returns:
+        Tuple of (kept_indices_into_original_texts, stats_dict, kept_embeddings).
+        kept_embeddings are normalized and aligned with kept_indices.
     """
     stats = {"original": len(texts)}
 
+    # 1. Exact Dedup
     idx = exact_dedup(texts)
     stats["after_exact_dedup"] = len(idx)
 
+    # 2. Near-Lexical Dedup
     idx = near_lexical_dedup(texts, idx, cfg)
     stats["after_near_lexical_dedup"] = len(idx)
 
-    if len(idx) > 1:
-        embeddings = embed_texts(texts, idx, cfg)
-        idx = semantic_dedup(embeddings, idx, cfg)
-    stats["after_semantic_dedup"] = len(idx)
+    # 3. Semantic Dedup
+    final_indices = idx
+    final_embeddings = None
 
-    return idx, stats
+    if len(idx) > 1:
+        if embeddings is not None:
+            # Filter pre-computed embeddings for the current indices
+            current_embs = embeddings[idx]
+            # Normalize them
+            norms = np.linalg.norm(current_embs, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            current_embs = current_embs / norms
+        else:
+            # Generate embeddings only for the remaining candidates
+            current_embs = embed_texts(texts, idx, cfg)
+
+        # Perform semantic dedup
+        final_indices, final_embeddings = semantic_dedup(current_embs, idx, cfg)
+
+    elif len(idx) == 1:
+        final_indices = idx
+        if embeddings is not None:
+            final_embeddings = embeddings[idx]
+            norms = np.linalg.norm(final_embeddings, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            final_embeddings = final_embeddings / norms
+        else:
+            final_embeddings = embed_texts(texts, idx, cfg)
+
+    stats["after_semantic_dedup"] = len(final_indices)
+
+    return final_indices, stats, final_embeddings
+
+
+def get_diverse_subset(
+    texts: List[str],
+    k: int,
+    cfg: DedupConfig = DedupConfig(),
+    embeddings: Optional[np.ndarray] = None,
+    relevance: Optional[np.ndarray] = None,
+    lambda_param: float = 0.5,
+) -> Tuple[List[int], List[str], Dict[str, int]]:
+    """
+    High-level function to perform deduplication and select a diverse subset.
+
+    Args:
+        texts: List of input texts.
+        k: Number of diverse items to select.
+        cfg: Deduplication configuration.
+        embeddings: Optional pre-computed embeddings for all texts.
+        relevance: Optional relevance scores for MMR.
+        lambda_param: MMR trade-off parameter.
+
+    Returns:
+        Tuple of (selected_indices, selected_texts, stats).
+    """
+    # 1. Run Deduplication
+    kept_indices, stats, deduped_embeddings = diversity_preserving_dedup(
+        texts, cfg, embeddings
+    )
+
+    if not kept_indices:
+        return [], [], stats
+
+    # 2. Run MMR Selection
+    # deduped_embeddings should already be available from the previous step
+    if deduped_embeddings is None or len(deduped_embeddings) == 0:
+        # Fallback if something went wrong, though unlikely
+        deduped_embeddings = embed_texts(texts, kept_indices, cfg)
+
+    diverse_indices = mmr_select(
+        deduped_embeddings,
+        kept_indices,
+        k=k,
+        relevance=relevance,
+        lambda_param=lambda_param,
+    )
+
+    selected_texts = [texts[i] for i in diverse_indices]
+
+    return diverse_indices, selected_texts, stats
 
 
 if __name__ == "__main__":
     sample_texts = [
         "The cat sat on the mat.",
-        "The cat sat on the mat.",  # exact dup
-        "The cat sat on the mat!!",  # near-lexical dup
-        "A feline was resting on the rug.",  # semantic dup, different wording
+        "The cat sat on the mat.",
+        "The cat sat on the mat!!",
+        "A feline was resting on the rug.",
         "Quantum computers use qubits instead of bits.",
-        "Qubits are the fundamental unit of quantum computing.",  # semantic dup
+        "Qubits are the fundamental unit of quantum computing.",
         "The stock market fell sharply today.",
         "Paris is the capital of France.",
     ]
 
     cfg = DedupConfig(n_clusters=3, semantic_sim_threshold=0.75, minhash_threshold=0.8)
-    kept_indices, stats = diversity_preserving_dedup(sample_texts, cfg)
+
+    print("--- Scenario 1: Automatic Embedding Generation ---")
+    selected_indices, selected_texts, stats = get_diverse_subset(
+        texts=sample_texts, k=3, cfg=cfg, lambda_param=0.3
+    )
 
     print("Stats:", stats)
-    print("\nKept examples:")
-    for i in kept_indices:
-        print(f"  [{i}] {sample_texts[i]}")
+    print("\nSelected Diverse Subset:")
+    for idx, text in zip(selected_indices, selected_texts):
+        print(f"  [{idx}] {text}")
 
-    # --- Optional: pick a diverse subset of size k from what's left ---
-    if len(kept_indices) > 1:
-        embs = embed_texts(sample_texts, kept_indices, cfg)
-        diverse_subset = mmr_select(embs, kept_indices, k=3, lambda_param=0.3)
-        print("\nDiverse subset (MMR, k=3):")
-        for i in diverse_subset:
-            print(f"  [{i}] {sample_texts[i]}")
+    print("\n--- Scenario 2: Using Pre-computed Embeddings ---")
+    # Simulate pre-computed embeddings for all original texts
+    print("Generating pre-computed embeddings for all texts...")
+    all_embeddings = embed_texts(sample_texts, list(range(len(sample_texts))), cfg)
+
+    selected_indices_2, selected_texts_2, stats_2 = get_diverse_subset(
+        texts=sample_texts, k=3, cfg=cfg, embeddings=all_embeddings, lambda_param=0.3
+    )
+
+    print("Stats:", stats_2)
+    print("\nSelected Diverse Subset (from pre-computed):")
+    for idx, text in zip(selected_indices_2, selected_texts_2):
+        print(f"  [{idx}] {text}")
