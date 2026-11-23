@@ -1,6 +1,5 @@
 audioflux==0.1.9
 bertopic==0.17.4
-browser-use==0.13.11
 chonkie==1.7.0
 codependpy==0.1.1
 datasketch==2.0.0

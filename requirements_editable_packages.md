@@ -2,7 +2,6 @@ Package                            Version            Editable project location
 ---------------------------------- ------------------ ----------------------------------------------------------------------------------------------------------------------------------------------
 audioflux                          0.1.9              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux
 bertopic                           0.17.4             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic
-browser-use                        0.13.11            /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/browser-use
 chonkie                            1.7.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/chonkie
 codependpy                         0.1.1              /Users/jethroestrada/Desktop/External_Projects/Utils/codependpy
 datasketch                         2.0.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/datasketch
