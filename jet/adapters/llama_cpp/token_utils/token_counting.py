@@ -156,9 +156,9 @@ def count_tokens(
                 else:
                     return len(token_res)
             except Exception as e:
-                logger.warning(
-                    f"Chat template failed for single message, falling back to content only: {e}"
-                )
+                # logger.warning(
+                #     f"Chat template failed for single message, falling back to content only: {e}"
+                # )
                 return len(
                     tokenizer.encode(
                         content.get("content", ""),
