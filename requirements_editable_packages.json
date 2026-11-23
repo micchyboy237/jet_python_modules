@@ -83,5 +83,10 @@
         "name": "searxng",
         "version": "2026.8.4+c63835bd2",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/apps/searxng"
+    },
+    {
+        "name": "turftopic",
+        "version": "0.30.0",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/turftopic"
     }
 ]

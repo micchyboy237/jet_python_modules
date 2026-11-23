@@ -17,3 +17,4 @@ llama-index-retrievers-bm25        0.8.0              /Users/jethroestrada/Deskt
 markdown-it-py                     4.2.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/markdown-it-py
 nova-vad                           1.0.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/nova-vad
 searxng                            2026.8.4+c63835bd2 /Users/jethroestrada/Desktop/External_Projects/AI/apps/searxng
+turftopic                          0.30.0             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/turftopic
