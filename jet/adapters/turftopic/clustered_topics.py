@@ -1,15 +1,11 @@
 """
-Topic Modeling Pipeline using Turftopic with Local Llama.cpp Integration
-
+Topic Modeling Pipeline using Turftopic with Local Llama.cpp LLM and Embedder
 This module provides a complete workflow for:
 1. Clustering documents into topics using KeyNMF
-2. Generating human-readable topic labels using local Llama.cpp LLMs
-3. Using local Llama.cpp Embedders for vectorization
-4. Saving comprehensive results including keywords, representative documents, and metadata
-
+2. Generating human-readable topic labels using Local Llama.cpp LLM
+3. Saving comprehensive results including keywords, representative documents, and metadata
 Usage:
     from topic_modeling_pipeline import generate_topics
-
     documents = ["comment 1", "comment 2", ...]
     results = generate_topics(documents, n_topics=10)
 """
@@ -18,20 +14,12 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional, Union
+from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
-
-# Jet Adapters imports
-from jet.adapters.llama_cpp.config import (
-    EMBED_BASE_URL,
-    EMBED_MODEL,
-    LLM_BASE_URL,
-    LLM_MODEL,
-)
-from jet.adapters.llama_cpp.embed_utils import embed as jet_embed
-from jet.adapters.llama_cpp.factory import get_embedding_client, get_llm_client
+from jet.adapters.llama_cpp.config import EMBED_MODEL, LLM_MODEL
+from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.llm_utils import chat
 from rich.console import Console
 from rich.panel import Panel
@@ -43,79 +31,16 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
-
-# Turftopic imports
 from turftopic import KeyNMF
 from turftopic.analyzers.base import Analyzer
 from turftopic.encoders.base import ExternalEncoder
-
-# Optimized Vectorizer for short text/social media
-from turftopic.vectorizers.snowball import StemmingCountVectorizer
+from turftopic.vectorizers.spacy import LemmaCountVectorizer
 
 console = Console()
 
-OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-class LlamaCppEncoder(ExternalEncoder):
-    """
-    Turftopic-compatible Encoder that uses jet.adapters.llama_cpp.embed_utils.
-
-    This allows KeyNMF to use your local embedding server instead of
-    downloading sentence-transformers locally.
-    """
-
-    def __init__(
-        self,
-        model: str = EMBED_MODEL,
-        batch_size: int = 64,
-        base_url: str = EMBED_BASE_URL,
-    ):
-        self.model = model
-        self.batch_size = batch_size
-        self.base_url = base_url
-        # Initialize client to ensure connectivity early if desired,
-        # though jet_embed handles lazy initialization.
-        self._client = get_embedding_client(base_url=base_url)
-
-    def encode(self, sentences: Iterable[str]) -> np.ndarray:
-        """
-        Encodes sentences into an embedding matrix using jet's optimized embed function.
-
-        Args:
-            sentences: Iterable of strings to embed.
-
-        Returns:
-            ndarray of shape (n_docs, n_dimensions)
-        """
-        # Convert iterable to list to allow length check and multiple passes if needed
-        sentences_list = list(sentences)
-
-        if not sentences_list:
-            return np.array([])
-
-        # Use jet's embed utility which handles batching, deduplication,
-        # and progress bars internally.
-        # We disable internal progress bar here because we manage it in the pipeline
-        embeddings = jet_embed(
-            text=sentences_list,
-            model=self.model,
-            return_format="numpy",
-            show_progress=False,
-            batch_size=self.batch_size,
-        )
-
-        return embeddings
-
 
 class LlamaCppAnalyzer(Analyzer):
-    """
-    Turftopic-compatible Analyzer that uses jet.adapters.llama_cpp.llm_utils.
-
-    This allows topic labeling/naming to use your local LLM server.
-    """
+    """Analyze topic model with a local Llama.cpp LLM server."""
 
     def __init__(
         self,
@@ -126,11 +51,7 @@ class LlamaCppAnalyzer(Analyzer):
         summary_prompt: Optional[str] = None,
         namer_prompt: Optional[str] = None,
         description_prompt: Optional[str] = None,
-        base_url: str = LLM_BASE_URL,
-        temperature: float = 0.2,  # Lower temp for consistent labeling
     ):
-        super().__init__()
-        self.client = get_llm_client(base_url=base_url)
         self.model_name = model_name
         self.system_prompt = system_prompt or self.system_prompt
         self.summary_prompt = summary_prompt or self.summary_prompt
@@ -138,25 +59,72 @@ class LlamaCppAnalyzer(Analyzer):
         self.description_prompt = description_prompt or self.description_prompt
         self.use_summaries = use_summaries
         self.context = context
-        self.temperature = temperature
+        console.log(
+            f"[dim]Initialized LlamaCppAnalyzer with model: {self.model_name}[/dim]"
+        )
 
     def generate_text(self, prompt: str) -> str:
-        """
-        Generates response to a given prompt using jet's chat utility.
-        """
+        """Generates response to a given prompt using local Llama.cpp server."""
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+        console.log(
+            f"[dim]Generating text for prompt length: {len(prompt)} chars[/dim]"
+        )
         try:
             result = chat(
-                prompt_or_messages=prompt,
+                prompt_or_messages=messages,
                 model=self.model_name,
-                client=self.client,
-                temperature=self.temperature,
-                max_tokens=512,  # Short responses for labels/summaries
-                system_message=self.system_prompt,
+                max_tokens=512,
+                temperature=0.1,
             )
-            return result.content.strip()
+            content = result.content.strip()
+            console.log(f"[dim]Generated text length: {len(content)} chars[/dim]")
+            return content
         except Exception as e:
-            console.print(f"[red]Error generating text via LlamaCpp:[/red] {e}")
+            console.print(
+                f"[bold red]✗ Error in LlamaCppAnalyzer.generate_text:[/bold red] {e}"
+            )
             raise
+
+
+class LlamaCppEncoder(ExternalEncoder):
+    """Encoder model using embeddings from a local Llama.cpp embedding server."""
+
+    def __init__(self, model: str = EMBED_MODEL, batch_size: int = 64):
+        self.model = model
+        self.batch_size = batch_size
+        console.log(f"[dim]Initialized LlamaCppEncoder with model: {self.model}[/dim]")
+
+    def encode(self, sentences: Iterable[str]) -> np.ndarray:
+        """Encodes sentences into an embedding matrix using local Llama.cpp server."""
+        sentences_list = list(sentences)
+        if not sentences_list:
+            console.log("[yellow]⚠[/yellow] No sentences to encode.")
+            return np.array([])
+
+        console.log(f"[dim]Encoding {len(sentences_list)} sentences...[/dim]")
+        try:
+            embeddings = embed(
+                text=sentences_list,
+                model=self.model,
+                batch_size=self.batch_size,
+                show_progress=False,
+                return_format="numpy",
+            )
+            console.log(f"[dim]Encoded shape: {embeddings.shape}[/dim]")
+            return embeddings
+        except Exception as e:
+            console.print(
+                f"[bold red]✗ Error in LlamaCppEncoder.encode:[/bold red] {e}"
+            )
+            raise
+
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _validate_documents(documents: list[str]) -> list[str]:
@@ -179,43 +147,24 @@ def _validate_documents(documents: list[str]) -> list[str]:
 def _fit_topic_model(
     documents: list[str],
     n_topics: int = 10,
-    encoder: Union[str, ExternalEncoder] = "paraphrase-mpnet-base-v2",
+    encoder: str | ExternalEncoder = "paraphrase-mpnet-base-v2",
     top_n_keywords: int = 15,
     random_state: int = 42,
 ) -> KeyNMF:
     """Fit KeyNMF topic model on documents."""
-
-    # Handle string encoder vs Custom Encoder object
-    if isinstance(encoder, str):
-        encoder_str = encoder
-        encoder_obj = encoder  # KeyNMF accepts string paths for default behavior
-    else:
-        encoder_str = type(encoder).__name__
-        encoder_obj = encoder
-
-    # ✅ OPTIMIZED VECTORIZER FOR SHORT TEXT / SOCIAL MEDIA COMMENTS
-    # 1. min_df=1: Keep all words that appear at least once (crucial for small datasets).
-    # 2. max_df=0.95: Ignore words that appear in >95% of docs (prevents ubiquitous noise).
-    # 3. ngram_range=(1, 2): Capture single words AND bigrams (e.g., "video quality").
-    # 4. stop_words='english': Remove common noise.
-    # 5. Stemming: Merges variations like "video"/"videos" to improve keyword scoring.
-    vectorizer = StemmingCountVectorizer(
-        language="english",
-        min_df=1,
-        max_df=0.95,
-        ngram_range=(1, 2),
-        stop_words="english",
-    )
-
     console.print(
         Panel.fit(
             f"[bold cyan]Fitting KeyNMF Topic Model[/bold cyan]\n"
-            f"Topics: {n_topics} | Encoder: {encoder_str}\n"
-            f"Vectorizer: StemmingCountVectorizer (1-2 grams)",
+            f"Topics: {n_topics} | Encoder: {encoder if isinstance(encoder, str) else type(encoder).__name__}\n"
+            f"Keywords per doc: {top_n_keywords}",
             title="Model Configuration",
             border_style="cyan",
         )
     )
+
+    # Using LemmaCountVectorizer for better topic coherence
+    vectorizer = LemmaCountVectorizer("en_core_web_sm", min_df=1, max_df=1.0)
+    console.log(f"[dim]Using vectorizer: {type(vectorizer).__name__}[/dim]")
 
     with Progress(
         SpinnerColumn(),
@@ -227,20 +176,33 @@ def _fit_topic_model(
         task = progress.add_task(
             "[cyan]Encoding documents and extracting keywords...", total=None
         )
+        try:
+            model = KeyNMF(
+                n_components=n_topics,
+                encoder=encoder,
+                top_n=top_n_keywords,
+                random_state=random_state,
+                vectorizer=vectorizer,
+            )
+            console.log("[dim]Starting model.fit()...[/dim]")
+            model.fit(documents)
 
-        model = KeyNMF(
-            n_components=n_topics,
-            encoder=encoder_obj,
-            top_n=top_n_keywords,
-            random_state=random_state,
-            vectorizer=vectorizer,  # ✅ Pass the custom vectorizer
-        )
+            # Debug: Check vocabulary size
+            vocab = model.get_vocab()
+            console.log(f"[green]✓[/green] Vocabulary size: {len(vocab)} terms")
+            if len(vocab) == 0:
+                console.print(
+                    "[bold red]✗ Error: Vocabulary is empty. Check vectorizer settings.[/bold red]"
+                )
+                raise ValueError("Vocabulary is empty after fitting.")
 
-        model.fit(documents)
+            progress.update(
+                task, description="[green]✓ Model fitted successfully", completed=100
+            )
+        except Exception as e:
+            console.print(f"[bold red]✗ Error during model fitting:[/bold red] {e}")
+            raise
 
-        progress.update(
-            task, description="[green]✓ Model fitted successfully", completed=100
-        )
     console.log(f"[green]✓[/green] Discovered {model.n_components} topics")
     return model
 
@@ -250,14 +212,18 @@ def _extract_topic_data(
 ) -> dict:
     """Extract comprehensive topic data including keywords and representative documents."""
     console.print("\n[bold cyan]Extracting topic data...[/bold cyan]")
+    topic_keywords = {}
 
-    # ✅ FIX: Use get_topics() (plural) which returns list of (id, [(word, score)])
+    # Use get_topics() which returns a list of tuples: (topic_id, [(word, score), ...])
     all_topics = model.get_topics(top_k=15)
 
-    topic_keywords = {}
     for topic_id, word_score_pairs in all_topics:
-        # Extract just the words from the (word, score) tuples
-        topic_keywords[topic_id] = [word for word, score in word_score_pairs]
+        # Extract just the words from the pairs
+        words = [word for word, score in word_score_pairs]
+        topic_keywords[topic_id] = words
+        console.log(
+            f"[dim]Topic {topic_id}: {len(words)} keywords - {words[:5]}...[/dim]"
+        )
 
     console.log(f"[green]✓[/green] Extracted keywords for {len(topic_keywords)} topics")
 
@@ -290,29 +256,27 @@ def _extract_topic_data(
 def _generate_llm_labels(
     topic_keywords: dict,
     topic_documents: dict,
-    analyzer: Analyzer,
+    model_name: str = LLM_MODEL,
     use_summaries: bool = False,
 ) -> dict:
-    """Generate human-readable topic labels and descriptions using LLM."""
-
+    """Generate human-readable topic labels and descriptions using Local Llama.cpp LLM."""
     console.print(
         Panel.fit(
             f"[bold magenta]Generating LLM Labels[/bold magenta]\n"
-            f"Analyzer: {type(analyzer).__name__}\n"
+            f"Model: {model_name}\n"
             f"Summaries: {'Enabled' if use_summaries else 'Disabled'}",
             title="LLM Configuration",
             border_style="magenta",
         )
     )
-
     keywords_list = [topic_keywords[tid] for tid in sorted(topic_keywords.keys())]
     documents_list = [
         [doc["text"] for doc in topic_documents[tid]]
         for tid in sorted(topic_documents.keys())
     ]
-
-    console.log("[yellow]⚠[/yellow] Calling Local LLM for topic labeling...")
-
+    analyzer_kwargs = {"model_name": model_name, "use_summaries": use_summaries}
+    analyzer = LlamaCppAnalyzer(**analyzer_kwargs)
+    console.log("[yellow]⚠[/yellow] Calling Local Llama.cpp LLM for topic labeling...")
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -321,14 +285,18 @@ def _generate_llm_labels(
         task = progress.add_task(
             "[magenta]Generating topic names and descriptions...", total=None
         )
-
-        analysis_results = analyzer.analyze_topics(
-            keywords=keywords_list,
-            documents=documents_list,
-            use_summaries=use_summaries,
-        )
-
-        progress.update(task, description="[green]✓ Labels generated", completed=100)
+        try:
+            analysis_results = analyzer.analyze_topics(
+                keywords=keywords_list,
+                documents=documents_list,
+                use_summaries=use_summaries,
+            )
+            progress.update(
+                task, description="[green]✓ Labels generated", completed=100
+            )
+        except Exception as e:
+            console.print(f"[bold red]✗ Error during LLM labeling:[/bold red] {e}")
+            raise
 
     labels = {
         "topic_names": analysis_results.topic_names,
@@ -339,7 +307,6 @@ def _generate_llm_labels(
         and analysis_results.document_summaries
     ):
         labels["document_summaries"] = analysis_results.document_summaries
-
     console.log(f"[green]✓[/green] Generated {len(labels['topic_names'])} topic labels")
     return labels
 
@@ -354,8 +321,6 @@ def _save_results(
     """Save all results to files and return file paths."""
     console.print("\n[bold cyan]Saving results...[/bold cyan]")
     saved_files = {}
-
-    # 1. Topic Summary CSV
     topic_summary_data = []
     for topic_id in sorted(topic_data["keywords"].keys()):
         topic_summary_data.append(
@@ -383,8 +348,6 @@ def _save_results(
     topic_summary_df.to_csv(topic_summary_path, index=False)
     saved_files["topic_summary"] = topic_summary_path
     console.log(f"[green]✓[/green] Saved topic summary: {topic_summary_path.name}")
-
-    # 2. Detailed Topics JSON
     detailed_data = {
         "metadata": {
             "timestamp": datetime.now().isoformat(),
@@ -413,8 +376,6 @@ def _save_results(
         json.dump(detailed_data, f, indent=2, ensure_ascii=False)
     saved_files["detailed_topics"] = detailed_json_path
     console.log(f"[green]✓[/green] Saved detailed topics: {detailed_json_path.name}")
-
-    # 3. Document Assignments CSV
     assignments_data = []
     for i, doc in enumerate(documents):
         assignments_data.append(
@@ -433,16 +394,12 @@ def _save_results(
     assignments_df.to_csv(assignments_path, index=False)
     saved_files["document_assignments"] = assignments_path
     console.log(f"[green]✓[/green] Saved document assignments: {assignments_path.name}")
-
-    # 4. Keywords JSON
     keywords_only = {str(tid): kws for tid, kws in topic_data["keywords"].items()}
     keywords_path = output_dir / "keywords.json"
     with open(keywords_path, "w", encoding="utf-8") as f:
         json.dump(keywords_only, f, indent=2, ensure_ascii=False)
     saved_files["keywords"] = keywords_path
     console.log(f"[green]✓[/green] Saved keywords: {keywords_path.name}")
-
-    # 5. LLM Labels JSON
     labels_data = {
         "topic_names": llm_labels["topic_names"],
         "topic_descriptions": llm_labels["topic_descriptions"],
@@ -454,7 +411,6 @@ def _save_results(
         json.dump(labels_data, f, indent=2, ensure_ascii=False)
     saved_files["llm_labels"] = labels_path
     console.log(f"[green]✓[/green] Saved LLM labels: {labels_path.name}")
-
     return saved_files
 
 
@@ -484,63 +440,45 @@ def _display_results_table(topic_data: dict, llm_labels: dict) -> None:
 def generate_topics(
     documents: list[str],
     n_topics: int = 10,
-    encoder: Union[str, ExternalEncoder] = "paraphrase-mpnet-base-v2",
+    encoder: str | ExternalEncoder = "paraphrase-mpnet-base-v2",
     top_n_keywords: int = 15,
     top_docs_per_topic: int = 5,
-    analyzer: Optional[Analyzer] = None,
-    use_local_llm: bool = True,
     llm_model: str = LLM_MODEL,
-    embed_model: str = EMBED_MODEL,
     use_summaries: bool = False,
     random_state: int = 42,
     output_dir: Optional[Path] = None,
 ) -> dict:
     """
-    Complete topic modeling pipeline: cluster documents and generate LLM labels.
-
+    Complete topic modeling pipeline: cluster documents and generate LLM labels using Local Llama.cpp.
     Args:
         documents: List of text documents (e.g., video comments)
-        n_topics: Number of topics to discover
-        encoder: Sentence transformer model string OR ExternalEncoder instance (e.g. LlamaCppEncoder)
+        n_topics: Number of topics to discover (or 'auto' for automatic detection)
+        encoder: Sentence transformer model name OR ExternalEncoder instance (e.g., LlamaCppEncoder)
         top_n_keywords: Number of keywords to extract per document
         top_docs_per_topic: Number of representative documents per topic
-        analyzer: Custom Analyzer instance. If None, one is created based on use_local_llm.
-        use_local_llm: If True and analyzer is None, uses LlamaCppAnalyzer. Else OpenAI.
-        llm_model: Model ID for LLM (used if creating LlamaCppAnalyzer)
-        embed_model: Model ID for Embeddings (used if creating LlamaCppEncoder and encoder is str)
+        llm_model: Llama.cpp model for generating topic labels
         use_summaries: Whether to summarize documents before labeling
         random_state: Random seed for reproducibility
-        output_dir: Custom output directory
-
+        output_dir: Custom output directory (defaults to module-level OUTPUT_DIR)
     Returns:
-        Dictionary containing results and saved file paths
+        Dictionary containing:
+        - topic_summary: DataFrame with topic overview
+        - detailed_topics: Dict with full topic data
+        - document_assignments: List of topic assignments per document
+        - saved_files: Dict of saved file paths
     """
     out_dir = output_dir or OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    # Setup Analyzer if not provided
-    if analyzer is None:
-        if use_local_llm:
-            console.print("[dim]Using Local Llama.cpp Analyzer[/dim]")
-            analyzer = LlamaCppAnalyzer(model_name=llm_model)
-        else:
-            console.print("[dim]Using Default OpenAI Analyzer[/dim]")
-            from turftopic.analyzers import OpenAIAnalyzer
-
-            analyzer = OpenAIAnalyzer(model_name="gpt-4o-mini")
-
     console.print(
         Panel.fit(
-            "[bold white on blue] Topic Modeling Pipeline [/bold white on blue]\n"
+            "[bold white on blue] Topic Modeling Pipeline (Local Llama.cpp) [/bold white on blue]\n"
             f"Documents: {len(documents)} | Topics: {n_topics}",
             title="Starting Pipeline",
             border_style="blue",
         )
     )
-
     try:
         documents = _validate_documents(documents)
-
         model = _fit_topic_model(
             documents=documents,
             n_topics=n_topics,
@@ -548,28 +486,22 @@ def generate_topics(
             top_n_keywords=top_n_keywords,
             random_state=random_state,
         )
-
         topic_data = _extract_topic_data(
             model=model, documents=documents, top_docs_per_topic=top_docs_per_topic
         )
-
         llm_labels = _generate_llm_labels(
             topic_keywords=topic_data["keywords"],
             topic_documents=topic_data["representative_documents"],
-            analyzer=analyzer,
+            model_name=llm_model,
             use_summaries=use_summaries,
         )
-
         model_params = {
             "n_topics": n_topics,
-            "encoder_type": type(encoder).__name__
-            if not isinstance(encoder, str)
-            else encoder,
+            "encoder": encoder if isinstance(encoder, str) else type(encoder).__name__,
             "top_n_keywords": top_n_keywords,
-            "llm_analyzer": type(analyzer).__name__,
+            "llm_model": llm_model,
             "random_state": random_state,
         }
-
         saved_files = _save_results(
             documents=documents,
             topic_data=topic_data,
@@ -577,9 +509,7 @@ def generate_topics(
             model_params=model_params,
             output_dir=out_dir,
         )
-
         _display_results_table(topic_data, llm_labels)
-
         console.print("\n" + "=" * 80)
         console.print("[bold green]✓ Pipeline Complete! Saved Files:[/bold green]\n")
         for file_type, file_path in saved_files.items():
@@ -588,11 +518,9 @@ def generate_topics(
                 f"  • [link=file://{file_path.resolve()}]{file_path.name}[/link]"
             )
         console.print("\n" + "=" * 80)
-
         topic_summary_df = pd.read_csv(saved_files["topic_summary"])
         with open(saved_files["detailed_topics"], "r", encoding="utf-8") as f:
             detailed_topics = json.load(f)
-
         return {
             "topic_summary": topic_summary_df,
             "detailed_topics": detailed_topics,
@@ -601,7 +529,6 @@ def generate_topics(
             "saved_files": {k: str(v) for k, v in saved_files.items()},
             "output_dir": str(out_dir),
         }
-
     except Exception as e:
         console.print(f"[bold red]✗ Error:[/bold red] {str(e)}")
         raise
@@ -630,19 +557,11 @@ if __name__ == "__main__":
         "Subtitles are inaccurate, please fix",
         "Outstanding work as always!",
     ]
-
-    # Example 1: Using Local Llama.cpp for BOTH Embeddings and LLM Labeling
-    console.print("[bold]Running with Local Llama.cpp Stack[/bold]")
-
-    local_encoder = LlamaCppEncoder(model=EMBED_MODEL)
-    local_analyzer = LlamaCppAnalyzer(model_name=LLM_MODEL)
-
     results = generate_topics(
         documents=sample_comments,
         n_topics=5,
-        encoder=local_encoder,  # Use local embedder
-        analyzer=local_analyzer,  # Use local LLM
+        encoder=LlamaCppEncoder(),
+        llm_model=LLM_MODEL,
         top_docs_per_topic=3,
     )
-
     console.print(f"\n[bold]Output directory:[/bold] {results['output_dir']}")
