@@ -38,6 +38,10 @@ from turftopic.vectorizers.spacy import LemmaCountVectorizer
 
 console = Console()
 
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 class LlamaCppAnalyzer(Analyzer):
     """Analyze topic model with a local Llama.cpp LLM server."""
@@ -120,11 +124,6 @@ class LlamaCppEncoder(ExternalEncoder):
                 f"[bold red]✗ Error in LlamaCppEncoder.encode:[/bold red] {e}"
             )
             raise
-
-
-OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _validate_documents(documents: list[str]) -> list[str]:
