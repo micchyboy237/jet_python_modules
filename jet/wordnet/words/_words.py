@@ -49,9 +49,16 @@ def pos_tag_spacy(sentence, model: str = spacy_model):
         print(token.text, "-", token.pos_)
 
 
+def _strip_possessive(word: str) -> str:
+    """Remove possessive apostrophe suffixes: husband's -> husband, kids' -> kids."""
+    # kids' -> kids  (apostrophe at end)
+    # husband's -> husband  (apostrophe-s at end)
+    # James' -> James, O'Reilly stays O'Reilly (internal apostrophe untouched)
+    return re.sub(r"(?<=[A-Za-z])'s?$", "", word)
+
+
 def split_words(text: str) -> list[str]:
     # The pattern allows: . ' - (and alphanumerics)
-    # So replace all string.punctuation except . ' -
     allowed = {".", "'", "-"}
     to_replace = "".join([c for c in string.punctuation if c not in allowed])
     for punct in to_replace:
@@ -60,7 +67,8 @@ def split_words(text: str) -> list[str]:
     text = re.sub(r"\s{2,}", " ", text)
     # Use regex to match words with hyphens, apostrophes, and periods
     pattern = r"(\b[\w'.\-]+\b)"
-    return re.findall(pattern, text)
+    words = re.findall(pattern, text)
+    return [_strip_possessive(w) for w in words]
 
 
 def get_words(
