@@ -7,7 +7,7 @@ from datetime import datetime
 
 import numpy as np
 from jet.adapters.turftopic.embed import LlamaCppEncoder
-from shared_samples import SAMPLE_CORPUS, SAMPLE_TIMESTAMPS
+from mock import SAMPLE_CORPUS, SAMPLE_TIMESTAMPS
 from sklearn.feature_extraction.text import CountVectorizer
 from turftopic import KeyNMF
 

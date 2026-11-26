@@ -4,7 +4,7 @@ Uses Jet's llama.cpp adapter for embeddings.
 """
 
 from jet.adapters.turftopic.embed import LlamaCppEncoder
-from shared_samples import SAMPLE_CORPUS
+from mock import SAMPLE_CORPUS
 from sklearn.cluster import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer
 from turftopic import BERTopic

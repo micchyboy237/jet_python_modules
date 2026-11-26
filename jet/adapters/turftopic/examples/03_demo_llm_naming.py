@@ -5,7 +5,7 @@ Uses Jet's llama.cpp adapter for both embeddings and LLM naming.
 
 from jet.adapters.turftopic.chat import LlamaCppAnalyzer
 from jet.adapters.turftopic.embed import LlamaCppEncoder
-from shared_samples import SAMPLE_CORPUS
+from mock import SAMPLE_CORPUS
 from sklearn.feature_extraction.text import CountVectorizer
 from turftopic import KeyNMF
 

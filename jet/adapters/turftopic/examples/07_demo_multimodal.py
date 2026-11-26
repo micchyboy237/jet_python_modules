@@ -5,7 +5,7 @@ Note: Actual image processing requires a multimodal encoder in Jet/Llama.cpp.
 """
 
 from jet.adapters.turftopic.embed import LlamaCppEncoder
-from shared_samples import SAMPLE_CORPUS
+from mock import SAMPLE_CORPUS
 from sklearn.feature_extraction.text import CountVectorizer
 from turftopic import KeyNMF
 

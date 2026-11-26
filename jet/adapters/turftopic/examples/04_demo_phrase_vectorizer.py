@@ -5,7 +5,7 @@ Requires: pip install spacy && python -m spacy download en_core_web_sm
 """
 
 from jet.adapters.turftopic.embed import LlamaCppEncoder
-from shared_samples import SAMPLE_CORPUS
+from mock import SAMPLE_CORPUS
 from turftopic import KeyNMF
 from turftopic.vectorizers.spacy import NounPhraseCountVectorizer
 
