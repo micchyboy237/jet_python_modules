@@ -9,6 +9,8 @@ from jet.wordnet.sentence import split_by_punctuations
 from jet.wordnet.similarity import filter_different_texts
 from jet.wordnet.stopwords import StopWords
 from jet.wordnet.words import count_words, get_words
+from jet.wordnet.words._words import split_words
+from nltk.tokenize import sent_tokenize
 from tqdm import tqdm
 
 
@@ -514,17 +516,24 @@ def get_common_texts(
     return list(most_common_dict.keys())
 
 
-from jet.wordnet.words._words import split_words
-from nltk.tokenize import sent_tokenize
-
-
-def _get_doc_ngram_set(text: str, min_words: int, max_words: int) -> Set[str]:
-    """Unique n-grams of one document (lowercased). Never crosses sentence boundaries."""
+def _get_doc_ngram_set(
+    text: str,
+    sizes: Iterable[int],
+    targets: Optional[Set[str]] = None,
+) -> Set[str]:
+    """
+    Unique n-grams of one document (lowercased).
+    Never crosses sentence boundaries.
+    If `targets` is given, only n-grams in that set are kept.
+    """
     ngrams: Set[str] = set()
     for sentence in sent_tokenize(text.lower()):
         words = split_words(sentence)
-        for n in range(min_words, min(max_words, len(words)) + 1):
-            ngrams.update(" ".join(words[i : i + n]) for i in range(len(words) - n + 1))
+        for n in sizes:
+            for i in range(len(words) - n + 1):
+                gram = " ".join(words[i : i + n])
+                if targets is None or gram in targets:
+                    ngrams.add(gram)
     return ngrams
 
 
@@ -534,58 +543,102 @@ def score_documents_by_ngrams(
     max_words: int = 3,
     min_doc_count: int = 2,
     normalize: bool = False,
+    ngrams: Optional[List[str]] = None,
+    min_score: float = 0.0,
+    min_shared_ngrams: int = 1,
 ) -> List[Dict[str, Union[int, str, float]]]:
     """
     Score each document by how widely its n-grams are shared across documents.
 
     - Each n-gram counts once per document, even if it appears many times.
-    - score = sum of document counts of the document's n-grams that appear
-      in at least `min_doc_count` documents.
-    - normalize=True divides the score by the document's number of unique
-      n-grams, so long documents don't win just for being long.
+    - score = sum of document counts of the document's scored n-grams.
+    - Without `ngrams`: all n-grams from min_words to max_words are used, and
+      only those found in at least `min_doc_count` documents count.
+    - With `ngrams`: only those n-grams are scored (case-insensitive).
+      min_words, max_words and min_doc_count are ignored.
+    - normalize=True divides the score by the number of n-grams in the pool
+      (the document's unique n-grams, or the size of your `ngrams` list),
+      so long documents don't win just for being long.
+    - min_score: drop documents scoring below this (applied after normalize).
+      Default 0.0.
+    - min_shared_ngrams: drop documents with fewer shared n-grams than this.
+      Default 1 (drops documents that share nothing). Use 0 to keep all.
+
+    Document counts are computed over all `texts`, so the thresholds never
+    change anyone's score.
 
     Returns:
-        List of {"index", "text", "score", "shared_ngrams"} sorted by score (descending).
+        List of {"index", "text", "score", "shared_ngrams"} sorted by score
+        (descending). Ties keep the original document order.
     """
-    if min_words < 1 or max_words < min_words:
-        raise ValueError("Require 1 <= min_words <= max_words")
+    # Resolve what to score: user's n-grams or all n-grams in the size range
+    targets: Optional[Set[str]] = None
+    if ngrams:
+        targets = {g for g in (" ".join(split_words(n.lower())) for n in ngrams) if g}
+        if not targets:
+            logger.warning(
+                "`ngrams` had no usable entries; falling back to all n-grams"
+            )
+            targets = None
+
+    if targets:
+        sizes = sorted({len(g.split()) for g in targets})
+        min_doc_count = 1  # a listed n-gram found in a single doc still counts
+        logger.debug(f"Scoring by {len(targets)} given n-grams, sizes={sizes}")
+    else:
+        if min_words < 1 or max_words < min_words:
+            raise ValueError("Require 1 <= min_words <= max_words")
+        sizes = list(range(min_words, max_words + 1))
 
     logger.debug(
-        f"Scoring {len(texts)} docs: n={min_words}-{max_words}, "
-        f"min_doc_count={min_doc_count}, normalize={normalize}"
+        f"Scoring {len(texts)} docs: sizes={sizes}, min_doc_count={min_doc_count}, "
+        f"normalize={normalize}, min_score={min_score}, min_shared_ngrams={min_shared_ngrams}"
     )
     if not texts:
         return []
 
     # Step 1: unique n-grams per document (tokenized once per doc)
     doc_ngrams = [
-        _get_doc_ngram_set(t, min_words, max_words) if t.strip() else set()
+        _get_doc_ngram_set(t, sizes, targets) if t.strip() else set()
         for t in tqdm(texts, desc="Extracting n-grams")
     ]
 
     # Step 2: document frequency (sets => 1 count per doc)
     doc_freq: Counter = Counter()
-    for ngrams in doc_ngrams:
-        doc_freq.update(ngrams)
+    for ngrams_set in doc_ngrams:
+        doc_freq.update(ngrams_set)
     logger.debug(f"Unique n-grams across docs: {len(doc_freq)}")
 
-    # Step 3: score each document
+    # Step 3: score each document, skipping those below the thresholds
     results = []
-    for idx, (text, ngrams) in enumerate(zip(texts, doc_ngrams)):
-        shared = [g for g in ngrams if doc_freq[g] >= min_doc_count]
+    dropped = 0
+    for idx, (text, ngrams_set) in enumerate(zip(texts, doc_ngrams)):
+        shared = [g for g in ngrams_set if doc_freq[g] >= min_doc_count]
         score = float(sum(doc_freq[g] for g in shared))
-        if normalize and ngrams:
-            score /= len(ngrams)
+        if normalize:
+            denom = len(targets) if targets else len(ngrams_set)
+            score /= denom or 1
+
+        if score < min_score or len(shared) < min_shared_ngrams:
+            dropped += 1
+            logger.debug(
+                f"Doc {idx} dropped: score={score:.4f} (min {min_score}), "
+                f"shared={len(shared)} (min {min_shared_ngrams})"
+            )
+            continue
+
         results.append(
             {"index": idx, "text": text, "score": score, "shared_ngrams": len(shared)}
         )
         logger.debug(
-            f"Doc {idx}: score={score:.4f}, shared={len(shared)}/{len(ngrams)}"
+            f"Doc {idx}: score={score:.4f}, shared={len(shared)}/{len(ngrams_set)}"
         )
+    logger.debug(f"Kept {len(results)} docs, dropped {dropped}")
 
     # Step 4: highest score first, ties keep original order
     results.sort(key=lambda r: (-r["score"], r["index"]))
-    logger.debug(
-        f"Top doc: index={results[0]['index']}, score={results[0]['score']:.4f}"
-    )
+    if results:
+        logger.debug(
+            f"Top doc: index={results[0]['index']}, score={results[0]['score']:.4f}"
+        )
     return results
