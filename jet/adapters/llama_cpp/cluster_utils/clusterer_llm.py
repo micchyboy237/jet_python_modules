@@ -5,7 +5,7 @@ and generating descriptive topic strings for each cluster using the LLM utils.
 """
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from jet.adapters.llama_cpp.llm_utils import chat
 from jet.logger import logger
@@ -13,6 +13,10 @@ from pydantic import BaseModel, Field
 
 # Configure logging level for this module
 logger.setLevel(logging.DEBUG)
+
+# ─── Type Definitions ────────────────────────────────────────────────────────
+
+Granularity = Literal["loose", "balanced", "tight"]
 
 
 # ─── Pydantic Models for Structured Output ───────────────────────────────────
@@ -40,7 +44,7 @@ class ClusteringResult(BaseModel):
     num_clusters: int = Field(
         ...,
         ge=2,
-        le=10,
+        le=20,
         description="Total number of clusters identified.",
     )
 
@@ -67,40 +71,94 @@ class AllTopicsResult(BaseModel):
     )
 
 
+# ─── Granularity Configuration ───────────────────────────────────────────────
+
+GRANULARITY_CONFIG: dict[Granularity, dict[str, Any]] = {
+    "loose": {
+        "cluster_hint_multiplier": 0.6,
+        "min_clusters": 2,
+        "max_clusters": 8,
+        "instruction": (
+            "Group documents into BROAD, high-level themes. Prefer fewer, larger clusters. "
+            "Only separate documents if they are clearly about completely different subjects. "
+            "It is acceptable to group somewhat related topics together."
+        ),
+    },
+    "balanced": {
+        "cluster_hint_multiplier": 1.0,
+        "min_clusters": 3,
+        "max_clusters": 12,
+        "instruction": (
+            "Group documents into distinct thematic clusters. Balance between broad categories "
+            "and specific subtopics. Documents in the same cluster should share a clear common theme."
+        ),
+    },
+    "tight": {
+        "cluster_hint_multiplier": 1.5,
+        "min_clusters": 4,
+        "max_clusters": 20,
+        "instruction": (
+            "Group documents into VERY SPECIFIC, narrow themes. Prefer more, smaller clusters. "
+            "Separate documents even if they are only slightly different in focus or subtopic. "
+            "Outliers should be placed in their own individual clusters."
+        ),
+    },
+}
+
+
 # ─── Clustering Logic ────────────────────────────────────────────────────────
 
 
 def cluster_documents(
-    docs: list[str], num_clusters_hint: int = 5
+    docs: list[str],
+    num_clusters_hint: int = 5,
+    granularity: Granularity = "balanced",
 ) -> dict[int, list[int]]:
     """Cluster documents using an LLM and return a mapping of cluster_id → list of doc indices.
 
     Args:
         docs: List of document strings to cluster.
-        num_clusters_hint: Suggested number of clusters for the LLM.
+        num_clusters_hint: Base suggested number of clusters for the LLM.
+        granularity: Controls how loosely or tightly documents are grouped.
+            - "loose": Fewer, broader clusters (groups related topics together).
+            - "balanced": Moderate number of distinct clusters (default).
+            - "tight": More, narrower clusters (separates subtle differences).
 
     Returns:
         A dictionary mapping cluster IDs (1-based) to lists of document indices.
     """
+    config = GRANULARITY_CONFIG[granularity]
+
+    # Adjust cluster hint based on granularity
+    adjusted_hint = max(
+        config["min_clusters"],
+        min(
+            config["max_clusters"],
+            int(num_clusters_hint * config["cluster_hint_multiplier"]),
+        ),
+    )
+
     logger.info(
-        f"📄 Starting clustering of {len(docs)} documents (hint: ~{num_clusters_hint} clusters)"
+        f"📄 Starting clustering of {len(docs)} documents "
+        f"(hint: ~{adjusted_hint} clusters, granularity: '{granularity}')"
     )
 
     # Build the prompt with all documents enumerated
     doc_list_str = "\n".join(f"[{i}] {doc}" for i, doc in enumerate(docs))
 
     system_prompt = (
-        "You are an expert document analyst. Your task is to group the provided documents "
-        "into coherent thematic clusters. Analyze the content of each document carefully "
-        "and assign each one to exactly one cluster. Documents within the same cluster "
-        "should share a common theme or subject matter. Some documents may be outliers "
-        "that do not fit well with others; assign them to their own small clusters if needed. "
-        "Return your answer strictly as valid JSON matching the specified schema."
+        f"You are an expert document analyst. Your task is to group the provided documents "
+        f"into coherent thematic clusters. Analyze the content of each document carefully "
+        f"and assign each one to exactly one cluster. Documents within the same cluster "
+        f"should share a common theme or subject matter. Some documents may be outliers "
+        f"that do not fit well with others; assign them to their own small clusters if needed. "
+        f"Return your answer strictly as valid JSON matching the specified schema.\n\n"
+        f"**Clustering Style**: {config['instruction']}"
     )
 
     user_prompt = (
         f"Here are {len(docs)} documents:\n\n{doc_list_str}\n\n"
-        f"Please cluster these documents into approximately {num_clusters_hint} thematic groups. "
+        f"Please cluster these documents into approximately {adjusted_hint} thematic groups. "
         f"Assign each document to exactly one cluster. Return a JSON object with 'assignments' "
         f"(a list of objects with 'document_index' and 'cluster_id') and 'num_clusters' "
         f"(the total number of distinct clusters used)."
@@ -209,11 +267,20 @@ def generate_topic_strings(
     return topics
 
 
-def run_clustering_pipeline(docs: list[str]) -> dict[int, dict[str, Any]]:
+def run_clustering_pipeline(
+    docs: list[str],
+    num_clusters_hint: int = 5,
+    granularity: Granularity = "balanced",
+) -> dict[int, dict[str, Any]]:
     """Run the full clustering pipeline: cluster docs → generate topics.
 
     Args:
         docs: List of document strings.
+        num_clusters_hint: Base suggested number of clusters for the LLM.
+        granularity: Controls how loosely or tightly documents are grouped.
+            - "loose": Fewer, broader clusters.
+            - "balanced": Moderate number of distinct clusters (default).
+            - "tight": More, narrower clusters.
 
     Returns:
         A dictionary mapping cluster_id to a dict with keys:
@@ -221,10 +288,14 @@ def run_clustering_pipeline(docs: list[str]) -> dict[int, dict[str, Any]]:
           - 'document_indices': list[int]
           - 'documents': list[str]
     """
-    logger.info("🚀 Starting document clustering pipeline")
+    logger.info(
+        f"🚀 Starting document clustering pipeline (granularity: '{granularity}')"
+    )
 
     # Step 1: Cluster documents
-    cluster_map = cluster_documents(docs)
+    cluster_map = cluster_documents(
+        docs, num_clusters_hint=num_clusters_hint, granularity=granularity
+    )
 
     # Step 2: Generate topic strings
     topic_map = generate_topic_strings(docs, cluster_map)
@@ -241,84 +312,3 @@ def run_clustering_pipeline(docs: list[str]) -> dict[int, dict[str, Any]]:
 
     logger.info("✅ Clustering pipeline complete")
     return result
-
-
-# ─── Sample Documents ────────────────────────────────────────────────────────
-# A diverse set of documents covering multiple themes with some outliers.
-
-
-documents: list[str] = [
-    # --- Cluster 1: Machine Learning & AI ---
-    "Deep learning models have revolutionized computer vision tasks such as image classification and object detection.",
-    "Transformer architectures like BERT and GPT have become the foundation of modern natural language processing systems.",
-    "Reinforcement learning agents can learn optimal policies through trial and error in simulated environments.",
-    "Convolutional neural networks excel at extracting spatial hierarchies of features from pixel data.",
-    "Transfer learning allows pre-trained models to be fine-tuned on smaller domain-specific datasets efficiently.",
-    "Generative adversarial networks pit a generator against a discriminator to produce realistic synthetic data.",
-    "Attention mechanisms enable models to weigh the importance of different input tokens dynamically.",
-    "Gradient descent optimization algorithms iteratively adjust model weights to minimize loss functions.",
-    # --- Cluster 2: Climate Change & Environment ---
-    "Rising global temperatures are causing polar ice caps to melt at an unprecedented rate.",
-    "Deforestation in the Amazon rainforest contributes significantly to carbon dioxide emissions worldwide.",
-    "Renewable energy sources like solar and wind power are becoming cost-competitive with fossil fuels.",
-    "Ocean acidification threatens marine ecosystems by reducing the availability of carbonate ions for shell formation.",
-    "Extreme weather events such as hurricanes and wildfires are increasing in frequency and intensity due to climate change.",
-    "Carbon capture and storage technologies aim to remove CO2 from industrial emissions before it enters the atmosphere.",
-    "Biodiversity loss is accelerating as habitats shrink and species face extinction pressures.",
-    "The Paris Agreement sets international targets for limiting global warming to well below 2 degrees Celsius.",
-    # --- Cluster 3: Web Development & JavaScript ---
-    "React components use a virtual DOM to efficiently update the user interface when state changes.",
-    "Node.js enables server-side JavaScript execution, allowing full-stack development with a single language.",
-    "CSS Grid and Flexbox provide powerful layout systems for building responsive web designs.",
-    "TypeScript adds static type checking to JavaScript, catching errors at compile time rather than runtime.",
-    "Webpack bundles JavaScript modules and assets into optimized files for production deployment.",
-    "RESTful APIs follow standard HTTP methods like GET, POST, PUT, and DELETE for resource manipulation.",
-    "Single-page applications load a single HTML page and dynamically update content via AJAX requests.",
-    "npm is the default package manager for the JavaScript runtime environment Node.js.",
-    # --- Cluster 4: Ancient History & Archaeology ---
-    "The Great Pyramid of Giza was constructed during the Fourth Dynasty of ancient Egypt around 2560 BCE.",
-    "Roman aqueducts used gravity-fed channels to transport water across vast distances to urban centers.",
-    "Cuneiform writing developed in Mesopotamia is considered one of the earliest known systems of written communication.",
-    "The Terracotta Army was buried with Qin Shi Huang, the first emperor of China, to protect him in the afterlife.",
-    "Stonehenge remains one of the most famous prehistoric monuments, with its purpose still debated by archaeologists.",
-    "The Library of Alexandria was a major center of scholarship in the Hellenistic world before its destruction.",
-    "Machu Picchu showcases the architectural ingenuity of the Inca civilization high in the Andes Mountains.",
-    "Hieroglyphics were deciphered in the 19th century using the Rosetta Stone as a key translation tool.",
-    # --- Cluster 5: Nutrition & Health ---
-    "Omega-3 fatty acids found in fish support cardiovascular health and reduce inflammation in the body.",
-    "Probiotics introduce beneficial bacteria into the gut microbiome, aiding digestion and immune function.",
-    "Intermittent fasting restricts eating to specific time windows, potentially improving metabolic health.",
-    "Vitamin D deficiency is linked to weakened bone density and increased risk of osteoporosis.",
-    "Antioxidants neutralize free radicals that can cause cellular damage and contribute to aging.",
-    "The Mediterranean diet emphasizes whole grains, olive oil, fruits, vegetables, and lean proteins.",
-    "Hydration is essential for maintaining blood volume, regulating body temperature, and supporting kidney function.",
-    "Excessive sugar consumption is associated with insulin resistance and an increased risk of type 2 diabetes.",
-    # --- Outliers (should not fit cleanly into any main cluster) ---
-    "The stock market experienced significant volatility following the unexpected announcement of interest rate changes.",
-    "Quantum entanglement describes a phenomenon where particles remain correlated regardless of the distance separating them.",
-    "Impressionist painters like Monet and Renoir focused on capturing the effects of light and movement in their works.",
-    "The blockchain ledger provides a decentralized and tamper-resistant record of cryptocurrency transactions.",
-]
-
-
-if __name__ == "__main__":
-    # Run the pipeline
-    clustered = run_clustering_pipeline(documents)
-
-    # Print results
-    print("\n" + "=" * 80)
-    print("DOCUMENT CLUSTERING RESULTS")
-    print("=" * 80)
-
-    for cluster_id, info in sorted(clustered.items()):
-        print(f"\n📁 Cluster {cluster_id}: {info['topic']}")
-        print(f"   Documents ({len(info['document_indices'])}):")
-        for idx in info["document_indices"]:
-            preview = (
-                documents[idx][:100] + "..."
-                if len(documents[idx]) > 100
-                else documents[idx]
-            )
-            print(f"     [{idx}] {preview}")
-
-    print("\n" + "=" * 80)
