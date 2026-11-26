@@ -630,9 +630,9 @@ def score_documents_by_ngrams(
         results.append(
             {"index": idx, "text": text, "score": score, "shared_ngrams": len(shared)}
         )
-        logger.debug(
-            f"Doc {idx}: score={score:.4f}, shared={len(shared)}/{len(ngrams_set)}"
-        )
+        # logger.debug(
+        #     f"Doc {idx}: score={score:.4f}, shared={len(shared)}/{len(ngrams_set)}"
+        # )
     logger.debug(f"Kept {len(results)} docs, dropped {dropped}")
 
     # Step 4: highest score first, ties keep original order
