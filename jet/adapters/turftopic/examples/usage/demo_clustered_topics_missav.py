@@ -14,7 +14,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 if __name__ == "__main__":
-    texts, embeddings = load_missav_videos(code=["gvh"], include_embeddings=True)
+    texts, embeddings = load_missav_videos(code=["juc"], include_embeddings=True)
+    texts = texts[:20]
     results = generate_topics(
         documents=texts,
         n_topics=5,
