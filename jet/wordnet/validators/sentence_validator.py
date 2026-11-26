@@ -1,37 +1,80 @@
-def is_valid_sentence(sentence: str) -> bool:
+def is_valid_sentence(text: str) -> bool:
     """
-    Validate if the input string is a grammatically valid sentence.
-    Args:
-        sentence: The input sentence to validate.
-    Returns:
-        bool: True if the sentence is valid, False otherwise.
+    Quick heuristic check whether a string should be considered a valid sentence.
+    Returns True for things that look like proper sentences or meaningful fragments.
+    Returns False for junk, headers, very short garbage, etc.
     """
-    if not sentence or not sentence.strip():
+    if not text:
         return False
 
-    from jet.libs.stanza.pipeline import StanzaPipelineCache
-    _nlp_cache = StanzaPipelineCache()
-    nlp = _nlp_cache.get_pipeline(lang='en', processors='tokenize,mwt,pos,lemma,depparse')
-    doc = nlp(sentence.strip())
-    if len(doc.sentences) != 1:
+    cleaned = text.strip()
+    if not cleaned:
         return False
-    sent = doc.sentences[0]
-    root_word = None
-    for w in sent.words:
-        if w.head == 0 and w.deprel == 'root':
-            root_word = w
-            break
-    if root_word is None:
+
+    # Remove NEWLINE_TOKEN for validation purposes
+    cleaned_for_check = cleaned.replace("NEWLINE_TOKEN", " ")
+
+    if len(cleaned_for_check) <= 2:
         return False
-    if root_word.upos not in ('VERB', 'AUX'):
+
+    # Allow short punctuated fragments
+    if len(cleaned_for_check) <= 6:
+        if cleaned_for_check.rstrip().endswith((".", "!", "?")):
+            return True
         return False
-    has_subj = False
-    for w in sent.words:
-        if w.deprel in ('nsubj', 'nsubj:pass', 'csubj') and w.head == root_word.id:
-            has_subj = True
-            break
-    if not has_subj:
+
+    words = cleaned_for_check.split()
+
+    # Reject single very long "words"
+    if len(words) == 1 and len(cleaned_for_check) > 40:
         return False
-    if len([w for w in sent.words if w.upos not in ('PUNCT',)]) < 2:
+
+    # Reject ALL CAPS short strings (likely headers)
+    if cleaned_for_check.isupper() and len(cleaned_for_check) < 60:
         return False
-    return True
+
+    # Reject common document structure labels
+    if cleaned_for_check.lower() in {
+        "abstract",
+        "introduction",
+        "conclusion",
+        "references",
+        "table of contents",
+        "acknowledgements",
+        "appendix",
+        "chapter",
+        "figure",
+        "table",
+        "section",
+        "page",
+        "isbn",
+        "doi",
+    }:
+        return False
+
+    # Handle list markers more carefully
+    if cleaned_for_check.lstrip().startswith(("•", "○", "→", "▪", "*", "-", "–", "—")):
+        if len(words) <= 5:
+            return False
+
+    import re
+
+    # Reject lines with excessive special characters
+    if re.search(r"[-_=]{4,}", cleaned_for_check):
+        return False
+    if re.search(r"\W{6,}", cleaned_for_check):
+        return False
+
+    # Must end with proper sentence terminator OR be a meaningful phrase
+    if cleaned_for_check.rstrip().endswith((".", "!", "?", '."', '."', ".”", "…")):
+        return True
+
+    # For non-terminated text, require minimum structure
+    has_space = " " in cleaned_for_check
+    has_letter = any(c.isalpha() for c in cleaned_for_check)
+
+    # Require both letters AND spaces AND minimum word count for non-terminated text
+    if has_letter and has_space and len(words) >= 2:
+        return True
+
+    return False

@@ -13,6 +13,7 @@ def truncate_texts(
     model: str | LLAMACPP_KEYS = ...,
     max_tokens: int | None = ...,
     strict_sentences: bool = ...,
+    valid_sentences_only: bool = ...,
     show_progress: bool = ...,
 ) -> str: ...
 
@@ -23,6 +24,7 @@ def truncate_texts(
     model: str | LLAMACPP_KEYS = ...,
     max_tokens: int | None = ...,
     strict_sentences: bool = ...,
+    valid_sentences_only: bool = ...,
     show_progress: bool = ...,
 ) -> list[str]: ...
 
@@ -32,6 +34,7 @@ def truncate_texts(
     model: str | LLAMACPP_KEYS = LLM_MODEL,
     max_tokens: int | None = None,
     strict_sentences: bool = True,
+    valid_sentences_only: bool = False,
     show_progress: bool = True,
 ) -> str | list[str]:
     """Truncate texts to a maximum token count, preserving sentence boundaries when possible.
@@ -48,6 +51,7 @@ def truncate_texts(
         model: Model key for tokenizer (default: LLM_MODEL).
         max_tokens: Maximum tokens to keep. If None, uses model's context size.
         strict_sentences: If True, preserve sentence boundaries. If False, truncate at token level.
+        valid_sentences_only: If True, remove lines that are not valid sentences.
         show_progress: Show progress bar during batch processing.
 
     Returns:
@@ -109,7 +113,9 @@ def truncate_texts(
             )
             continue
 
-        sentences = split_sentences_with_separators(text)
+        sentences = split_sentences_with_separators(
+            text, valid_only=valid_sentences_only
+        )
         if not sentences:
             logger.debug(f"No sentences found in text: {text[:50]}...")
             if single_input:
