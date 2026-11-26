@@ -1,6 +1,6 @@
 """Core business logic for extracting KeyNMF topics from MissAV documents."""
 
-from typing import Any, Dict, Optional
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -17,6 +17,18 @@ from topicwizard.figures.topics import topic_barcharts, topic_map
 from turftopic import KeyNMF
 from turftopic.vectorizers.spacy import NounPhraseCountVectorizer
 
+from .types import (
+    ClusterTopicsResult,
+    DocumentTopicAssignment,
+    RawInputs,
+    RepresentativeDocument,
+    RepresentativeTopic,
+    ScoredDocument,
+    TopicDetail,
+    TopicWord,
+    VisualizationFigures,
+)
+
 console = Console()
 
 
@@ -27,7 +39,7 @@ def cluster_topics(
     top_k: int = 10,
     no_llm: bool = False,
     representative_top_k: Optional[int] = None,
-) -> Dict[str, Any]:
+) -> ClusterTopicsResult:
     """
     Extracts KeyNMF topics from MissAV documents.
 
@@ -40,15 +52,7 @@ def cluster_topics(
         representative_top_k: Number of representative documents per topic.
 
     Returns:
-        A dictionary containing:
-        - model: The fitted KeyNMF model.
-        - corpus: The list of processed documents.
-        - topic_data: The TopicData object for visualization.
-        - topics: List of topic dictionaries.
-        - representative_topics: List of representative document dictionaries.
-        - document_topics: List of document-topic assignment dictionaries.
-        - figures: Dictionary of plotly figures (barcharts, topic_map, document_map).
-        - raw_inputs: Dictionary containing initial loaded documents for reference.
+        A ClusterTopicsResult dictionary containing all modeling results and visualizations.
     """
     console.print("📄 Loading documents...")
     docs = load_missav_videos(code=[code])
@@ -58,7 +62,7 @@ def cluster_topics(
     corpus_initial = [d for d in docs if d.strip()]
     console.print(f"   Loaded {len(corpus_initial)} documents")
 
-    raw_inputs = {
+    raw_inputs: RawInputs = {
         "total_documents": len(corpus_initial),
         "documents": [
             {"index": i, "content": doc} for i, doc in enumerate(corpus_initial)
@@ -112,7 +116,7 @@ def cluster_topics(
         console.print("[yellow]⚠ LLM naming disabled via --no-llm flag.[/yellow]")
 
     # Prepare Representative Documents
-    representative_topics = []
+    representative_topics: List[RepresentativeTopic] = []
     for topic_id, topic_scores in enumerate(np.asarray(document_topic_matrix).T):
         ranked = [
             int(index) for index in np.argsort(-topic_scores) if topic_scores[index] > 0
@@ -120,42 +124,46 @@ def cluster_topics(
         chosen = (
             ranked if representative_top_k is None else ranked[:representative_top_k]
         )
+
+        rep_docs: List[RepresentativeDocument] = [
+            {
+                "index": index,
+                "score": float(topic_scores[index]),
+                "content": corpus[index],
+            }
+            for index in chosen
+        ]
+
         representative_topics.append(
             {
                 "topic_id": topic_id,
                 "count": len(chosen),
-                "documents": [
-                    {
-                        "index": index,
-                        "score": float(topic_scores[index]),
-                        "content": corpus[index],
-                    }
-                    for index in chosen
-                ],
+                "documents": rep_docs,
             }
         )
 
     representative_by_topic = {item["topic_id"]: item for item in representative_topics}
 
     # Prepare Topic Details
-    topics = []
+    topics: List[TopicDetail] = []
     for topic_id, words in model.get_topics(top_k=top_k):
         topic_id = int(topic_id)
+        topic_words: List[TopicWord] = [
+            {"word": word, "score": float(score)} for word, score in words
+        ]
         topics.append(
             {
                 "topic_id": topic_id,
                 "representative_document_count": representative_by_topic[topic_id][
                     "count"
                 ],
-                "words": [
-                    {"word": word, "score": float(score)} for word, score in words
-                ],
+                "words": topic_words,
             }
         )
 
     # Prepare Document Assignments
     topic_names = [str(name) for name in model.topic_names]
-    document_topics = []
+    document_topics: List[DocumentTopicAssignment] = []
     for index, scores in enumerate(document_topic_matrix):
         top_index = int(scores.argmax())
         document_topics.append(
@@ -202,11 +210,19 @@ def cluster_topics(
     )
     doc_map_fig = document_map(topic_data, document_metadata=document_metadata)
 
-    figures = {
+    figures: VisualizationFigures = {
         "barcharts": barcharts,
         "topic_map": topic_map_fig,
         "document_map": doc_map_fig,
     }
+
+    # Map scored results back to include document content for the output
+    scored_results_with_content: List[ScoredDocument] = []
+    for r in results:
+        doc_content = ""
+        if r["index"] < len(corpus_initial):
+            doc_content = corpus_initial[r["index"]]
+        scored_results_with_content.append({**r, "document": doc_content})
 
     return {
         "model": model,
@@ -218,6 +234,6 @@ def cluster_topics(
         "figures": figures,
         "raw_inputs": raw_inputs,
         "preprocessed_corpus": preprocessed_corpus,
-        "scored_results": results,
+        "scored_results": scored_results_with_content,
         "sorted_corpus_initial": sorted_corpus,
     }
