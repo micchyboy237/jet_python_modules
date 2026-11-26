@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 
-from jet.adapters.llama_cpp.cluster_utils.texts_clusterer import (
+from jet.adapters.llama_cpp.cluster_utils.clusterer import (
     TextsClusterer,
     print_cluster_analysis,
     save_cluster_results,
