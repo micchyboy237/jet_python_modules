@@ -70,7 +70,7 @@ def cluster_topics(
         [r["text"] for r in records],
         model=EMBED_MODEL,
         max_tokens=128,
-        valid_sentences_only=True,
+        valid_sentences_only=False,
     )
     if len(truncated) != len(records):
         raise ValueError(
