@@ -1,6 +1,6 @@
 """MissAV topic extraction module."""
 
-from .services import get_missav_videos_by_code
+from .services import get_missav_video_records_by_code, get_missav_videos_by_code
 from .topic_clusterer import cluster_topics
 from .types import (
     ClusterTopicsResult,
@@ -12,11 +12,15 @@ from .types import (
     ScoredDocument,
     TopicDetail,
     TopicWord,
+    VideoRecord,
+    VideoRef,
     VisualizationFigures,
 )
 
 __all__ = [
     "cluster_topics",
+    "VideoRef",
+    "VideoRecord",
     "DocumentInput",
     "RawInputs",
     "ScoredDocument",
@@ -28,4 +32,5 @@ __all__ = [
     "VisualizationFigures",
     "ClusterTopicsResult",
     "get_missav_videos_by_code",
+    "get_missav_video_records_by_code",
 ]

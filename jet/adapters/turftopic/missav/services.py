@@ -1,80 +1,28 @@
 from typing import Literal, Union, overload
 
 import numpy as np
-
-# from jet.code.extraction.sentence_extraction import extract_sentences
 from jet.logger import logger
 
-
-@overload
-def get_missav_videos_by_code(
-    code: list[str] | None = None,
-    limit: int | None = None,
-    *,
-    include_embeddings: Literal[False] = False,
-) -> list[str]: ...
+from .types import VideoRecord
 
 
-@overload
-def get_missav_videos_by_code(
-    code: list[str] | None = None,
-    limit: int | None = None,
-    *,
-    include_embeddings: Literal[True],
-) -> tuple[list[str], np.ndarray]: ...
-
-
-def get_missav_videos_by_code(
-    code: list[str] | None = None,
-    limit: int | None = None,
-    *,
-    include_embeddings: bool = False,
-) -> Union[list[str], tuple[list[str], np.ndarray]]:
-    """
-    Load video items grouped by (code, episode) from the missav DB, mirroring
-    the logic in extract_videos_grouped_by_episode_code.sh.
-
-    Each row is reduced to a representative video (preferring the "normal"
-    non-uncensored/non-engsub version, then uncensored, then engsub) with
-    merged, deduplicated genres. Results are formatted as strings containing
-    title, details, and genres.
-
-    Args:
-        code: List of codes to filter on (e.g. ['ssni', 'ssis', 'snis']).
-              Defaults to ('ssni', 'ssis', 'snis') when None.
-        limit: Max number of grouped rows to return. When None (default),
-               no LIMIT clause is applied and all matching rows are returned.
-        include_embeddings: When True, also return a numpy array of embeddings
-            (one row per formatted string). The embedding chosen for each
-            group is taken from the video item whose ``details`` field is the
-            longest (matching the representative ``details`` selection above).
-            Groups whose representative row has a NULL embedding are skipped.
-            The embedding column is only fetched from the DB when this is True.
-
-    Returns:
-        - When ``include_embeddings=False``: a list of formatted strings,
-          one per grouped video.
-        - When ``include_embeddings=True``: a tuple
-          ``(formatted_strings, embeddings)`` where ``embeddings`` is a
-          ``np.ndarray`` of shape ``(n, 768)`` and ``float32``, aligned
-          index-wise with ``formatted_strings``.
-    """
+def _load_rows(
+    code: list[str] | None,
+    limit: int | None,
+    include_embeddings: bool,
+) -> list[dict]:
+    """Run the grouped (code, episode) query and return raw DB rows."""
     import psycopg
     from psycopg.rows import dict_row
 
     codes = code or ["ssni", "ssis", "snis"]
     conninfo = "dbname=missav_db1 user=jethroestrada host=localhost port=5432"
-
-    # Only select the embedding column (and its per-group aggregation) when
-    # the caller actually needs it. Avoids shipping 768 floats per row over
-    # the wire and skipping the array_agg over vector values in the executor.
     embedding_select = (
         ",\n"
         "            (array_agg(v.embedding ORDER BY length(v.details) ASC NULLS LAST))[1] AS embedding"
         if include_embeddings
         else ""
     )
-
     sql = f"""
         SELECT
             v.code,
@@ -146,15 +94,10 @@ def get_missav_videos_by_code(
             v.code,
             v.episode
     """
-
     params: dict = {"codes": codes}
     if limit is not None:
         sql += "\n        LIMIT %(limit)s"
         params["limit"] = limit
-
-    formatted: list[str] = []
-    embeddings: list[list[float]] = []
-    embedding_dim: int | None = None
 
     try:
         with psycopg.connect(conninfo, row_factory=dict_row) as conn:
@@ -165,28 +108,112 @@ def get_missav_videos_by_code(
         logger.error("Failed to load missav videos: %s", e)
         raise
 
+    logger.info("Loaded %d grouped rows for codes=%s", len(rows), codes)
+    return rows
+
+
+def get_missav_video_records_by_code(
+    code: list[str] | None = None,
+    limit: int | None = None,
+) -> list[VideoRecord]:
+    """
+    Load one record per (code, episode) group.
+
+    Each record keeps the DB identifiers (``id``, ``video_id``, ``url``) together
+    with the ``text`` (title + details) used for topic modeling, so the two can
+    never get out of sync while the pipeline filters, sorts, or slices.
+    """
+    rows = _load_rows(code, limit, include_embeddings=False)
+    records: list[VideoRecord] = [
+        {
+            "id": r["id"],
+            "video_id": r["video_id"],
+            "url": r["url"],
+            "code": r["code"],
+            "episode": r["episode"],
+            "title": r["title"],
+            "text": f"{r['title']}\n\n{r['details']}",
+        }
+        for r in rows
+    ]
+    logger.info("Built %d video records (with ids)", len(records))
+    return records
+
+
+@overload
+def get_missav_videos_by_code(
+    code: list[str] | None = None,
+    limit: int | None = None,
+    *,
+    include_embeddings: Literal[False] = False,
+) -> list[str]: ...
+
+
+@overload
+def get_missav_videos_by_code(
+    code: list[str] | None = None,
+    limit: int | None = None,
+    *,
+    include_embeddings: Literal[True],
+) -> tuple[list[str], np.ndarray]: ...
+
+
+def get_missav_videos_by_code(
+    code: list[str] | None = None,
+    limit: int | None = None,
+    *,
+    include_embeddings: bool = False,
+) -> Union[list[str], tuple[list[str], np.ndarray]]:
+    """
+    Load video items grouped by (code, episode) from the missav DB, mirroring
+    the logic in extract_videos_grouped_by_episode_code.sh.
+
+    Each row is reduced to a representative video (preferring the "normal"
+    non-uncensored/non-engsub version, then uncensored, then engsub) with
+    merged, deduplicated genres. Results are formatted as strings containing
+    title, details, and genres.
+
+    NOTE: this returns plain strings only (ids are dropped). Use
+    ``get_missav_video_records_by_code`` when you need to map results back
+    to DB rows.
+
+    Args:
+        code: List of codes to filter on (e.g. ['ssni', 'ssis', 'snis']).
+              Defaults to ('ssni', 'ssis', 'snis') when None.
+        limit: Max number of grouped rows to return. When None (default),
+               no LIMIT clause is applied and all matching rows are returned.
+        include_embeddings: When True, also return a numpy array of embeddings
+            (one row per formatted string). Groups whose representative row has
+            a NULL embedding are skipped. The embedding column is only fetched
+            from the DB when this is True.
+
+    Returns:
+        - When ``include_embeddings=False``: a list of formatted strings.
+        - When ``include_embeddings=True``: a tuple
+          ``(formatted_strings, embeddings)`` where ``embeddings`` is a
+          ``np.ndarray`` of shape ``(n, 768)`` and ``float32``, aligned
+          index-wise with ``formatted_strings``.
+    """
+    rows = _load_rows(code, limit, include_embeddings)
+
+    formatted: list[str] = []
+    embeddings: list[list[float]] = []
+    embedding_dim: int | None = None
+
     for row in rows:
-        # Only skip when embeddings were requested AND the representative row
-        # had no embedding. When include_embeddings=False, `embedding` isn't
-        # even in the row, so this check must be guarded.
         if include_embeddings and row["embedding"] is None:
             continue
-
         title = row["title"]
         details = row["details"]
         formatted.append(f"{title}\n\n{details}")
-
         if include_embeddings:
             vec = _parse_embedding(row["embedding"])
             if vec is None:
-                # Defensive: DB said it had one but parsing yielded nothing.
-                # Keep alignment by dropping the string we just appended.
                 formatted.pop()
                 continue
             if embedding_dim is None:
                 embedding_dim = len(vec)
             elif len(vec) != embedding_dim:
-                # Skip malformed rows instead of crashing the whole load.
                 logger.warning(
                     "Skipping row with embedding dim %d (expected %d) for code=%r episode=%r",
                     len(vec),
@@ -200,11 +227,7 @@ def get_missav_videos_by_code(
 
     if not include_embeddings:
         return formatted
-
     if not embeddings:
-        # Default to 768 (all-mpnet / MiniLM family) so callers get a
-        # consistently-shaped empty array.
         return formatted, np.empty((0, embedding_dim or 768), dtype=np.float32)
-
     emb_array = np.asarray(embeddings, dtype=np.float32)
     return formatted, emb_array

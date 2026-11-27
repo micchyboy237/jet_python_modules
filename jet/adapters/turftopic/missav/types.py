@@ -5,7 +5,24 @@ from typing import Any, List, TypedDict
 from plotly.graph_objs import Figure
 
 
-class DocumentInput(TypedDict):
+class VideoRef(TypedDict):
+    """Identifies the DB row a document came from."""
+
+    id: str
+    video_id: str
+    url: str
+
+
+class VideoRecord(VideoRef):
+    """One video group: DB identifiers plus the text used for modeling."""
+
+    code: str
+    episode: str
+    title: str
+    text: str
+
+
+class DocumentInput(VideoRef):
     """Represents a single input document."""
 
     index: int
@@ -19,7 +36,7 @@ class RawInputs(TypedDict):
     documents: List[DocumentInput]
 
 
-class ScoredDocument(TypedDict):
+class ScoredDocument(VideoRef):
     """Represents a document after n-gram scoring."""
 
     index: int
@@ -43,7 +60,7 @@ class TopicDetail(TypedDict):
     words: List[TopicWord]
 
 
-class RepresentativeDocument(TypedDict):
+class RepresentativeDocument(VideoRef):
     """A document representative of a topic."""
 
     index: int
@@ -59,7 +76,7 @@ class RepresentativeTopic(TypedDict):
     documents: List[RepresentativeDocument]
 
 
-class DocumentTopicAssignment(TypedDict):
+class DocumentTopicAssignment(VideoRef):
     """Topic assignment for a single document."""
 
     index: int
@@ -79,9 +96,10 @@ class VisualizationFigures(TypedDict):
 class ClusterTopicsResult(TypedDict):
     """Complete result from the cluster_topics business logic."""
 
-    model: Any  # KeyNMF model instance
+    model: Any
     corpus: List[str]
-    topic_data: Any  # TopicData instance
+    corpus_records: List[VideoRecord]
+    topic_data: Any
     topics: List[TopicDetail]
     representative_topics: List[RepresentativeTopic]
     document_topics: List[DocumentTopicAssignment]
@@ -90,3 +108,4 @@ class ClusterTopicsResult(TypedDict):
     preprocessed_corpus: List[str]
     scored_results: List[ScoredDocument]
     sorted_corpus_initial: List[str]
+    sorted_records: List[VideoRecord]
