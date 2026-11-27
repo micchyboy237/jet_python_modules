@@ -70,7 +70,6 @@ class ContextSettings:
     include_indexes: bool = True
     include_stats: bool = True
     include_samples: bool = True
-    include_query_guidance: bool = True
     include_jsonb_metadata: bool = True
     common_columns_limit: int = 20
 
@@ -1274,67 +1273,7 @@ class PostgresContextGenerator:
         common_cols = ", ".join(list(common)[:limit]) + (
             "..." if len(common) > limit else ""
         )
-        guidance = [
-            "",
-            "## QUERY GUIDANCE FOR DYNAMIC POSTGRESQL QUERIES",
-            "-" * 80,
-            "",
-            "When constructing PostgreSQL queries based on user questions:",
-            "",
-            "1. **Identify Tables**: Use table names above to determine which tables to query",
-            "2. **Available Columns**: See column lists for each table above",
-            f"3. **Common Column Names Found**: {common_cols}",
-            "4. **Relationships**: Check foreign keys section for table relationships",
-            "5. **Data Types**: Note column types for proper filtering and casting",
-            "6. **Truncated values**: Sample values ending with … are cut for display only",
-            "",
-            "Example Query Pattern:",
-            "```python",
-            "import psycopg",
-            "",
-            'conn = psycopg.connect("<CONNECTION_STRING>")  # credentials intentionally omitted',
-            "cursor = conn.cursor()",
-            "",
-            "# Simple SELECT with filtering",
-            'cursor.execute("""',
-            f"    SELECT * FROM {schema}.{{table_name}}",
-            "    WHERE {column} = %s",
-            "    LIMIT 10",
-            '""", (value,))',
-            "",
-            "results = cursor.fetchall()",
-            "```",
-            "",
-            "**Best Practices:**",
-            "- Always use parameterized queries (%s) to prevent SQL injection",
-            f"- Use explicit schema qualification ({schema}.table_name)",
-            "- Leverage indexes shown above for better performance",
-            "- Consider NULL handling in filters (IS NULL / IS NOT NULL)",
-            "- Use LIMIT for large tables to avoid memory issues",
-        ]
 
-        # Add JSONB-specific query patterns if jsonb columns exist
-        if cfg.include_jsonb_metadata and has_jsonb:
-            guidance += [
-                "",
-                "**JSONB Query Patterns (GIN index supported):**",
-                "```sql",
-                "-- Check if jsonb array contains a value",
-                f"SELECT * FROM {schema}.jobs WHERE tags @> '[\"remote\"]'::jsonb;",
-                "",
-                "-- Check if jsonb object has a key",
-                f"SELECT * FROM {schema}.job_entities WHERE entities ? 'work_mode';",
-                "",
-                "-- Check if jsonb object has key-value pair",
-                f'SELECT * FROM {schema}.job_entities WHERE entities @> \'{{"work_mode": "remote"}}\'::jsonb;',
-                "",
-                "-- Extract specific value from jsonb",
-                f"SELECT entities->>'work_mode' AS work_mode FROM {schema}.job_entities;",
-                "```",
-            ]
-
-        if cfg.include_query_guidance:
-            out += guidance
         out.append("=" * 80)
         logger.info("Context built: %d tables, %d lines", len(tables), len(out))
         return "\n".join(out)
@@ -1401,7 +1340,7 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
             "  %(prog)s -t jobs,entities -r 5 -c 80            # two tables, 5 rows, 80 chars\n"
             "  %(prog)s -C description=300 -C jobs.title=100   # per-column cell limits\n"
             "  %(prog)s -x email,users.phone -m all            # hide columns, stats for all tables\n"
-            "  %(prog)s --no-indexes --no-guidance -p 0        # smaller output, no preview\n"
+            "  %(prog)s --no-indexes -p 0                      # smaller output, no preview\n"
         ),
     )
     conn = parser.add_argument_group("connection and output")
@@ -1548,7 +1487,6 @@ def get_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         ("indexes", "include_indexes", "indexes"),
         ("stats", "include_stats", "column statistics"),
         ("samples", "include_samples", "sample data"),
-        ("guidance", "include_query_guidance", "query guidance"),
         ("jsonb-metadata", "include_jsonb_metadata", "JSONB metadata"),
     ]:
         sections.add_argument(

@@ -8,7 +8,6 @@ from jet.adapters.llama_cpp.chunking_utils import truncate_texts
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.turftopic.chat import LlamaCppAnalyzer
 from jet.adapters.turftopic.embed import LlamaCppEncoder
-from jet.libs.bertopic.examples.mock import load_missav_videos
 from jet.wordnet.keywords.helpers import preprocess_texts
 from jet.wordnet.n_grams import score_documents_by_ngrams
 from rich.console import Console
@@ -17,6 +16,7 @@ from topicwizard.figures.topics import topic_barcharts, topic_map
 from turftopic import KeyNMF
 from turftopic.vectorizers.spacy import NounPhraseCountVectorizer
 
+from .services import get_missav_videos_by_code
 from .types import (
     ClusterTopicsResult,
     DocumentTopicAssignment,
@@ -55,7 +55,7 @@ def cluster_topics(
         A ClusterTopicsResult dictionary containing all modeling results and visualizations.
     """
     console.print("📄 Loading documents...")
-    docs = load_missav_videos(code=[code])
+    docs = get_missav_videos_by_code(code=[code])
     docs = truncate_texts(
         docs, model=EMBED_MODEL, max_tokens=128, valid_sentences_only=True
     )
