@@ -1,5 +1,5 @@
 """
-Demo 10: Visualization with TopicWizard
+Demo 11: Visualization with TopicWizard
 Launches an interactive web app to explore the model.
 Requires: pip install turftopic[topic-wizard]
 """
