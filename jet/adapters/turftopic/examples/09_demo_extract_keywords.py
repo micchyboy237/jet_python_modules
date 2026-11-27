@@ -106,7 +106,7 @@ model = KeyNMF(
     encoder=encoder,
 )
 
-print("\n--- Extract Topics ---")
+print("\n--- Extract Keywords ---")
 keywords = model.extract_keywords(SAMPLE_CORPUS)
 
 # Display in detailed table format
